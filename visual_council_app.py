@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import requests
 from flask import Flask, render_template, request, jsonify
@@ -15,6 +16,44 @@ HEADERS = {
     "X-Title": "Mirko Ouroboros Council",
     "Content-Type": "application/json"
 }
+
+def inject_local_files_from_prompt(text):
+    """
+    Super-potere: come Claude Code, Python scansiona il prompt. 
+    Se incrocia un percorso valido di Windows (es. D:\\AI\\...), 
+    lo legge in automatico scavalcando il browser.
+    """
+    # Regex per matchare D:\qualcosa o C:/qualcosa
+    paths = re.findall(r'[A-Za-z]:[\\/][\w\.\-\\/]+', text)
+    if not paths:
+        return text
+    
+    injected_data = "\n\n[IL SISTEMA BACKEND HA LETTO IN AUTOMATICO LE SEGUENTI CARTELLE/FILE DAL PC]:\n"
+    for path in set(paths):
+        path = os.path.normpath(path)
+        if not os.path.exists(path):
+            continue
+            
+        if os.path.isfile(path):
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    injected_data += f"\n--- INIZIO FILE {path} ---\n{f.read(50000)}\n--- FINE FILE ---\n"
+            except: pass
+        elif os.path.isdir(path):
+            injected_data += f"\n=== SCANSIONE CARTELLA: {path} ===\n"
+            for root, dirs, files in os.walk(path):
+                # Filtri di sicurezza e token-limit
+                dirs[:] = [d for d in dirs if d not in ['.git', '__pycache__', 'node_modules', '.venv', 'dist', 'build']]
+                for file in files:
+                    if file.endswith(('.txt', '.py', '.md', '.json', '.html', '.css', '.js', '.yaml', '.csv')):
+                        filepath = os.path.join(root, file)
+                        try:
+                            with open(filepath, 'r', encoding='utf-8') as f:
+                                injected_data += f"\n--- FILE {filepath} ---\n{f.read(15000)}\n"
+                        except: pass
+                        
+    return text + injected_data
+
 
 def get_available_models():
     """Recupera e filtra i modelli live su OpenRouter."""
@@ -86,26 +125,29 @@ Rispondi SOLO in JSON con gli ESATTI ID forniti: {"analyst_model": "...", "tacti
         decision = json.loads(clean_json)
         return jsonify({
             "status": "success",
-            "analyst": decision.get("analyst_model", "google/gemini-1.5-pro"),
-            "tactician": decision.get("tactician_model", "anthropic/claude-3.5-sonnet")
+            "analyst": decision.get("analyst_model", "google/gemini-2.0-flash-lite-preview-02-05:free"),
+            "tactician": decision.get("tactician_model", "qwen/qwen-2.5-72b-instruct:free")
         })
     except Exception as e:
-        # Fallback se le API vanno in errore / credito esaurito, ecc...
+        # Fallback ultra-sicuro con modelli :free se il parser fallisce per evitare l'error 400
         return jsonify({
             "status": "error", 
             "message": str(e),
-            "analyst": "google/gemini-1.5-pro",
-            "tactician": "anthropic/claude-3.5-sonnet"
+            "analyst": "google/gemini-2.0-flash-lite-preview-02-05:free",
+            "tactician": "x-ai/grok-2-1212" # se si ha credito, altrimenti un free forte
         })
 
 @app.route("/api/analyst", methods=["POST"])
 def run_analyst():
     data = request.json
     try:
+        # MAGIC TRICK: Se Mirko ha digitato D:\... nel topic, Python legge i file locali prima di inviare ad OpenRouter
+        augmented_topic = inject_local_files_from_prompt(data["topic"])
+        
         report = call_openrouter(
             data["model"], 
             "Sei l'Analista. Analizza i dati associati al topic. Sii iper-razionale e numerico (nessuna divagazione emotiva). Crea un report pulito e ben strutturato.", 
-            data["topic"]
+            augmented_topic
         )
         return jsonify({"status": "success", "report": report})
     except Exception as e:
