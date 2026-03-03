@@ -1,0 +1,78 @@
+# MISS MINUTE - Priority Configuration
+# Aggiornato: 2026-01-16
+# Contesto: Post-incontro Cevoli, prep Chiellini/S2E
+
+deadlines:
+  chiellini_meeting:
+    date: "2026-02-15"  # Stima febbraio-marzo
+    description: "Incontro fratelli Chiellini via Cevoli"
+    requires: ["ob1-scout"]
+    
+  s2e_opportunity:
+    date: "2026-02-28"  # Da definire
+    description: "S2E Milano - potenziale assunzione + apertura San Marino"
+    requires: ["ob1-scout", "rooting-future-demo"]
+    
+  rooting_future_meeting:
+    date: "2026-01-19"  # Weekend prossimo
+    description: "Incontro team Rooting Future"
+    requires: ["rooting-future-demo"]
+    
+  campidelli_cybersferico:
+    date: "2026-02-28"  # Da definire
+    description: "Campidelli - OB1 versione globale (Portogallo)"
+    requires: ["ob1-scout"]
+
+projects:
+  ob1-scout:
+    path: "D:\\AI\\ob1-scout"
+    priority: 1  # MASSIMA - apre tutte le porte
+    status: "in_progress"
+    description: "Sistema scouting - versione definitiva per Chiellini"
+    next_action: "Finalizzare versione idra/gemini"
+    blockers: []
+    
+  rooting-future-demo:
+    path: "C:\\Users\\Mirko\\Desktop\\rooting_future"
+    priority: 2
+    status: "ready_for_review"
+    description: "Demo RAG trio agenti per Nardoni"
+    next_action: "Review pre-meeting weekend"
+    blockers: []
+    
+  titani-veritas-estero:
+    path: "D:\\AI\\titani-veritas-estero"
+    priority: 3
+    status: "paused"
+    description: "Sistema oriundi FSGC"
+    next_action: "Aspetta - non urgente ora"
+    blockers: ["focus su OB1 prima"]
+    
+  apes-agent:
+    path: "D:\\AI\\apes-agent"
+    priority: 4
+    status: "paused"
+    description: "APES scouting cognitivo"
+    next_action: "Dopo OB1"
+    blockers: ["focus su OB1 prima"]
+    
+  Soccer_in_a_Box:
+    path: "D:\\AI\\Soccer_in_a_Box"
+    priority: 5
+    status: "paused"
+    description: "Piattaforma formazione"
+    next_action: "Dopo OB1 e APES"
+    blockers: ["focus su OB1 prima"]
+    
+  haiku-exe:
+    path: "D:\\AI\\haiku-exe"
+    priority: 6
+    status: "active_low"
+    description: "Progetto creativo TikTok"
+    next_action: "Può andare in parallelo come sfogo"
+    blockers: []
+
+focus_mode:
+  enabled: true
+  current_focus: "ob1-scout"
+  message: "TESTA BASSA. OB1 versione definitiva. Tutto il resto aspetta."

@@ -1,0 +1,5 @@
+.env
+__pycache__/
+*.pyc
+.vscode/
+widget_debug.log

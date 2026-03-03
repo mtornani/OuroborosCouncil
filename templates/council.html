@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="it">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OUROBOROS COUNCIL // v2</title>
+    <!-- Use similar fonts as Miss Minute for consistency -->
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;900&family=JetBrains+Mono:wght@400;700&display=swap"
+        rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        :root {
+            --bg-color: transparent;
+            --panel-glass: rgba(15, 18, 22, 0.75);
+            --panel-border: rgba(255, 255, 255, 0.1);
+            --primary: #ffffff;
+            --alert-red: #ff2a2a;
+            --warning-amber: #fca311;
+            --analyst-cyan: #00e5ff;
+            /* Colore dell'Analista */
+            --tactician-blue: #2979ff;
+            /* Colore del Tattico */
+            --arch-purple: #b388ff;
+            /* Colore Architetto */
+            --text-main: rgba(255, 255, 255, 0.9);
+            --text-dim: rgba(255, 255, 255, 0.45);
+
+            --font-main: 'Inter', -apple-system, sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+            --blur-radius: 25px;
+        }
+
+        body {
+            background-color: #0b0c10;
+            background-image: radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.02) 0%, transparent 60%);
+            color: var(--text-main);
+            font-family: var(--font-main);
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            padding: 30px;
+            box-sizing: border-box;
+            overflow: hidden;
+        }
+
+        /* HEADER */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            border-bottom: 1px solid var(--panel-border);
+            padding-bottom: 15px;
+            margin-bottom: 25px;
+            flex-shrink: 0;
+        }
+
+        .logo-container {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .logo {
+            font-size: 28px;
+            font-weight: 900;
+            letter-spacing: 4px;
+            color: var(--primary);
+            line-height: 1;
+        }
+
+        .logo-sub {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            color: var(--text-dim);
+            margin-top: 4px;
+            letter-spacing: 2px;
+        }
+
+        /* LAYOUT PRINCIPALE */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: auto 1fr;
+            gap: 25px;
+            flex: 1;
+            min-height: 0;
+            /* Permette scrolling corretto sui figli */
+        }
+
+        .panel {
+            background: var(--panel-glass);
+            border: 1px solid var(--panel-border);
+            border-radius: 8px;
+            backdrop-filter: blur(var(--blur-radius));
+            -webkit-backdrop-filter: blur(var(--blur-radius));
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        .panel-top {
+            grid-column: 1 / -1;
+            height: auto;
+            padding: 20px 24px;
+        }
+
+        .panel-left {
+            grid-column: 1;
+        }
+
+        .panel-right {
+            grid-column: 2;
+        }
+
+        .panel-title {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            letter-spacing: 2px;
+            margin-bottom: 15px;
+            color: var(--text-dim);
+            display: flex;
+            align-items: center;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            padding-bottom: 10px;
+        }
+
+        .panel-title.architetto::before {
+            content: '';
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            background: var(--arch-purple);
+            margin-right: 8px;
+            border-radius: 1px;
+        }
+
+        .panel-title.analista::before {
+            content: '';
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            background: var(--analyst-cyan);
+            margin-right: 8px;
+            border-radius: 1px;
+        }
+
+        .panel-title.tattico::before {
+            content: '';
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            background: var(--tactician-blue);
+            margin-right: 8px;
+            border-radius: 1px;
+        }
+
+        /* INPUT AREA */
+        .input-area {
+            display: flex;
+            gap: 15px;
+            align-items: stretch;
+        }
+
+        textarea {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--primary);
+            font-family: var(--font-mono);
+            font-size: 13px;
+            padding: 12px;
+            resize: none;
+            border-radius: 4px;
+            height: 60px;
+            transition: border 0.3s;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        button {
+            background: var(--primary);
+            color: #0b0c10;
+            border: none;
+            font-family: var(--font-mono);
+            font-weight: 700;
+            font-size: 12px;
+            letter-spacing: 1px;
+            padding: 0 24px;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+
+        button:hover {
+            background: #e0e0e0;
+            transform: translateY(-2px);
+        }
+
+        button:disabled {
+            background: #333;
+            color: #666;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* CONTENT AREAS */
+        .content-box {
+            flex: 1;
+            overflow-y: auto;
+            font-size: 14px;
+            line-height: 1.6;
+            color: var(--text-main);
+            padding-right: 15px;
+        }
+
+        /* Scrollbar sottile */
+        ::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 4px;
+        }
+
+        /* MARKDOWN STYLES */
+        .content-box h1,
+        .content-box h2,
+        .content-box h3 {
+            margin-top: 20px;
+            margin-bottom: 10px;
+            color: var(--primary);
+        }
+
+        .content-box p {
+            margin-top: 0;
+            margin-bottom: 15px;
+        }
+
+        .content-box ul {
+            margin-top: 0;
+            padding-left: 20px;
+        }
+
+        .content-box li {
+            margin-bottom: 5px;
+        }
+
+        .content-box strong {
+            color: var(--primary);
+            font-weight: 600;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            vertical-align: middle;
+            margin-right: 10px;
+            display: none;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* MAN IN THE LOOP FOOTER */
+        .mitl-controls {
+            margin-top: auto;
+            border-top: 1px solid rgba(255, 42, 42, 0.4);
+            padding-top: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .mitl-title {
+            color: var(--alert-red);
+            font-family: var(--font-mono);
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 1px;
+        }
+
+        .btn-reject {
+            background: rgba(255, 42, 42, 0.1);
+            color: var(--alert-red);
+            border: 1px solid rgba(255, 42, 42, 0.3);
+            padding: 8px 16px;
+            width: 100%;
+        }
+
+        .btn-reject:hover {
+            background: var(--alert-red);
+            color: white;
+        }
+
+        /* API ERROR */
+        .api-error {
+            background: rgba(255, 42, 42, 0.1);
+            border: 1px solid var(--alert-red);
+            color: var(--alert-red);
+            padding: 10px;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            margin-top: 10px;
+            border-radius: 4px;
+        }
+
+        /* MOBILE RESPONSIVE (SMARTPHONE) */
+        @media (max-width: 768px) {
+            body {
+                padding: 15px;
+                height: auto;
+                min-height: 100vh;
+                overflow-y: auto;
+            }
+
+            .main-grid {
+                display: flex;
+                flex-direction: column;
+            }
+
+            .panel {
+                min-height: 400px;
+                /* Assicura spazio sui div */
+                overflow: hidden;
+            }
+
+            .input-area {
+                flex-direction: column;
+            }
+
+            button {
+                padding: 15px;
+                width: 100%;
+            }
+
+            .content-box {
+                max-height: 400px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="header">
+        <div class="logo-container">
+            <div class="logo">COUNCIL_HUD</div>
+            <div class="logo-sub">MULTI-AGENT DIRECTIVE SYSTEM</div>
+        </div>
+    </div>
+
+    <div class="main-grid">
+        <!-- TOP: ARCHITETTO E INPUT -->
+        <div class="panel panel-top">
+            <div class="panel-title architetto">L'ARCHITETTO (DIRETTIVA TOPIC E SCELTA MODELLI)</div>
+            <div class="input-area">
+                <textarea id="topicInput"
+                    placeholder="Inserisci il brief tattico o analitico. L'architetto selezionerà le API migliori e lancerà gli agenti..."></textarea>
+                <button id="btnLaunch" onclick="startCouncil()">
+                    <span class="spinner" id="btnSpinner"></span>
+                    ESEGUI
+                </button>
+            </div>
+
+            <!-- Attachment Area -->
+            <div style="margin-top: 10px; display: flex; gap: 10px; align-items: center; justify-content: flex-start;">
+                <label for="filePicker"
+                    style="cursor: pointer; font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); border: 1px dashed rgba(255,255,255,0.2); padding: 5px 10px; border-radius: 4px; transition: all 0.2s;"
+                    onmouseover="this.style.borderColor='var(--primary)'"
+                    onmouseout="this.style.borderColor='rgba(255,255,255,0.2)'">
+                    + ALLEGA FILE
+                </label>
+                <input type="file" id="filePicker" multiple style="display: none;">
+
+                <label for="folderPicker"
+                    style="cursor: pointer; font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); border: 1px dashed rgba(255,255,255,0.2); padding: 5px 10px; border-radius: 4px; transition: all 0.2s;"
+                    onmouseover="this.style.borderColor='var(--primary)'"
+                    onmouseout="this.style.borderColor='rgba(255,255,255,0.2)'">
+                    + ALLEGA CARTELLA
+                </label>
+                <input type="file" id="folderPicker" webkitdirectory directory multiple style="display: none;">
+
+                <span id="attachStatus"
+                    style="font-family: var(--font-mono); font-size: 11px; color: var(--primary);">Nessun file.</span>
+                <span id="clearAttach" onclick="clearAttachments()"
+                    style="font-family: var(--font-mono); font-size: 11px; color: var(--alert-red); cursor: pointer; display: none;">[SVUOTA]</span>
+            </div>
+
+            <!-- Mostra errore del credito/API -->
+            <div id="apiErrorBox" class="api-error" style="display: none;"></div>
+
+            <div id="architectStatus"
+                style="font-family: var(--font-mono); font-size: 11px; color: var(--arch-purple); margin-top: 15px; display: none;">
+                [+] Assegnamento modelli completato.<br>
+                Analista: <span id="mAnalyst">...</span><br>
+                Tattico: <span id="mTactician">...</span>
+            </div>
+        </div>
+
+        <!-- LEFT: ANALISTA -->
+        <div class="panel panel-left">
+            <div class="panel-title analista">L'ANALISTA (REPORT QUANTITATIVO)</div>
+            <div class="content-box" id="analystContent">
+                <span style="color:var(--text-dim); font-style: italic;">In attesa di istruzioni...</span>
+            </div>
+        </div>
+
+        <!-- RIGHT: TATTICO & MAN IN THE LOOP -->
+        <div class="panel panel-right">
+            <div class="panel-title tattico">IL TATTICO (REVISIONE CRITICA E CONCLUSIONE)</div>
+            <div class="content-box" style="margin-bottom: 20px;" id="tacticianContent">
+                <span style="color:var(--text-dim); font-style: italic;">In attesa dell'Analista...</span>
+            </div>
+
+            <!-- Intervento di Mirko -->
+            <div class="mitl-controls" id="mitlControls" style="display: none;">
+                <div class="mitl-title">MAN-IN-THE-LOOP OVERRIDE</div>
+                <div style="display: flex; gap: 10px;">
+                    <textarea id="mitlFeedback"
+                        placeholder="Rifiuta e scrivi nuove direttive (es: 'Considerato che giochiamo un 4-3-3 stretto, rivaluta il report.')"
+                        style="height: 40px;"></textarea>
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button class="btn-reject" onclick="correctTactician()">RIFIUTA & FORZA RICALCOLO</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentModels = {};
+        let analystReport = "";
+        let tacticianReport = "";
+        let attachedFiles = [];
+
+        const DOM = {
+            btnLaunch: document.getElementById('btnLaunch'),
+            spinner: document.getElementById('btnSpinner'),
+            topic: document.getElementById('topicInput'),
+            filePicker: document.getElementById('filePicker'),
+            folderPicker: document.getElementById('folderPicker'),
+            attachStatus: document.getElementById('attachStatus'),
+            clearAttach: document.getElementById('clearAttach'),
+            aStatus: document.getElementById('architectStatus'),
+            mAnalyst: document.getElementById('mAnalyst'),
+            mTactician: document.getElementById('mTactician'),
+            analystBox: document.getElementById('analystContent'),
+            tacticianBox: document.getElementById('tacticianContent'),
+            mitlBox: document.getElementById('mitlControls'),
+            mitlFeedback: document.getElementById('mitlFeedback'),
+            apiError: document.getElementById('apiErrorBox')
+        };
+
+        // --- GESTIONE ALLEGATI ---
+        DOM.filePicker.addEventListener('change', handleFiles);
+        DOM.folderPicker.addEventListener('change', handleFiles);
+
+        function handleFiles(e) {
+            const files = Array.from(e.target.files);
+            // Filtri base per evitare di caricare binari o file .git invisibili
+            const validFiles = files.filter(f => !f.name.includes(".git") && !f.name.includes("__pycache__"));
+            attachedFiles = attachedFiles.concat(validFiles);
+            updateAttachStatus();
+            // Resetta l'input per permettere di caricare lo stesso file/cartella di nuovo se voluto
+            e.target.value = '';
+        }
+
+        function updateAttachStatus() {
+            if (attachedFiles.length > 0) {
+                DOM.attachStatus.innerText = `${attachedFiles.length} file allegat${attachedFiles.length > 1 ? 'i' : 'o'} pronti.`;
+                DOM.clearAttach.style.display = 'inline-block';
+            } else {
+                DOM.attachStatus.innerText = `Nessun file.`;
+                DOM.clearAttach.style.display = 'none';
+            }
+        }
+
+        function clearAttachments() {
+            attachedFiles = [];
+            updateAttachStatus();
+        }
+
+        async function readAllFiles() {
+            let combinedContent = "";
+            for (let file of attachedFiles) {
+                if (file.size > 1024 * 1024 * 5) continue; // Skip se > 5MB
+                try {
+                    const text = await file.text();
+                    combinedContent += `\n\n--- INIZIO FILE: ${file.webkitRelativePath || file.name} ---\n${text}\n--- FINE FILE ---\n`;
+                } catch (e) {
+                    console.log(`Errore lettura file: ${file.name}`);
+                }
+            }
+            return combinedContent;
+        }
+        // -----------------------
+
+        function showError(msg) {
+            DOM.apiError.style.display = 'block';
+            DOM.apiError.innerHTML = `FATAL ERROR: ${msg}`;
+            resetUIState();
+        }
+
+        function resetError() { DOM.apiError.style.display = 'none'; }
+
+        function setThinking(element, text) {
+            element.innerHTML = `<span style="color:var(--text-dim);">[//] Elenco dati in corso. ${text}...</span>`;
+        }
+
+        function resetUIState() {
+            DOM.btnLaunch.disabled = false;
+            DOM.topic.disabled = false;
+            DOM.spinner.style.display = 'none';
+        }
+
+        async function startCouncil() {
+            let topic = DOM.topic.value.trim();
+            if (!topic && attachedFiles.length === 0) return;
+
+            resetError();
+            DOM.btnLaunch.disabled = true;
+            DOM.topic.disabled = true;
+            DOM.spinner.style.display = 'inline-block';
+            DOM.mitlBox.style.display = 'none';
+            DOM.aStatus.style.display = 'none';
+
+            // Aggiungi gli allegati in coda al topic in modo invisibile all'utente ma visibile all'AI
+            if (attachedFiles.length > 0) {
+                setThinking(DOM.analystBox, "Estrazione testo dagli allegati locali");
+                const fileContent = await readAllFiles();
+                if (fileContent) {
+                    topic += `\n\n[IL DIRETTORE HA ALLEGATO I SEGUENTI DOCUMENTI DA ANALIZZARE NEL TUO REPORT]:\n` + fileContent;
+                }
+            }
+
+            setThinking(DOM.analystBox, "Attesa orchestratore");
+            setThinking(DOM.tacticianBox, "Standby");
+
+            try {
+                // 1. ORCHESTRATE
+                const rOrch = await fetch("/api/orchestrate", {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ topic })
+                });
+                const dOrch = await rOrch.json();
+
+                if (dOrch.status === "error" && !dOrch.analyst) {
+                    showError(dOrch.message); return;
+                }
+
+                currentModels.analyst = dOrch.analyst;
+                currentModels.tactician = dOrch.tactician;
+
+                DOM.aStatus.style.display = 'block';
+                DOM.mAnalyst.innerText = currentModels.analyst;
+                DOM.mTactician.innerText = currentModels.tactician;
+
+                // 2. RUN ANALYST
+                setThinking(DOM.analystBox, `Retrieval da ${currentModels.analyst}`);
+                const rAna = await fetch("/api/analyst", {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ topic, model: currentModels.analyst })
+                });
+                const dAna = await rAna.json();
+
+                if (dAna.status === 'error') { showError(dAna.message); return; }
+
+                analystReport = dAna.report;
+                DOM.analystBox.innerHTML = marked.parse(analystReport);
+
+                // 3. RUN TACTICIAN
+                setThinking(DOM.tacticianBox, `Valutazione critica via ${currentModels.tactician}`);
+                const rTac = await fetch("/api/tactician", {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ topic, model: currentModels.tactician, analyst_report: analystReport })
+                });
+                const dTac = await rTac.json();
+
+                if (dTac.status === 'error') { showError(dTac.message); return; }
+
+                tacticianReport = dTac.report;
+                DOM.tacticianBox.innerHTML = marked.parse(tacticianReport);
+
+                // 4. ENABLE MAN IN THE LOOP
+                DOM.mitlBox.style.display = 'flex';
+                resetUIState();
+
+            } catch (err) {
+                showError(err.toString());
+            }
+        }
+
+        async function correctTactician() {
+            const feedback = DOM.mitlFeedback.value.trim();
+            if (!feedback) return;
+
+            resetError();
+            DOM.mitlBox.style.opacity = '0.5';
+            setThinking(DOM.tacticianBox, `Ricalcolo basato sulle direttive MAN IN THE LOOP...`);
+
+            try {
+                const rCor = await fetch("/api/correct", {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        model: currentModels.tactician,
+                        old_report: tacticianReport,
+                        feedback: feedback
+                    })
+                });
+                const dCor = await rCor.json();
+
+                if (dCor.status === 'error') { showError(dCor.message); return; }
+
+                tacticianReport = dCor.report;
+                DOM.tacticianBox.innerHTML = marked.parse(tacticianReport);
+                DOM.mitlBox.style.opacity = '1';
+                DOM.mitlFeedback.value = ''; // Pulisce
+            } catch (err) {
+                showError(err.toString());
+                DOM.mitlBox.style.opacity = '1';
+            }
+        }
+    </script>
+</body>
+
+</html>

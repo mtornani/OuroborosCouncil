@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "dgSpecHash": "hgUPCPiTg38=",
+  "success": true,
+  "projectFilePath": "D:\\AI\\.miss_minute\\MissMinuteJarvis\\MissMinuteJarvis.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\Mirko\\.nuget\\packages\\microsoft.win32.systemevents\\10.0.2\\microsoft.win32.systemevents.10.0.2.nupkg.sha512",
+    "C:\\Users\\Mirko\\.nuget\\packages\\system.drawing.common\\10.0.2\\system.drawing.common.10.0.2.nupkg.sha512",
+    "C:\\Users\\Mirko\\.nuget\\packages\\system.speech\\10.0.2\\system.speech.10.0.2.nupkg.sha512",
+    "C:\\Users\\Mirko\\.nuget\\packages\\yamldotnet\\16.3.0\\yamldotnet.16.3.0.nupkg.sha512"
+  ],
+  "logs": []
+}
