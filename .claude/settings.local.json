@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ollama list)",
+      "WebFetch(domain:docs.unsloth.ai)",
+      "WebFetch(domain:unsloth.ai)",
+      "Bash(python scanner.py)",
+      "Bash(\"C:/Users/Mirko/AppData/Local/Programs/Python/Python312/python.exe\" scanner.py)",
+      "Bash(where pythonw)",
+      "Bash(\"C:/Users/Mirko/AppData/Local/Programs/Python/Python312/python.exe\" -c \"import webview; print\\(''pywebview OK, version:'', webview.__version__\\)\")",
+      "Bash(\"C:/Users/Mirko/AppData/Local/Programs/Python/Python312/python.exe\" -c \"import webview; print\\(dir\\(webview\\)\\)\")",
+      "Bash(\"C:/Users/Mirko/AppData/Local/Programs/Python/Python312/python.exe\" -m pip show pywebview)",
+      "Bash(\"C:/Users/Mirko/AppData/Local/Programs/Python/Python312/python.exe\" -c \":*)",
+      "Bash(powershell -Command \"$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut\\(''C:\\\\Users\\\\Mirko\\\\AppData\\\\Roaming\\\\Microsoft\\\\Windows\\\\Start Menu\\\\Programs\\\\Startup\\\\MissMinute.lnk''\\); $s.TargetPath = ''D:\\\\AI\\\\.miss_minute\\\\START_MISS_MINUTE.bat''; $s.WorkingDirectory = ''D:\\\\AI\\\\.miss_minute''; $s.WindowStyle = 7; $s.Description = ''Miss Minute v2''; $s.Save\\(\\); Write-Output ''Shortcut updated OK''\")",
+      "Bash(powershell -File:*)",
+      "Bash(curl -s http://localhost:11434/api/chat -d '{\"\"model\"\":\"\"miss-minute\"\",\"\"messages\"\":[{\"\"role\"\":\"\"user\"\",\"\"content\"\":\"\"Rispondi solo: ONLINE\"\"}],\"\"stream\"\":false}' --max-time 60)",
+      "Bash(curl -s http://localhost:11434/api/chat -d \"{\"\"model\"\":\"\"miss-minute\"\",\"\"messages\"\":[{\"\"role\"\":\"\"user\"\",\"\"content\"\":\"\"Rispondi solo: ONLINE\"\"}],\"\"stream\"\":false}\" --max-time 120)",
+      "Bash(taskkill /F /IM pythonw.exe)",
+      "Bash(taskkill /F /IM python.exe /FI \"WINDOWTITLE eq Miss*\")"
+    ]
+  }
+}

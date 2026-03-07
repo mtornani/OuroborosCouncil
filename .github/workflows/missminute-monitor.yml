@@ -1,0 +1,38 @@
+name: MissMinute Web Monitor
+
+on:
+  schedule:
+    # Ogni 12 ore: 06:00 e 18:00 UTC
+    - cron: '0 6,18 * * *'
+  workflow_dispatch: # Trigger manuale
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: pip install requests
+      
+      - name: Run Web Monitor
+        run: python .miss_minute/web_monitor.py
+      
+      - name: Push Signals to Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python .miss_minute/telegram_push.py
+      
+      - name: Save intel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-intel-${{ github.run_number }}
+          path: web_intel.json
+          retention-days: 7
