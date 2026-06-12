@@ -514,13 +514,17 @@ async function runCouncil() {
 function renderProviders() {
   const el = document.getElementById("providers-list");
   el.innerHTML = "";
-  Object.entries(PROVIDERS).forEach(([k, p]) => {
+  // Ordina per facilità (rank basso = più facile, senza carta); il resto dopo.
+  const entries = Object.entries(PROVIDERS).sort((a, b) =>
+    (a[1].rank || 99) - (b[1].rank || 99));
+  entries.forEach(([k, p]) => {
     const hasKey = !!state.keys[k];
     const card = document.createElement("div");
     card.className = "card prov";
+    const stepsHtml = p.steps ? `<ol class="prov-steps">${p.steps.map(s => `<li>${esc(s)}</li>`).join("")}</ol>` : "";
     card.innerHTML = `
       <div class="prov-head">
-        <div class="prov-name">${p.name} ${hasKey ? '<span class="ok">✓ chiave salvata</span>' : ""}</div>
+        <div class="prov-name">${p.rank ? `<span class="rankbadge">${p.rank}</span> ` : ""}${p.name} ${hasKey ? '<span class="ok">✓ chiave salvata</span>' : ""}</div>
         ${p.cors ? "" : '<span class="warn" title="Potrebbe servire un proxy">⚠ CORS</span>'}
       </div>
       <div class="prov-tag">${esc(p.tagline)}</div>
@@ -529,6 +533,7 @@ function renderProviders() {
         <a href="${p.signup}" target="_blank" rel="noopener">Ottieni chiave →</a>
         <a href="${p.docs}" target="_blank" rel="noopener">Limiti/docs</a>
       </div>
+      ${stepsHtml}
       ${p.needsAccount ? `<input class="key-in" id="acct-${k}" placeholder="Account ID" value="${esc(state.accounts[k] || "")}">` : ""}
       <div class="key-row">
         <input class="key-in" id="key-${k}" type="password" placeholder="Incolla qui la tua API key" value="${esc(state.keys[k] || "")}">

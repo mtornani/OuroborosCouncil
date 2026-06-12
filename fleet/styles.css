@@ -110,6 +110,9 @@ textarea, input.key-in, .key-in {
 .prov-tag { font-size: 13px; color: var(--dim); }
 .prov-free { font-size: 13px; color: var(--acc); }
 .prov-links { display: flex; gap: 16px; font-size: 13px; }
+.prov-steps { margin: 4px 0 2px; padding-left: 20px; font-size: 13px; color: var(--dim); line-height: 1.6; }
+.prov-steps li { margin-bottom: 2px; }
+.rankbadge { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: linear-gradient(135deg, var(--acc), var(--acc2)); color: #04221f; font-size: 12px; font-weight: 700; vertical-align: middle; }
 .key-row { display: flex; gap: 8px; }
 .key-row .key-in { flex: 1; }
 

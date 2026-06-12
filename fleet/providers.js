@@ -16,12 +16,18 @@
 const PROVIDERS = {
   groq: {
     name: "Groq",
+    rank: 1,
     tagline: "Il più veloce. Inferenza LPU, nessuna carta richiesta.",
     free: "~30 richieste/min · ~14.400 richieste/giorno · nessuna carta",
     baseUrl: "https://api.groq.com/openai/v1",
     signup: "https://console.groq.com/keys",
     docs: "https://console.groq.com/docs/rate-limits",
     cors: true,
+    steps: [
+      "Tocca «Ottieni chiave» e accedi con Google o GitHub (nessuna carta).",
+      "Nella console clicca «Create API Key», dai un nome qualsiasi.",
+      "Copia la chiave (inizia con gsk_) e incollala qui sotto. Salva.",
+    ],
     models: [
       "llama-3.3-70b-versatile",
       "llama-3.1-8b-instant",
@@ -32,12 +38,18 @@ const PROVIDERS = {
   },
   gemini: {
     name: "Google Gemini",
+    rank: 2,
     tagline: "Il miglior gratis: 1M di contesto, multimodale, niente carta.",
     free: "1.500 richieste/giorno (Flash) · 15 req/min · 1M token/min",
     baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
     signup: "https://aistudio.google.com/app/apikey",
     docs: "https://ai.google.dev/gemini-api/docs/rate-limits",
     cors: true,
+    steps: [
+      "Tocca «Ottieni chiave» e accedi col tuo account Google.",
+      "Clicca «Create API key» → «Create API key in new project».",
+      "Copia la chiave (inizia con AIza) e incollala qui sotto. Salva.",
+    ],
     models: [
       "gemini-2.5-flash",
       "gemini-2.5-flash-lite",
@@ -46,12 +58,18 @@ const PROVIDERS = {
   },
   openrouter: {
     name: "OpenRouter",
+    rank: 3,
     tagline: "Decine di modelli con una sola chiave. Cerca il suffisso :free.",
     free: "Modelli :free gratis · ~20 req/min · ~50-1000 req/giorno",
     baseUrl: "https://openrouter.ai/api/v1",
     signup: "https://openrouter.ai/keys",
     docs: "https://openrouter.ai/models?max_price=0",
     cors: true,
+    steps: [
+      "Tocca «Ottieni chiave» e accedi con Google/GitHub (nessuna carta).",
+      "Clicca «Create Key», dai un nome e conferma.",
+      "Copia la chiave (inizia con sk-or-v1-) e incollala qui sotto. Salva.",
+    ],
     models: [
       "deepseek/deepseek-r1:free",
       "deepseek/deepseek-chat-v3.1:free",
