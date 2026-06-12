@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5eead4"/>
+      <stop offset="1" stop-color="#38bdf8"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#0b0e14"/>
+  <!-- Ouroboros: serpente che si morde la coda -->
+  <g fill="none" stroke="url(#g)" stroke-width="34" stroke-linecap="round">
+    <path d="M256 110
+             a146 146 0 1 1 -103 43"
+          />
+  </g>
+  <!-- testa -->
+  <circle cx="153" cy="153" r="30" fill="url(#g)"/>
+  <circle cx="163" cy="146" r="7" fill="#0b0e14"/>
+  <!-- nodo centrale (flotta) -->
+  <circle cx="256" cy="256" r="42" fill="url(#g)" opacity="0.9"/>
+  <circle cx="256" cy="256" r="18" fill="#0b0e14"/>
+</svg>

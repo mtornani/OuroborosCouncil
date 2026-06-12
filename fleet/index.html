@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+  <meta name="theme-color" content="#0b0e14">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icon.svg">
+  <link rel="stylesheet" href="./styles.css">
+  <title>Ouroboros Fleet</title>
+</head>
+<body>
+
+  <!-- VISTA: FLOTTA -->
+  <section id="view-fleet" class="view">
+    <header class="topbar">
+      <div>
+        <h1>🐍 Ouroboros Fleet</h1>
+        <p class="subtitle">La tua flotta di agenti AI, sul tuo telefono</p>
+      </div>
+      <button id="add-agent" class="primary round">＋</button>
+    </header>
+    <div id="fleet-list" class="list"></div>
+  </section>
+
+  <!-- VISTA: CHAT -->
+  <section id="view-chat" class="view hidden">
+    <header class="topbar chat-bar">
+      <button id="chat-back" class="ghost round">‹</button>
+      <div class="chat-head">
+        <div id="chat-title" class="chat-title"></div>
+        <div id="chat-sub" class="chat-sub"></div>
+      </div>
+    </header>
+    <div id="chat-log" class="chat-log"></div>
+    <div class="composer">
+      <textarea id="chat-input" rows="1" placeholder="Scrivi un messaggio…"></textarea>
+      <button id="chat-send" class="primary round">↑</button>
+    </div>
+  </section>
+
+  <!-- VISTA: COUNCIL -->
+  <section id="view-council" class="view hidden">
+    <header class="topbar"><div><h1>⚖️ Council</h1><p class="subtitle">Più agenti, stesso task, in sequenza</p></div></header>
+    <div class="pad">
+      <p class="hint">Seleziona gli agenti che devono partecipare:</p>
+      <div id="council-agents" class="chips"></div>
+      <textarea id="council-input" rows="3" placeholder="Su cosa deve lavorare il Council?"></textarea>
+      <button id="council-run" class="primary wide">Avvia il Council</button>
+      <div id="council-out" class="council-out"></div>
+    </div>
+  </section>
+
+  <!-- VISTA: PROVIDER -->
+  <section id="view-providers" class="view hidden">
+    <header class="topbar"><div><h1>🎁 Provider gratis</h1><p class="subtitle">Registrati, copia la chiave, incollala qui</p></div></header>
+    <div class="pad">
+      <p class="hint">Le chiavi vengono salvate <strong>solo sul tuo telefono</strong> (localStorage). Usa la tua chiave personale per ogni provider.</p>
+      <div id="providers-list" class="list"></div>
+    </div>
+  </section>
+
+  <!-- VISTA: IMPOSTAZIONI -->
+  <section id="view-settings" class="view hidden">
+    <header class="topbar"><div><h1>⚙️ Impostazioni</h1></div></header>
+    <div class="pad">
+      <div class="card">
+        <div class="stat-row"><span>Agenti</span><strong id="stat-agents">0</strong></div>
+        <div class="stat-row"><span>Chiavi salvate</span><strong id="stat-keys">0</strong></div>
+      </div>
+      <button id="export-btn" class="wide ghost">⬇️ Esporta backup (JSON)</button>
+      <label class="wide ghost filebtn">⬆️ Importa backup
+        <input id="import-file" type="file" accept="application/json" hidden>
+      </label>
+      <button id="clear-chats" class="wide danger">🗑️ Cancella tutte le conversazioni</button>
+      <p class="hint">Privacy: nessun server intermedio. Le chiamate vanno direttamente dal telefono al provider AI che scegli. Niente account multipli per aggirare i limiti gratuiti: viola i Termini di Servizio.</p>
+    </div>
+  </section>
+
+  <!-- BARRA TAB -->
+  <nav class="tabbar">
+    <button class="tab active" data-view="fleet"><span>🤖</span>Flotta</button>
+    <button class="tab" data-view="council"><span>⚖️</span>Council</button>
+    <button class="tab" data-view="providers"><span>🎁</span>Provider</button>
+    <button class="tab" data-view="settings"><span>⚙️</span>Setup</button>
+  </nav>
+
+  <div id="dialog" class="dialog hidden"></div>
+  <div id="toast" class="toast"></div>
+
+  <script src="./providers.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
