@@ -118,6 +118,174 @@ async function chatOnce(agent, messages) {
 }
 
 // =============================================================================
+// SCAN & IMPORT delle TUE chiavi (riconosce il provider, valida dal vivo)
+// =============================================================================
+// NB: opera SOLO su chiavi che incolli tu (backup .env, testo, clipboard).
+// Non cerca nulla sul web: non esistono chiavi "gratis" da trovare online,
+// e usare chiavi altrui trapelate e' furto di credenziali. Qui importiamo
+// solo cio' che gia' possiedi, mettendolo nel provider giusto.
+
+// Pattern per riconoscere a quale provider appartiene una chiave (dal prefisso).
+const KEY_PATTERNS = [
+  { provider: "openrouter", re: /sk-or-v1-[A-Za-z0-9]{32,}/g },
+  { provider: "groq",       re: /gsk_[A-Za-z0-9]{20,}/g },
+  { provider: "gemini",     re: /AIza[0-9A-Za-z\-_]{35}/g },
+  { provider: "nvidia",     re: /nvapi-[A-Za-z0-9_\-]{20,}/g },
+  { provider: "huggingface",re: /hf_[A-Za-z0-9]{20,}/g },
+  { provider: "cerebras",   re: /csk-[A-Za-z0-9]{20,}/g },
+  { provider: "github",     re: /(?:ghp_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{40,})/g },
+];
+// Chiavi generiche (sk-..., esadecimali lunghe) le proviamo dal vivo contro i
+// provider candidati e le assegniamo a chi risponde 200.
+const GENERIC_RE = /\b(sk-[A-Za-z0-9]{20,}|[A-Fa-f0-9]{48,})\b/g;
+const GENERIC_CANDIDATES = ["deepseek", "mistral", "cohere", "together"];
+
+function detectKeysByPrefix(text) {
+  const found = [];
+  const seen = new Set();
+  for (const { provider, re } of KEY_PATTERNS) {
+    const matches = text.match(re) || [];
+    for (const k of matches) {
+      if (seen.has(k)) continue;
+      seen.add(k); found.push({ provider, key: k, sure: true });
+    }
+  }
+  // candidati generici (provider incerto)
+  const gen = text.match(GENERIC_RE) || [];
+  for (const k of gen) {
+    if (seen.has(k)) continue;
+    seen.add(k); found.push({ provider: null, key: k, sure: false });
+  }
+  return found;
+}
+
+// Valida una chiave (read-only): GET {baseUrl}/models con Bearer.
+async function validateKey(providerId, key) {
+  const p = PROVIDERS[providerId];
+  if (!p || p.needsAccount) return { ok: null }; // cloudflare richiede account: skip auto
+  try {
+    const res = await fetch(p.baseUrl + "/models", {
+      headers: { "Authorization": "Bearer " + key },
+    });
+    if (res.ok) {
+      let models = 0;
+      try { const j = await res.json(); models = (j.data || j.models || j).length || 0; } catch {}
+      return { ok: true, models };
+    }
+    return { ok: false, status: res.status };
+  } catch (e) {
+    return { ok: null, error: e.message }; // probabile CORS, non e' detto sia invalida
+  }
+}
+
+// Crediti residui (solo dove l'API li espone con la TUA chiave).
+async function fetchCredits(providerId, key) {
+  if (providerId === "openrouter") {
+    try {
+      const r = await fetch("https://openrouter.ai/api/v1/key", { headers: { "Authorization": "Bearer " + key } });
+      if (r.ok) {
+        const d = (await r.json()).data || {};
+        if (d.limit == null) return "crediti illimitati / pay-as-you-go";
+        const rem = (d.limit - (d.usage || 0)).toFixed(4);
+        return `residui ~$${rem} (usati $${(d.usage || 0).toFixed(4)})`;
+      }
+    } catch {}
+  }
+  return null;
+}
+
+// Apre il dialog di scansione e import.
+function openScanDialog() {
+  const dlg = document.getElementById("dialog");
+  dlg.innerHTML = `
+    <div class="dlg-card">
+      <h3>🔍 Scansiona &amp; importa chiavi</h3>
+      <p class="hint">Incolla qui le <strong>tue</strong> chiavi (un backup .env, testo, o tocca "Da clipboard"). L'app riconosce il provider e le testa.</p>
+      <textarea id="scan-text" rows="6" placeholder="Es:\nGROQ_API_KEY=gsk_...\nGEMINI=AIza...\nsk-or-v1-..."></textarea>
+      <div class="dlg-actions">
+        <button class="ghost" id="scan-clip">📋 Da clipboard</button>
+        <div>
+          <button class="ghost" id="scan-cancel">Chiudi</button>
+          <button id="scan-go">Scansiona</button>
+        </div>
+      </div>
+      <div id="scan-results"></div>
+    </div>`;
+  dlg.classList.remove("hidden");
+  dlg.querySelector("#scan-cancel").onclick = closeDialog;
+  dlg.querySelector("#scan-clip").onclick = async () => {
+    try {
+      const t = await navigator.clipboard.readText();
+      dlg.querySelector("#scan-text").value = t;
+      toast("Clipboard incollata");
+    } catch { toast("Permesso clipboard negato: incolla a mano"); }
+  };
+  dlg.querySelector("#scan-go").onclick = runScan;
+}
+
+async function runScan() {
+  const text = document.getElementById("scan-text").value;
+  const out = document.getElementById("scan-results");
+  const found = detectKeysByPrefix(text);
+  if (!found.length) { out.innerHTML = '<p class="hint">Nessuna chiave riconosciuta nel testo.</p>'; return; }
+  out.innerHTML = '<p class="hint">Verifico le chiavi dal vivo…</p>';
+
+  // assegna i candidati generici provando i provider possibili
+  for (const item of found) {
+    if (item.provider) {
+      item.check = await validateKey(item.provider, item.key);
+    } else {
+      for (const cand of GENERIC_CANDIDATES) {
+        if (state.keys[cand]) continue; // gia' configurato, salta
+        const c = await validateKey(cand, item.key);
+        if (c.ok) { item.provider = cand; item.check = c; break; }
+        item.check = c;
+      }
+    }
+  }
+
+  out.innerHTML = "";
+  found.forEach((item, i) => {
+    const pname = item.provider ? PROVIDERS[item.provider].name : "provider ignoto";
+    const ok = item.check?.ok;
+    const badge = ok === true ? '<span class="ok">✓ valida</span>'
+      : ok === false ? '<span class="warn">✗ rifiutata</span>'
+      : '<span class="hint">? non verificabile (CORS)</span>';
+    const masked = item.key.slice(0, 8) + "…" + item.key.slice(-4);
+    const row = document.createElement("div");
+    row.className = "card";
+    row.innerHTML = `
+      <div class="prov-head"><div class="prov-name">${esc(pname)} ${badge}</div></div>
+      <div class="hint">${esc(masked)}${item.check?.models ? ` · ${item.check.models} modelli` : ""}</div>
+      ${item.provider ? `<button class="mini" data-imp="${i}">Importa in ${esc(PROVIDERS[item.provider].name)}</button>` : '<span class="hint">Non riconosciuto: importalo a mano dalla scheda del provider.</span>'}`;
+    if (item.provider) row.querySelector(`[data-imp="${i}"]`).onclick = () => {
+      state.keys[item.provider] = item.key; saveKeys();
+      toast(`Chiave ${PROVIDERS[item.provider].name} importata`);
+      renderProviders();
+    };
+    out.appendChild(row);
+  });
+}
+
+// Verifica TUTTE le chiavi salvate + crediti.
+async function verifyAllKeys() {
+  const out = document.getElementById("verify-out");
+  const ids = Object.keys(state.keys);
+  if (!ids.length) { out.innerHTML = '<p class="hint">Nessuna chiave salvata da verificare.</p>'; return; }
+  out.innerHTML = '<div class="card"><p class="hint">Verifico ' + ids.length + ' chiavi…</p></div>';
+  const rows = [];
+  for (const id of ids) {
+    const check = await validateKey(id, state.keys[id]);
+    const credits = check.ok ? await fetchCredits(id, state.keys[id]) : null;
+    const status = check.ok === true ? `<span class="ok">✓ attiva${check.models ? ` · ${check.models} modelli` : ""}</span>`
+      : check.ok === false ? `<span class="warn">✗ errore ${check.status || ""}</span>`
+      : '<span class="hint">? non verificabile dal browser (CORS)</span>';
+    rows.push(`<div class="stat-row"><span>${esc(PROVIDERS[id]?.name || id)}</span><span>${status}</span></div>${credits ? `<div class="hint">💳 ${esc(credits)}</div>` : ""}`);
+  }
+  out.innerHTML = `<div class="card">${rows.join("")}</div>`;
+}
+
+// =============================================================================
 // Routing tab
 // =============================================================================
 const views = ["fleet", "chat", "council", "providers", "settings"];
@@ -433,6 +601,8 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("council-run").onclick = runCouncil;
   document.getElementById("export-btn").onclick = exportConfig;
   document.getElementById("import-file").onchange = (e) => e.target.files[0] && importConfig(e.target.files[0]);
+  document.getElementById("scan-btn").onclick = openScanDialog;
+  document.getElementById("verify-btn").onclick = verifyAllKeys;
   document.getElementById("clear-chats").onclick = () => {
     if (confirm("Cancellare tutte le conversazioni?")) { state.chats = {}; saveChats(); toast("Conversazioni cancellate"); }
   };

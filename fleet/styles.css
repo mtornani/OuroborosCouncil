@@ -113,7 +113,11 @@ textarea, input.key-in, .key-in {
 .key-row { display: flex; gap: 8px; }
 .key-row .key-in { flex: 1; }
 
-.stat-row { display: flex; justify-content: space-between; padding: 6px 0; }
+.scan-bar { display: flex; flex-direction: column; gap: 0; margin-bottom: 4px; }
+#verify-out { margin-bottom: 10px; }
+#scan-results { margin-top: 14px; display: flex; flex-direction: column; gap: 10px; }
+#scan-text { width: 100%; margin: 8px 0; }
+.stat-row { display: flex; justify-content: space-between; padding: 6px 0; align-items: center; }
 .filebtn { display: block; }
 
 /* tabbar */

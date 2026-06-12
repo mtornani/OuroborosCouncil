@@ -57,6 +57,11 @@
   <section id="view-providers" class="view hidden">
     <header class="topbar"><div><h1>🎁 Provider gratis</h1><p class="subtitle">Registrati, copia la chiave, incollala qui</p></div></header>
     <div class="pad">
+      <div class="scan-bar">
+        <button id="scan-btn" class="wide primary">🔍 Scansiona &amp; importa le tue chiavi</button>
+        <button id="verify-btn" class="wide ghost">✅ Verifica chiavi &amp; crediti</button>
+      </div>
+      <div id="verify-out"></div>
       <p class="hint">Le chiavi vengono salvate <strong>solo sul tuo telefono</strong> (localStorage). Usa la tua chiave personale per ogni provider.</p>
       <div id="providers-list" class="list"></div>
     </div>
