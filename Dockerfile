@@ -12,9 +12,14 @@ COPY . .
 ENV PORT=8080
 EXPOSE 8080
 
-# --timeout 120: gunicorn di default chiude un worker dopo 30s, ma
-# /api/radar/refresh (Wikidata + Wikipedia + buzz Google News + swarm AI)
-# puo' richiederne 30-60+ - senza alzarlo la richiesta fallirebbe a meta'
-# anche se il codice funziona. "exec" in forma shell serve a espandere
-# $PORT all'avvio (pattern standard per Cloud Run).
-CMD exec gunicorn --bind 0.0.0.0:$PORT --workers 1 --timeout 120 visual_council_app:app
+# --timeout 570: gunicorn di default chiude un worker dopo 30s, ma
+# /api/radar/refresh (Wikidata + Wikipedia + buzz Google News + swarm AI,
+# fino a 15 candidati x 4 ruoli con fallback multi-provider) puo' superare
+# abbondantemente i 120s misurati in condizioni ideali, specie se OpenRouter
+# rallenta o un modello va in 429 e scatta il fallback. Tenuto sotto i 600s
+# di --timeout impostato sul servizio Cloud Run (vedi comando di deploy),
+# cosi' e' sempre gunicorn/l'app a rispondere per prima con un errore
+# leggibile, mai Cloud Run che tronca la connessione a meta'.
+# "exec" in forma shell serve a espandere $PORT all'avvio (pattern standard
+# per Cloud Run).
+CMD exec gunicorn --bind 0.0.0.0:$PORT --workers 1 --timeout 570 visual_council_app:app
