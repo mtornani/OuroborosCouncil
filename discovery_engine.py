@@ -13,6 +13,7 @@ esplicitamente ("fonte non disponibile" / flag "dati parziali"), mai un
 numero stimato spacciato per reale. Stessa regola gia' in monitor/web_monitor.py.
 """
 import json
+import os
 import re
 import unicodedata
 import urllib.parse
@@ -26,10 +27,22 @@ import yaml
 from monitor.web_monitor import search_google_news, deduplicate_signals
 from openrouter_client import call_openrouter, get_available_models
 
+try:
+    import psycopg2
+    import psycopg2.extras
+except ImportError:
+    psycopg2 = None  # ok in locale senza DB configurato - vedi _load_json/_save_json
+
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_FILE = BASE_DIR / "radar_config.yaml"
 FEED_FILE = BASE_DIR / "radar_feed.json"
 BUZZ_HISTORY_FILE = BASE_DIR / "buzz_history.json"
+
+# Se impostata (in produzione: Neon/Supabase, mai committata), lo storico
+# vive su Postgres invece che su disco locale - un host gratuito con
+# filesystem effimero (Render/HF Spaces free tier) azzera i file a ogni
+# riavvio, e l'intero senso dello storico append-only e' non perderlo mai.
+DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 USER_AGENT = "OB1Radar/0.1 (contact: mirko-tornani-ai-lab.com)"
 WIKIDATA_SPARQL_ENDPOINT = "https://query.wikidata.org/sparql"
@@ -65,7 +78,36 @@ def load_config() -> dict:
         return yaml.safe_load(f)
 
 
+def _db_ensure_table(conn):
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS radar_state (
+                key TEXT PRIMARY KEY,
+                data JSONB NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+            """
+        )
+    conn.commit()
+
+
 def _load_json(path: Path) -> dict:
+    """path.stem diventa la chiave su Postgres quando DATABASE_URL e'
+    impostata (radar_feed.json -> 'radar_feed'), altrimenti file locale -
+    stesso comportamento di prima, cosi' lo sviluppo senza DB configurato
+    non si rompe."""
+    if DATABASE_URL and psycopg2:
+        try:
+            with psycopg2.connect(DATABASE_URL) as conn:
+                _db_ensure_table(conn)
+                with conn.cursor() as cur:
+                    cur.execute("SELECT data FROM radar_state WHERE key = %s", (path.stem,))
+                    row = cur.fetchone()
+                    return row[0] if row else {}
+        except Exception:
+            return {}  # fonte non disponibile: mai un fallback silenzioso con dati vecchi/inventati
+
     if not path.exists():
         return {}
     try:
@@ -76,6 +118,24 @@ def _load_json(path: Path) -> dict:
 
 
 def _save_json(path: Path, data: dict):
+    if DATABASE_URL and psycopg2:
+        try:
+            with psycopg2.connect(DATABASE_URL) as conn:
+                _db_ensure_table(conn)
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO radar_state (key, data, updated_at)
+                        VALUES (%s, %s, now())
+                        ON CONFLICT (key) DO UPDATE SET data = EXCLUDED.data, updated_at = now()
+                        """,
+                        (path.stem, psycopg2.extras.Json(data)),
+                    )
+                conn.commit()
+            return
+        except Exception:
+            pass  # DB irraggiungibile in questo run: non blocca il refresh, scrive comunque su file locale
+
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
