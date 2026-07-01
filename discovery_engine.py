@@ -199,14 +199,27 @@ def _sparql_nationality_pool(country_qid: str, gender_qid: str) -> list[dict]:
 
 def fetch_nationality_players(cfg: dict) -> list[dict]:
     """Candidati per cittadinanza (una voce di config per paese, zero codice
-    da toccare per aggiungerne uno nuovo)."""
+    da toccare per aggiungerne uno nuovo). Le query girano in parallelo -
+    con piu' di una manciata di paesi in config farle in sequenza allungava
+    troppo un singolo refresh (verificato: ogni query pesa qualche secondo,
+    in sequenza 15 paesi diventano un minuto solo per questa fase)."""
+    pools = list((cfg["candidate_sources"].get("wikidata_nationalities") or {}).items())
     candidates = []
-    for pool_key, pool_cfg in (cfg["candidate_sources"].get("wikidata_nationalities") or {}).items():
-        rows = _sparql_nationality_pool(pool_cfg["country_qid"], pool_cfg["gender_qid"])
-        for row in rows:
-            row["tier"] = "nationality_pool"
-            row["nationality_label"] = pool_cfg.get("label", pool_key)
-            candidates.append(row)
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = {
+            executor.submit(_sparql_nationality_pool, pool_cfg["country_qid"], pool_cfg["gender_qid"]): (pool_key, pool_cfg)
+            for pool_key, pool_cfg in pools
+        }
+        for future in as_completed(futures):
+            pool_key, pool_cfg = futures[future]
+            try:
+                rows = future.result()
+            except Exception:
+                rows = []  # fonte non disponibile per questo paese in questo run
+            for row in rows:
+                row["tier"] = "nationality_pool"
+                row["nationality_label"] = pool_cfg.get("label", pool_key)
+                candidates.append(row)
     return candidates
 
 

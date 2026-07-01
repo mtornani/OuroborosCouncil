@@ -48,10 +48,93 @@ candidate_sources:
     # tier "nationality_pool" condivide un'unica eta' di riferimento generica
     # (vedi age_reference) perche' qui non si conosce il livello di lega per
     # la maggior parte dei candidati.
+    #
+    # % club = quota di candidati con un club corrente risolvibile su
+    # Wikidata (diagnostica live, python3 discovery_engine.py diagnose) -
+    # bassa % non vuol dire pochi giocatori, vuol dire "molti dati parziali,
+    # aspettati piu' flag DATI PARZIALI in UI per questo paese". Nessun
+    # pattern per continente/lingua: il Giappone copre meglio del Messico.
     portugal:
       label: "Portogallo"
       country_qid: "Q45"
-      gender_qid: "Q6581097"
+      gender_qid: "Q6581097"  # 500 candidati, 40% con club
+
+    usa:
+      label: "USA"
+      country_qid: "Q30"
+      gender_qid: "Q6581097"  # 278 candidati, 93% con club (ma spesso mostra
+      # la squadra universitaria NCAA invece del club pro - verificato live,
+      # e' come Wikidata registra le carriere USA, non un bug qui)
+
+    messico:
+      label: "Messico"
+      country_qid: "Q96"
+      gender_qid: "Q6581097"  # 435 candidati, 41% con club
+
+    nigeria:
+      label: "Nigeria"
+      country_qid: "Q1033"
+      gender_qid: "Q6581097"  # 354 candidati, 45% con club
+
+    senegal:
+      label: "Senegal"
+      country_qid: "Q1041"
+      gender_qid: "Q6581097"  # 209 candidati, 37% con club
+
+    ghana:
+      label: "Ghana"
+      country_qid: "Q117"
+      gender_qid: "Q6581097"  # 321 candidati, 34% con club
+
+    costa_avorio:
+      label: "Costa d'Avorio"
+      country_qid: "Q1008"
+      gender_qid: "Q6581097"  # 219 candidati, 40% con club
+
+    camerun:
+      label: "Camerun"
+      country_qid: "Q1009"
+      gender_qid: "Q6581097"  # 156 candidati, 46% con club
+
+    mali:
+      label: "Mali"
+      country_qid: "Q912"
+      gender_qid: "Q6581097"  # 114 candidati, 50% con club
+
+    marocco:
+      label: "Marocco"
+      country_qid: "Q1028"
+      gender_qid: "Q6581097"  # 264 candidati, 41% con club
+
+    egitto:
+      label: "Egitto"
+      country_qid: "Q79"
+      gender_qid: "Q6581097"  # 89 candidati, 25% con club (pool piu' piccola)
+
+    giappone:
+      label: "Giappone"
+      country_qid: "Q17"
+      gender_qid: "Q6581097"  # 446 candidati (di ~1450 reali), 76% con club
+
+    corea_del_sud:
+      label: "Corea del Sud"
+      country_qid: "Q884"
+      gender_qid: "Q6581097"  # 479 candidati (di ~776 reali), 23% con club
+
+    iran:
+      label: "Iran"
+      country_qid: "Q794"
+      gender_qid: "Q6581097"  # 187 candidati, 50% con club
+
+    australia:
+      label: "Australia"
+      country_qid: "Q408"
+      gender_qid: "Q6581097"  # 217 candidati, 39% con club
+
+    arabia_saudita:
+      label: "Arabia Saudita"
+      country_qid: "Q851"
+      gender_qid: "Q6581097"  # 417 candidati, 22% con club
 
   # Watchlist manuale: nomi che Mirko vuole SEMPRE nella pool, a prescindere
   # da cosa trovano le query automatiche (riuso di TRACKED_PLAYERS esistente
