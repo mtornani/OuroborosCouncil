@@ -173,6 +173,7 @@ def radar_feed():
                 "name": record["identity"].get("name"),
                 "club": record["identity"].get("club"),
                 "tier": record["identity"].get("tier"),
+                "nationality_label": record["identity"].get("nationality_label"),
                 "source": record["identity"].get("source"),
                 "signal_score": last.get("signal_score"),
                 "components": last.get("components"),

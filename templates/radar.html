@@ -306,9 +306,10 @@
             expanded: new Set(),
         };
 
-        function tierLabel(tier) {
+        function tierLabel(candidate) {
+            if (candidate.tier === "nationality_pool") return candidate.nationality_label || "Pool nazionalita'";
             return { serie_c: "Serie C", serie_d: "Serie D", conmebol_u20: "CONMEBOL U20",
-                      conmebol_u17: "CONMEBOL U17", watchlist: "Watchlist" }[tier] || tier || "N/D";
+                      conmebol_u17: "CONMEBOL U17", watchlist: "Watchlist" }[candidate.tier] || candidate.tier || "N/D";
         }
 
         function computeFitScore(candidate, profileKey) {
@@ -392,7 +393,7 @@
                             <div class="card-badge" style="background:${badge.color}"></div>
                             <div class="card-info">
                                 <div class="card-name">${c.name}</div>
-                                <div class="card-meta">${c.club || "club N/D"} · ${tierLabel(c.tier)}</div>
+                                <div class="card-meta">${c.club || "club N/D"} · ${tierLabel(c)}</div>
                                 ${c.partial_data ? '<div class="partial-flag">DATI PARZIALI</div>' : ""}
                             </div>
                             <div class="card-scores">

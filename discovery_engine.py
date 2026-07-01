@@ -76,6 +76,19 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+_BARE_QID_RE = re.compile(r"^Q\d+$")
+
+
+def _clean_label(value: str) -> str:
+    """SERVICE wikibase:label ripiega sul QID nudo (es. 'Q20053389') quando
+    l'entita' non ha un'etichetta in it/en (verificato live: club minori
+    senza pagina Wikipedia). Un QID mostrato come nome club confonderebbe
+    piu' di quanto aiuti - meglio trattarlo come dato mancante."""
+    if not value or _BARE_QID_RE.match(value):
+        return ""
+    return value
+
+
 # ============================================================
 # CANDIDATE POOL - Serie C/D via Wikidata SPARQL (verificato live)
 # ============================================================
@@ -111,7 +124,7 @@ def _sparql_current_squad(league_qid: str) -> list[dict]:
             {
                 "candidate_id": qid,
                 "name": row.get("playerLabel", {}).get("value", ""),
-                "club": row.get("clubLabel", {}).get("value", ""),
+                "club": _clean_label(row.get("clubLabel", {}).get("value", "")),
                 "dob": row.get("dob", {}).get("value", "")[:10] or None,
                 "source": "wikidata",
             }
@@ -127,6 +140,72 @@ def fetch_serie_players(cfg: dict) -> list[dict]:
         rows = _sparql_current_squad(league_cfg["qid"])
         for row in rows:
             row["tier"] = league_cfg["tier"]
+            candidates.append(row)
+    return candidates
+
+
+def _sparql_nationality_pool(country_qid: str, gender_qid: str) -> list[dict]:
+    """Ricerca PER CITTADINANZA, indipendente da dove il giocatore gioca ora
+    - query strutturalmente diversa da _sparql_current_squad (li' si parte
+    dal club, qui dalla persona). Il club e' OPTIONAL: verificato live che
+    la maggior parte dei candidati non ha un club corrente risolvibile su
+    Wikidata (23/30 nel test Portogallo) - restano candidati validi lo
+    stesso, con dati parziali. Il filtro di genere (P21) e' obbligatorio:
+    verificato live che senza non torna quasi altro che calciatrici donne
+    per questo taglio d'eta'."""
+    query = f"""
+    SELECT ?player ?playerLabel ?club ?clubLabel ?dob WHERE {{
+      ?player wdt:P27 wd:{country_qid} .
+      ?player wdt:P106 wd:Q937857 .
+      ?player wdt:P21 wd:{gender_qid} .
+      ?player wdt:P569 ?dob .
+      FILTER(YEAR(?dob) >= {MIN_BIRTH_YEAR})
+      OPTIONAL {{
+        ?player p:P54 ?membership .
+        ?membership ps:P54 ?club .
+        FILTER NOT EXISTS {{ ?membership pq:P582 ?endTime . }}
+        # esclude le nazionali dal binding "club" - verificato live: senza
+        # questo filtro un giocatore convocato risultava due volte, una con
+        # il club vero e una con "nazionale di calcio del Portogallo" come
+        # se fosse un club (P54 vale anche per le convocazioni in nazionale)
+        FILTER NOT EXISTS {{ ?club wdt:P31/wdt:P279* wd:Q6979593 . }}
+      }}
+      SERVICE wikibase:label {{ bd:serviceParam wikibase:language "it,en". }}
+    }}
+    LIMIT 500
+    """
+    url = WIKIDATA_SPARQL_ENDPOINT + "?" + urllib.parse.urlencode({"query": query, "format": "json"})
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.load(resp)
+    except Exception:
+        return []
+
+    out = []
+    for row in data.get("results", {}).get("bindings", []):
+        qid = row["player"]["value"].rsplit("/", 1)[-1]
+        out.append(
+            {
+                "candidate_id": qid,
+                "name": row.get("playerLabel", {}).get("value", ""),
+                "club": _clean_label(row.get("clubLabel", {}).get("value", "")),
+                "dob": row.get("dob", {}).get("value", "")[:10] or None,
+                "source": "wikidata",
+            }
+        )
+    return out
+
+
+def fetch_nationality_players(cfg: dict) -> list[dict]:
+    """Candidati per cittadinanza (una voce di config per paese, zero codice
+    da toccare per aggiungerne uno nuovo)."""
+    candidates = []
+    for pool_key, pool_cfg in (cfg["candidate_sources"].get("wikidata_nationalities") or {}).items():
+        rows = _sparql_nationality_pool(pool_cfg["country_qid"], pool_cfg["gender_qid"])
+        for row in rows:
+            row["tier"] = "nationality_pool"
+            row["nationality_label"] = pool_cfg.get("label", pool_key)
             candidates.append(row)
     return candidates
 
@@ -213,7 +292,12 @@ def fetch_watchlist_candidates(cfg: dict) -> list[dict]:
 
 
 def fetch_candidate_pool(cfg: dict) -> list[dict]:
-    pool = fetch_serie_players(cfg) + fetch_conmebol_squads(cfg) + fetch_watchlist_candidates(cfg)
+    pool = (
+        fetch_serie_players(cfg)
+        + fetch_conmebol_squads(cfg)
+        + fetch_nationality_players(cfg)
+        + fetch_watchlist_candidates(cfg)
+    )
     seen = {}
     for c in pool:
         seen[c["candidate_id"]] = c  # dedup per candidate_id, ultima occorrenza vince
@@ -560,6 +644,7 @@ def refresh_radar(profile_key: str = "tactical_profile") -> dict:
                 "name": e["candidate"]["name"],
                 "club": e["candidate"].get("club"),
                 "tier": e["candidate"].get("tier"),
+                "nationality_label": e["candidate"].get("nationality_label"),
                 "source": e["candidate"].get("source"),
                 "signal_score": e["signal"]["signal_score"],
                 "components": e["signal"]["components"],

@@ -3,14 +3,26 @@
 # Aggiornato: 2026-07-01
 
 # --- Universo dei candidati ---------------------------------------------
-# Due meccanismi diversi perché i dati liberi disponibili sono diversi:
-# - Serie C/D: Wikidata ha rose strutturate e interrogabili via SPARQL
-#   (verificato con query live: club "in lega" P118 + membership P54 corrente).
+# Ogni "biblioteca" ha un'indicizzazione diversa - usare la stessa strategia
+# di ricerca ovunque produce falsi negativi sistematici, non perche' i dati
+# non ci siano ma perche' si cerca con l'approccio sbagliato per quel
+# contesto. Tre meccanismi diversi, ciascuno verificato live prima di essere
+# scritto (non per ipotesi):
+# - Serie C/D: ricerca PER LEGA - Wikidata ha rose strutturate interrogabili
+#   via SPARQL (club "in lega" P118 + membership P54 corrente).
 # - Giovanili sudamericane: Wikidata NON ha dati strutturati per le rose dei
 #   tornei CONMEBOL (verificato: la pagina Wikidata e' solo un placeholder
 #   senza claim utili). I dati veri stanno nel testo della pagina Wikipedia
-#   corrispondente, in un formato a template regex-estraibile (verificato
-#   live sulla pagina "2025 South American U-20 Championship squads").
+#   corrispondente, in un formato a template regex-estraibile.
+# - Pool per cittadinanza: ricerca PER NAZIONALITA', indipendente da dove il
+#   giocatore gioca ora (query completamente diversa dalla ricerca per lega -
+#   serve quando la domanda e' "chi e' portoghese/eleggibile", non "chi gioca
+#   nel campionato portoghese"). ATTENZIONE verificata live: senza il filtro
+#   di genere (P21) la query restituisce quasi solo calciatrici donne per
+#   questo taglio d'eta' - il filtro genere e' obbligatorio, non opzionale.
+#   Molti risultati non hanno un club corrente risolvibile su Wikidata
+#   (verificato: 23 su 30 nel test Portogallo) - normale per questa
+#   "biblioteca", non un errore: restano candidati validi con dati parziali.
 candidate_sources:
   wikidata_leagues:
     # QID Wikidata delle leghe (stabili, non serve aggiornarli a stagione)
@@ -29,6 +41,17 @@ candidate_sources:
       tier: conmebol_u20
     - title: "2025 South American U-17 Championship squads"
       tier: conmebol_u17
+
+  wikidata_nationalities:
+    # Aggiungere un paese = una voce qui, zero codice da toccare. QID paese
+    # + QID genere (Q6581097 maschile, Q6581072 femminile) da wikidata.org.
+    # tier "nationality_pool" condivide un'unica eta' di riferimento generica
+    # (vedi age_reference) perche' qui non si conosce il livello di lega per
+    # la maggior parte dei candidati.
+    portugal:
+      label: "Portogallo"
+      country_qid: "Q45"
+      gender_qid: "Q6581097"
 
   # Watchlist manuale: nomi che Mirko vuole SEMPRE nella pool, a prescindere
   # da cosa trovano le query automatiche (riuso di TRACKED_PLAYERS esistente
@@ -67,6 +90,13 @@ age_reference:
   conmebol_u17:
     reference_age: 16
     spread_years: 1.5
+  nationality_pool:
+    # spread piu' ampio degli altri tier: qui non si conosce il livello di
+    # lega esatto per la maggior parte dei candidati (verificato: club
+    # corrente risolvibile su Wikidata solo per una minoranza), quindi si
+    # accetta una finestra piu' larga invece di finti falsi negativi
+    reference_age: 20
+    spread_years: 5
 
 # --- Layer A: pesi del Signal Score ---------------------------------------
 # 50/50 e' un punto di partenza dichiarato, NON un valore validato: con solo
@@ -120,7 +150,7 @@ purpose_profiles:
     weight_multipliers:
       age_vs_level: 1.3
       buzz: 1.2
-    max_tier: [serie_c, serie_d, conmebol_u20, conmebol_u17]
+    max_tier: [serie_c, serie_d, conmebol_u20, conmebol_u17, nationality_pool]
 
   first_team_need:
     label: "Rosa Serie C"
@@ -128,6 +158,8 @@ purpose_profiles:
     weight_multipliers:
       age_vs_level: 1.0
       buzz: 0.7
+    # esclude nationality_pool: qui serve chi puo' giocare in Serie C ORA,
+    # non un pool sparso ovunque nel mondo senza club noto
     max_tier: [serie_c, serie_d]
 
   tactical_profile:
@@ -136,7 +168,7 @@ purpose_profiles:
     weight_multipliers:
       age_vs_level: 1.0
       buzz: 1.0
-    max_tier: [serie_c, serie_d, conmebol_u20, conmebol_u17]
+    max_tier: [serie_c, serie_d, conmebol_u20, conmebol_u17, nationality_pool]
 
   fsgc_oriundi:
     label: "Oriundi FSGC"
@@ -144,7 +176,7 @@ purpose_profiles:
     weight_multipliers:
       age_vs_level: 0.8
       buzz: 0.8
-    max_tier: [serie_c, serie_d, conmebol_u20, conmebol_u17]
+    max_tier: [serie_c, serie_d, conmebol_u20, conmebol_u17, nationality_pool]
     restrict_to_watchlist: fsgc_oriundi_watchlist
 
 # --- Swarm dossier ----------------------------------------------------------
