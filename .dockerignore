@@ -1,0 +1,19 @@
+.git
+.github
+.claude
+.env
+__pycache__
+*.pyc
+radar_feed.json
+buzz_history.json
+web_intel.json
+telegram_sent.json
+state.json
+
+# Progetto C#/.NET del widget desktop, non serve all'app Flask
+MissMinuteJarvis
+
+# Script Windows-only, non servono nel container Linux
+*.bat
+*.ps1
+*.vbs
