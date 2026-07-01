@@ -40,6 +40,10 @@ WIKIPEDIA_API = "https://en.wikipedia.org/w/api.php"
 # tarare in continuazione - resta nel codice, non in radar_config.yaml).
 MIN_BIRTH_YEAR = 1999
 
+# Classe Wikidata "reserve team" (verificato live su Juventus Next Gen) -
+# costante strutturale, non un peso da tarare, resta nel codice.
+RESERVE_TEAM_QID = "Q2412834"
+
 DEFAULT_FALLBACK_MODEL = "google/gemini-2.0-flash-lite-preview-02-05:free"
 
 
@@ -130,9 +134,17 @@ def _sparql_current_squad(league_qid: str) -> list[dict]:
     """Rosa corrente di una lega Wikidata (P118) via appartenenza club (P54)
     senza data di fine (FILTER NOT EXISTS end time) - approccio verificato
     con query reale prima di scrivere questo codice."""
+    # RESERVE_TEAM_QID (Q2412834, "reserve team") individua le squadre
+    # Next Gen/U23 via classe Wikidata, non per nome - verificato live che
+    # "Juventus Next Gen" e' l'unica in Serie C ora, ma il meccanismo regge
+    # se ne arrivano altre (es. un domani Atalanta U23). In questi club
+    # l'eta' bassa e' un requisito di regolamento (obbligo U21), non un
+    # segnale raro - da solo il Signal Score la trattava come rara (finche'
+    # il primo dossier reale del Giudice non l'ha segnalato).
     query = f"""
-    SELECT ?player ?playerLabel ?club ?clubLabel ?posLabel ?dob WHERE {{
+    SELECT ?player ?playerLabel ?club ?clubLabel ?posLabel ?dob ?isReserve WHERE {{
       ?club wdt:P118 wd:{league_qid} .
+      BIND(EXISTS {{ ?club wdt:P31/wdt:P279* wd:{RESERVE_TEAM_QID} }} AS ?isReserve)
       ?player p:P54 ?membership .
       ?membership ps:P54 ?club .
       FILTER NOT EXISTS {{ ?membership pq:P582 ?endTime . }}
@@ -162,6 +174,7 @@ def _sparql_current_squad(league_qid: str) -> list[dict]:
                 "role": _normalize_role(row.get("posLabel", {}).get("value", "")),
                 "dob": row.get("dob", {}).get("value", "")[:10] or None,
                 "source": "wikidata",
+                "is_reserve": row.get("isReserve", {}).get("value") == "true",
             }
         )
     return out
@@ -174,7 +187,7 @@ def fetch_serie_players(cfg: dict) -> list[dict]:
     for league_key, league_cfg in cfg["candidate_sources"]["wikidata_leagues"].items():
         rows = _sparql_current_squad(league_cfg["qid"])
         for row in rows:
-            row["tier"] = league_cfg["tier"]
+            row["tier"] = f"{league_cfg['tier']}_riserve" if row.pop("is_reserve", False) else league_cfg["tier"]
             candidates.append(row)
     return candidates
 
@@ -473,6 +486,28 @@ def buzz_score(candidate: dict, history: dict, cfg: dict) -> dict:
 # LAYER A - Signal Score combinato
 # ============================================================
 
+def _needs_more_signal(score_result: dict) -> bool:
+    """Un solo componente disponibile E gia' saturo (>=0.9) non basta come
+    evidenza per un dossier - lo dice il primo verdetto reale del Giudice
+    (Deinner Ordonez, signal 100 basato solo su eta': 'punteggio 100 e' un
+    puro artefatto anagrafico... segnale vuoto ad alta rumorosita'')."""
+    components = score_result.get("components", {})
+    if len(components) != 1:
+        return False
+    (value,) = components.values()
+    return value >= 0.9
+
+
+def _weights_for_tier(cfg: dict, tier: str) -> dict:
+    """Pesi del Signal Score per tier, con fallback su 'default'. Serve per
+    le squadre riserve (vedi RESERVE_TEAM_QID): li' l'eta' bassa e' un
+    requisito di regolamento, non un segnale raro, quindi pesa molto meno
+    li' che altrove - verificato dal Giudice sulla prima run reale, non
+    per ipotesi."""
+    weights_cfg = cfg["signal_score_weights"]
+    return weights_cfg.get(tier, weights_cfg["default"])
+
+
 def signal_score(candidate: dict, cfg: dict, buzz: dict | None) -> dict:
     """buzz=None significa 'non controllato in questo run' (candidato fuori
     dal sottoinsieme su cui si fa il check di rete, vedi performance.
@@ -481,7 +516,7 @@ def signal_score(candidate: dict, cfg: dict, buzz: dict | None) -> dict:
     buzz = buzz or {"score": None, "available": False, "reason": "non controllato in questo run"}
     buzz_component = buzz["score"] if buzz["available"] else None
 
-    weights = cfg["signal_score_weights"]
+    weights = _weights_for_tier(cfg, candidate.get("tier"))
     components = {}
     if age_component is not None:
         components["age_vs_level"] = age_component
@@ -523,7 +558,7 @@ def fit_score(candidate: dict, score_result: dict, profile_key: str, cfg: dict) 
         if slugify(candidate["name"]) not in allowed:
             return None
 
-    weights = cfg["signal_score_weights"]
+    weights = _weights_for_tier(cfg, candidate.get("tier"))
     multipliers = profile.get("weight_multipliers", {})
     components = score_result["components"]
     total_weight = sum(weights[k] * multipliers.get(k, 1.0) for k in components)
@@ -673,7 +708,16 @@ def refresh_radar(profile_key: str = "tactical_profile") -> dict:
     top_n = cfg["swarm"]["top_n_candidates_for_swarm"]
     threshold = cfg["swarm"]["rerun_threshold_points"]
 
-    for entry in ranked[:top_n]:
+    # Un solo componente disponibile E gia' saturo (es. solo eta', al
+    # tetto) non basta per giustificare un dossier: verificato dal Giudice
+    # sulla prima run reale ("punteggio 100 e' un puro artefatto
+    # anagrafico... segnale vuoto ad alta rumorosita'", su Deinner
+    # Ordonez). Si salta la generazione per questi candidati - lo slot
+    # libero va al prossimo in classifica, invece di sprecare 4 chiamate
+    # AI su un verdetto gia' prevedibile.
+    swarm_candidates = [e for e in ranked if not _needs_more_signal(e["signal"])]
+
+    for entry in swarm_candidates[:top_n]:
         cid = entry["candidate"]["candidate_id"]
         existing = feed.get(cid, {})
         last_dossier = existing.get("dossier")
@@ -692,6 +736,13 @@ def refresh_radar(profile_key: str = "tactical_profile") -> dict:
                 entry["dossier"] = {"error": f"Dossier AI non disponibile: {e}"}
         else:
             entry["dossier"] = last_dossier
+
+    for entry in ranked:
+        if "dossier" not in entry and _needs_more_signal(entry["signal"]):
+            entry["dossier"] = {
+                "skipped": "Segnale singolo e gia' al tetto (es. solo eta'-relativa, senza buzz a corroborare): "
+                           "serve un altro segnale prima di spendere un dossier AI, non solo un numero alto."
+            }
 
     # persistenza append-only: uno storico di punteggi per candidato, mai
     # sovrascritto - e' l'unico modo per verificare nel tempo se il segnale

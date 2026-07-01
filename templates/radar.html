@@ -415,7 +415,9 @@
 
         function tierLabel(candidate) {
             if (candidate.tier === "nationality_pool") return candidate.nationality_label || "Pool nazionalita'";
-            return { serie_c: "Serie C", serie_d: "Serie D", conmebol_u20: "CONMEBOL U20",
+            return { serie_c: "Serie C", serie_d: "Serie D",
+                      serie_c_riserve: "Serie C (riserve)", serie_d_riserve: "Serie D (riserve)",
+                      conmebol_u20: "CONMEBOL U20",
                       conmebol_u17: "CONMEBOL U17", watchlist: "Watchlist" }[candidate.tier] || candidate.tier || "N/D";
         }
 
@@ -437,7 +439,11 @@
             if (!candidate.components || Object.keys(candidate.components).length === 0) return null;
             if (!state.config) return candidate.fit_score;
             const profile = state.config.purpose_profiles[profileKey];
-            const weights = state.config.signal_score_weights;
+            // pesi per tier con fallback su "default" - stessa logica di
+            // discovery_engine._weights_for_tier (squadre riserve pesano
+            // l'eta' molto meno: e' un requisito di regolamento li', non
+            // un segnale raro)
+            const weights = state.config.signal_score_weights[candidate.tier] || state.config.signal_score_weights.default;
             if (!profile) return candidate.fit_score;
 
             // filtri rigidi del profilo, replicati lato client (stessa logica
@@ -460,6 +466,7 @@
         function verdictBadge(candidate) {
             const dossier = candidate.dossier;
             if (!dossier) return { color: "var(--accent-low)", text: "IN CODA" };
+            if (dossier.skipped) return { color: "var(--accent-mid)", text: "SERVE ALTRO SEGNALE" };
             if (dossier.error) return { color: "var(--accent-low)", text: "DOSSIER N/D" };
             const g = dossier.giudice || {};
             if (g.vale_la_pena === true) return { color: "var(--accent-high)", text: "DA SEGUIRE" };
@@ -470,6 +477,7 @@
         function renderDossier(candidate) {
             const d = candidate.dossier;
             if (!d) return '<div class="dossier-error">Ancora nessun dossier per questo candidato (fuori dal top N di questo giro, o in attesa del prossimo Aggiorna).</div>';
+            if (d.skipped) return `<div class="dossier-error">${d.skipped}</div>`;
             if (d.error) return `<div class="dossier-error">${d.error}</div>`;
             const g = d.giudice || {};
             const verdictText = g.vale_la_pena === true ? "Vale la pena seguirlo ora"
