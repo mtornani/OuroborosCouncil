@@ -27,6 +27,7 @@ import yaml
 from monitor.web_monitor import search_google_news, deduplicate_signals
 from openrouter_client import call_openrouter, get_available_models
 from nvidia_client import call_nvidia, get_available_models as get_available_nvidia_models
+from gemini_client import call_gemini, get_available_models as get_available_gemini_models
 
 try:
     import psycopg2
@@ -682,14 +683,18 @@ _ROLES = {
 
 
 def _candidate_models() -> list[tuple]:
-    """OpenRouter provato per primo (provider gia' cablato da sempre), NVIDIA
-    NIM come riserva vera se impostata (NVIDIA_API_KEY in .env) - non solo
-    un test isolato, un secondo provider genuino nella stessa catena di
-    fallback. Verificato dal vivo quali modelli NVIDIA rispondono per
-    davvero prima di fidarsene (nvidia_client.VERIFIED_MODELS: il catalogo
-    /v1/models ne mostra 121, ma non tutti sono abilitati per ogni account -
-    alcuni danno 404 'Not found for account' nonostante compaiano li')."""
-    pool = [(call_openrouter, m["id"]) for m in get_available_models()[:5]]
+    """Gemini provato per primo (quota per-progetto Google, piu' prevedibile
+    della pool free community di OpenRouter che ci ha gia' bloccato con un
+    limite giornaliero condiviso sull'intero account), poi OpenRouter, poi
+    NVIDIA NIM come ultima riserva. Tre provider genuini nella stessa catena
+    di fallback, non un test isolato. Verificato dal vivo quali modelli
+    rispondono per davvero prima di fidarsene, per ciascuno: ne' il catalogo
+    OpenRouter (includeva modelli non testuali) ne' quello NVIDIA (121
+    modelli elencati, molti 404 'Not found for account') ne' quello Gemini
+    (gemini-2.0-flash/-lite danno 429 'limit: 0' su questo progetto) erano
+    affidabili solo perche' elencati."""
+    pool = [(call_gemini, m["id"]) for m in get_available_gemini_models()]
+    pool += [(call_openrouter, m["id"]) for m in get_available_models()[:5]]
     pool += [(call_nvidia, m["id"]) for m in get_available_nvidia_models()]
     return pool or [(call_openrouter, DEFAULT_FALLBACK_MODEL)]
 
@@ -740,7 +745,7 @@ def run_swarm_dossier(candidate: dict, score_result: dict) -> dict:
         "generated_at": _now_iso(),
         "signal_score_at_generation": score_result.get("signal_score"),
         "model": model,
-        "provider": "nvidia" if call_fn is call_nvidia else "openrouter",
+        "provider": {call_gemini: "gemini", call_nvidia: "nvidia"}.get(call_fn, "openrouter"),
         "cronista": cronista,
         "verificatore": verificatore,
         "scettico": scettico,
