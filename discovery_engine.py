@@ -1,0 +1,576 @@
+"""OB1 Radar - motore di discovery talenti.
+
+Trova candidati PRIMA che diventino notizia (non fact-checka notizie gia'
+uscite). Due meccanismi di enumerazione verificati live (non ipotizzati):
+- Serie C/D italiana: Wikidata SPARQL (dati strutturati, rose correnti).
+- Giovanili sudamericane CONMEBOL: parsing del testo Wikipedia delle rose
+  (Wikidata non ha dati strutturati per queste pagine, verificato).
+Il segnale differenziante e' il Buzz Score: velocita' di menzione in fonti
+di nicchia PRIMA che la stampa mainstream se ne accorga.
+
+ZERO dati inventati: se una fonte non risponde o un dato manca, si segnala
+esplicitamente ("fonte non disponibile" / flag "dati parziali"), mai un
+numero stimato spacciato per reale. Stessa regola gia' in monitor/web_monitor.py.
+"""
+import json
+import re
+import unicodedata
+import urllib.parse
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
+from pathlib import Path
+
+import yaml
+
+from monitor.web_monitor import search_google_news, deduplicate_signals
+from openrouter_client import call_openrouter, get_available_models
+
+BASE_DIR = Path(__file__).resolve().parent
+CONFIG_FILE = BASE_DIR / "radar_config.yaml"
+FEED_FILE = BASE_DIR / "radar_feed.json"
+BUZZ_HISTORY_FILE = BASE_DIR / "buzz_history.json"
+
+USER_AGENT = "OB1Radar/0.1 (contact: mirko-tornani-ai-lab.com)"
+WIKIDATA_SPARQL_ENDPOINT = "https://query.wikidata.org/sparql"
+WIKIPEDIA_API = "https://en.wikipedia.org/w/api.php"
+
+# Solo giocatori nati da questo anno in poi: e' un radar di talenti giovani,
+# non un archivio storico dei club (costante strutturale, non un peso da
+# tarare in continuazione - resta nel codice, non in radar_config.yaml).
+MIN_BIRTH_YEAR = 1999
+
+DEFAULT_FALLBACK_MODEL = "google/gemini-2.0-flash-lite-preview-02-05:free"
+
+
+# ============================================================
+# CONFIG / STATO
+# ============================================================
+
+def load_config() -> dict:
+    with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+def _load_json(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_json(path: Path, data: dict):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+def slugify(name: str) -> str:
+    normalized = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z0-9]+", "-", normalized.lower()).strip("-")
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+# ============================================================
+# CANDIDATE POOL - Serie C/D via Wikidata SPARQL (verificato live)
+# ============================================================
+
+def _sparql_current_squad(league_qid: str) -> list[dict]:
+    """Rosa corrente di una lega Wikidata (P118) via appartenenza club (P54)
+    senza data di fine (FILTER NOT EXISTS end time) - approccio verificato
+    con query reale prima di scrivere questo codice."""
+    query = f"""
+    SELECT ?player ?playerLabel ?club ?clubLabel ?dob WHERE {{
+      ?club wdt:P118 wd:{league_qid} .
+      ?player p:P54 ?membership .
+      ?membership ps:P54 ?club .
+      FILTER NOT EXISTS {{ ?membership pq:P582 ?endTime . }}
+      ?player wdt:P569 ?dob .
+      FILTER(YEAR(?dob) >= {MIN_BIRTH_YEAR})
+      SERVICE wikibase:label {{ bd:serviceParam wikibase:language "it,en". }}
+    }}
+    LIMIT 500
+    """
+    url = WIKIDATA_SPARQL_ENDPOINT + "?" + urllib.parse.urlencode({"query": query, "format": "json"})
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.load(resp)
+    except Exception:
+        return []
+
+    out = []
+    for row in data.get("results", {}).get("bindings", []):
+        qid = row["player"]["value"].rsplit("/", 1)[-1]
+        out.append(
+            {
+                "candidate_id": qid,
+                "name": row.get("playerLabel", {}).get("value", ""),
+                "club": row.get("clubLabel", {}).get("value", ""),
+                "dob": row.get("dob", {}).get("value", "")[:10] or None,
+                "source": "wikidata",
+            }
+        )
+    return out
+
+
+def fetch_serie_players(cfg: dict) -> list[dict]:
+    """Candidati Serie C/D. Se Wikidata non risponde: lista vuota per
+    quella lega, mai un fallback silenzioso con dati inventati."""
+    candidates = []
+    for league_key, league_cfg in cfg["candidate_sources"]["wikidata_leagues"].items():
+        rows = _sparql_current_squad(league_cfg["qid"])
+        for row in rows:
+            row["tier"] = league_cfg["tier"]
+            candidates.append(row)
+    return candidates
+
+
+# ============================================================
+# CANDIDATE POOL - giovanili CONMEBOL via parsing Wikipedia (verificato live)
+# ============================================================
+
+_NAT_FS_PLAYER_RE = re.compile(
+    r"\{\{nat fs player[^|]*\|"
+    r"(?:[^}]*?\|)?pos=(?P<pos>\w+)\|"
+    r"name=(?:'''?)?\[\[(?P<name>[^\]|]+)(?:\|[^\]]+)?\]\](?:'''?)?\|"
+    r"age=\{\{birth date and age2\|\d+\|\d+\|\d+\|(?P<by>\d+)\|(?P<bm>\d+)\|(?P<bd>\d+)"
+    r"[^}]*\}\}\|"
+    r"club=(?:\[\[(?P<club>[^\]|]+)(?:\|[^\]]+)?\]\]|(?P<club_plain>[^|}]+))",
+    re.IGNORECASE,
+)
+
+
+def _fetch_wikipedia_wikitext(title: str) -> str | None:
+    url = WIKIPEDIA_API + "?" + urllib.parse.urlencode(
+        {"action": "parse", "page": title, "prop": "wikitext", "format": "json"}
+    )
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            data = json.load(resp)
+        return data["parse"]["wikitext"]["*"]
+    except Exception:
+        return None
+
+
+def fetch_conmebol_squads(cfg: dict) -> list[dict]:
+    """Candidati dai tornei giovanili CONMEBOL. Wikidata non ha dati
+    strutturati per queste rose (verificato: nessun claim utile sull'item
+    della lista) - qui si parsa il testo Wikipedia (template regex-estraibile,
+    verificato sulla pagina 2025 South American U-20 Championship squads)."""
+    candidates = []
+    for page in cfg["candidate_sources"]["wikipedia_youth_squads"]:
+        wikitext = _fetch_wikipedia_wikitext(page["title"])
+        if not wikitext:
+            continue  # fonte non disponibile per questa pagina, si salta
+        for m in _NAT_FS_PLAYER_RE.finditer(wikitext):
+            try:
+                birth_year = int(m.group("by"))
+            except (TypeError, ValueError):
+                continue
+            if birth_year < MIN_BIRTH_YEAR:
+                continue
+            name = m.group("name")
+            club = m.group("club") or m.group("club_plain") or ""
+            candidates.append(
+                {
+                    "candidate_id": f"wp-{slugify(name)}-{page['tier']}",
+                    "name": name,
+                    "club": club.strip(),
+                    "dob": f"{m.group('by')}-{int(m.group('bm')):02d}-{int(m.group('bd')):02d}",
+                    "tier": page["tier"],
+                    "source": "wikipedia",
+                }
+            )
+    return candidates
+
+
+# ============================================================
+# CANDIDATE POOL - watchlist manuale
+# ============================================================
+
+def fetch_watchlist_candidates(cfg: dict) -> list[dict]:
+    """Nomi che Mirko vuole sempre in pool. Nessuna data di nascita
+    strutturata disponibile per questi (sono nomi, non QID) - il loro
+    Signal Score restera' marcato 'dati parziali' finche' non arriva
+    almeno il segnale di buzz."""
+    out = []
+    names = list(cfg["candidate_sources"]["manual_watchlist"])
+    oriundi = cfg["candidate_sources"].get("fsgc_oriundi_watchlist") or []
+    for name in names:
+        out.append({"candidate_id": f"watch-{slugify(name)}", "name": name, "club": "",
+                     "dob": None, "tier": "watchlist", "source": "manual_watchlist"})
+    for name in oriundi:
+        out.append({"candidate_id": f"oriundi-{slugify(name)}", "name": name, "club": "",
+                     "dob": None, "tier": "watchlist", "source": "fsgc_oriundi_watchlist"})
+    return out
+
+
+def fetch_candidate_pool(cfg: dict) -> list[dict]:
+    pool = fetch_serie_players(cfg) + fetch_conmebol_squads(cfg) + fetch_watchlist_candidates(cfg)
+    seen = {}
+    for c in pool:
+        seen[c["candidate_id"]] = c  # dedup per candidate_id, ultima occorrenza vince
+    return list(seen.values())
+
+
+# ============================================================
+# LAYER A - eta' relativa al livello
+# ============================================================
+
+def age_vs_level_score(candidate: dict, cfg: dict) -> float | None:
+    """None = dato non disponibile (mai un numero inventato)."""
+    dob = candidate.get("dob")
+    tier = candidate.get("tier")
+    ref = cfg["age_reference"].get(tier)
+    if not dob or not ref:
+        return None
+    try:
+        birth = datetime.fromisoformat(dob)
+    except ValueError:
+        return None
+    age_years = (datetime.now() - birth).days / 365.25
+    years_below = ref["reference_age"] - age_years
+    # normalizzato 0-1, satura oltre spread_years - non premia all'infinito
+    # un'eta' improbabile (bug di scala)
+    return max(0.0, min(1.0, years_below / ref["spread_years"]))
+
+
+# ============================================================
+# LAYER A - buzz precoce
+# ============================================================
+
+def _publisher_of(title: str) -> str:
+    """Google News RSS mette il link di redirect (news.google.com/...), non
+    l'URL reale della testata (verificato live) - il nome della testata sta
+    invece in coda al titolo: "Headline - Nome Testata"."""
+    if " - " not in title:
+        return title.strip()
+    return title.rsplit(" - ", 1)[-1].strip()
+
+
+def _source_tier(publisher: str, cfg: dict) -> int:
+    tiers = cfg["source_tiers"]
+    publisher_lower = publisher.lower()
+    if any(publisher_lower == t.lower() for t in (tiers.get("tier_1") or [])):
+        return 1
+    if any(publisher_lower == t.lower() for t in (tiers.get("tier_2") or [])):
+        return 2
+    return 3  # default: fonte di nicchia, e' li' che nasce il segnale
+
+
+def buzz_score(candidate: dict, history: dict, cfg: dict) -> dict:
+    """Ritorna dict con 'score' (0-1 o None) e i dettagli per la UI/storico.
+    Cold start esplicito: al primo run per un candidato la velocita' non e'
+    calcolabile (nessun run precedente) -> il buzz intero e' 'non ancora
+    disponibile', non un numero stimato."""
+    candidate_id = candidate["candidate_id"]
+    prior_runs = history.get(candidate_id, {}).get("runs", [])
+    is_cold_start = len(prior_runs) == 0
+
+    query = f'"{candidate["name"]}" "{candidate["club"]}"' if candidate.get("club") else f'"{candidate["name"]}"'
+    results = search_google_news(query, max_results=8)
+    results = [r for r in results if "error" not in r]
+
+    publishers = [_publisher_of(r["title"]) for r in results if r.get("title")]
+    tiers_seen = [_source_tier(p, cfg) for p in publishers]
+    mention_count = len(results)
+
+    run_snapshot = {"run_at": _now_iso(), "mention_count": mention_count,
+                     "publishers": publishers, "tier1_present": 1 in tiers_seen}
+
+    if is_cold_start:
+        return {"score": None, "available": False, "reason": "primo run, nessuno storico",
+                "mention_count": mention_count, "snapshot": run_snapshot}
+
+    bw = cfg["buzz_weights"]
+    sub_scores = {}
+
+    # velocita': delta rispetto all'ultimo run disponibile
+    last = prior_runs[-1]
+    velocity_raw = mention_count - last.get("mention_count", 0)
+    sub_scores["velocity"] = max(0.0, min(1.0, velocity_raw / 5.0))
+
+    # tier delle fonti: media pesata verso il tier 3 (nicchia)
+    if mention_count > 0:
+        tier_weight = {1: 0.1, 2: 0.5, 3: 1.0}
+        niche = sum(tier_weight[t] for t in tiers_seen) / mention_count
+        if mention_count > bw["mainstream_mention_threshold"]:
+            niche *= 0.3  # gia' mainstream, il vantaggio e' sfumato
+        sub_scores["niche_source_tier"] = niche
+    else:
+        sub_scores["niche_source_tier"] = 0.0
+
+    # diffusione geografica: prima volta che compare una fonte tier-1
+    # dopo che nei run precedenti non ce n'era nessuna
+    had_tier1_before = any(r.get("tier1_present") for r in prior_runs)
+    sub_scores["geographic_crossing"] = 1.0 if (1 in tiers_seen and not had_tier1_before) else 0.0
+
+    total_weight = sum(bw[k] for k in sub_scores)
+    score = sum(sub_scores[k] * bw[k] for k in sub_scores) / total_weight if total_weight else 0.0
+
+    return {"score": score, "available": True, "sub_scores": sub_scores,
+            "mention_count": mention_count, "snapshot": run_snapshot}
+
+
+# ============================================================
+# LAYER A - Signal Score combinato
+# ============================================================
+
+def signal_score(candidate: dict, cfg: dict, buzz: dict | None) -> dict:
+    """buzz=None significa 'non controllato in questo run' (candidato fuori
+    dal sottoinsieme su cui si fa il check di rete, vedi performance.
+    buzz_check_pool_size) - trattato come dato mancante, mai come zero."""
+    age_component = age_vs_level_score(candidate, cfg)
+    buzz = buzz or {"score": None, "available": False, "reason": "non controllato in questo run"}
+    buzz_component = buzz["score"] if buzz["available"] else None
+
+    weights = cfg["signal_score_weights"]
+    components = {}
+    if age_component is not None:
+        components["age_vs_level"] = age_component
+    if buzz_component is not None:
+        components["buzz"] = buzz_component
+
+    if not components:
+        return {"signal_score": None, "components": {}, "partial_data": True,
+                "excluded": True, "buzz_detail": buzz}
+
+    total_weight = sum(weights[k] for k in components)
+    combined = sum(components[k] * weights[k] for k in components) / total_weight
+    return {
+        "signal_score": round(combined * 100, 1),
+        "components": components,
+        "partial_data": len(components) < 2,
+        "excluded": False,
+        "buzz_detail": buzz,
+    }
+
+
+# ============================================================
+# LAYER B - Fit Score contestuale
+# ============================================================
+
+def fit_score(candidate: dict, score_result: dict, profile_key: str, cfg: dict) -> dict | None:
+    """None = il candidato non passa i filtri del profilo (non entra in lista)."""
+    if score_result["excluded"]:
+        return None
+
+    profile = cfg["purpose_profiles"].get(profile_key) or next(iter(cfg["purpose_profiles"].values()))
+
+    if candidate.get("tier") not in profile.get("max_tier", []):
+        return None
+
+    watchlist_key = profile.get("restrict_to_watchlist")
+    if watchlist_key:
+        allowed = {slugify(n) for n in (cfg["candidate_sources"].get(watchlist_key) or [])}
+        if slugify(candidate["name"]) not in allowed:
+            return None
+
+    weights = cfg["signal_score_weights"]
+    multipliers = profile.get("weight_multipliers", {})
+    components = score_result["components"]
+    total_weight = sum(weights[k] * multipliers.get(k, 1.0) for k in components)
+    if total_weight == 0:
+        return {"fit_score": 0.0}
+    combined = sum(components[k] * weights[k] * multipliers.get(k, 1.0) for k in components) / total_weight
+    return {"fit_score": round(combined * 100, 1), "profile": profile_key}
+
+
+# ============================================================
+# SWARM - dossier sulle candidature (Cronista/Verificatore/Scettico/Giudice)
+# ============================================================
+
+_ROLES = {
+    "cronista": "Sei il Cronista. Raccogli i fatti grezzi disponibili su questo giocatore (squadra, ruolo, eta', fonti che lo citano). Nessuna opinione, solo fatti, in italiano, conciso.",
+    "verificatore": "Sei il Verificatore. Controlla la coerenza del segnale nel report del Cronista: e' corroborato da piu' fonti indipendenti o da una sola? Il salto di menzioni sembra reale o rumore statistico? Rispondi in italiano, conciso.",
+    "scettico": "Sei lo Scettico. Leggi i report precedenti e cerca il motivo per cui questo segnale potrebbe essere un falso positivo: nome comune/omonimia, contesto competitivo debole, dati insufficienti. Sii duro, in italiano, conciso.",
+    "giudice": 'Sei il Giudice. Sintetizza i report precedenti in un verdetto finale in JSON RIGOROSO: {"vale_la_pena": true/false, "confidence": 0-100, "motivazione": "una riga"}. Nessun testo fuori dal JSON.',
+}
+
+
+def _pick_model() -> str:
+    models = get_available_models()
+    return models[0]["id"] if models else DEFAULT_FALLBACK_MODEL
+
+
+def run_swarm_dossier(candidate: dict, score_result: dict) -> dict:
+    model = _pick_model()
+    context = (
+        f"Giocatore: {candidate['name']}\nSquadra: {candidate.get('club', 'N/D')}\n"
+        f"Tier competizione: {candidate.get('tier', 'N/D')}\n"
+        f"Signal Score: {score_result.get('signal_score', 'N/D')}\n"
+        f"Componenti disponibili: {list(score_result.get('components', {}).keys())}"
+    )
+
+    cronista = call_openrouter(model, _ROLES["cronista"], context)
+    verificatore = call_openrouter(model, _ROLES["verificatore"], f"{context}\n\nReport Cronista:\n{cronista}")
+    scettico = call_openrouter(
+        model, _ROLES["scettico"],
+        f"{context}\n\nReport Cronista:\n{cronista}\n\nReport Verificatore:\n{verificatore}",
+    )
+    giudice_raw = call_openrouter(
+        model, _ROLES["giudice"],
+        f"Cronista:\n{cronista}\n\nVerificatore:\n{verificatore}\n\nScettico:\n{scettico}",
+    )
+    try:
+        giudice = json.loads(giudice_raw.replace("```json", "").replace("```", "").strip())
+    except Exception:
+        giudice = {"vale_la_pena": None, "confidence": None, "motivazione": giudice_raw[:200]}
+
+    return {
+        "generated_at": _now_iso(),
+        "signal_score_at_generation": score_result.get("signal_score"),
+        "model": model,
+        "cronista": cronista,
+        "verificatore": verificatore,
+        "scettico": scettico,
+        "giudice": giudice,
+    }
+
+
+# ============================================================
+# ORCHESTRATORE
+# ============================================================
+
+def refresh_radar(profile_key: str = "tactical_profile") -> dict:
+    cfg = load_config()
+    history = _load_json(BUZZ_HISTORY_FILE)
+    feed = _load_json(FEED_FILE)
+
+    candidates = fetch_candidate_pool(cfg)
+
+    # Stage 1: eta'-relativa-al-livello, locale, zero chiamate di rete su
+    # tutti i candidati (pool nell'ordine delle centinaia - vedi commento in
+    # radar_config.yaml sotto "performance").
+    age_scores = {c["candidate_id"]: age_vs_level_score(c, cfg) for c in candidates}
+
+    perf = cfg["performance"]
+    watchlist = [c for c in candidates if c["tier"] == "watchlist"]
+    rest_sorted = sorted(
+        (c for c in candidates if c["tier"] != "watchlist"),
+        key=lambda c: age_scores[c["candidate_id"]] if age_scores[c["candidate_id"]] is not None else -1,
+        reverse=True,
+    )
+    # watchlist sempre nel check buzz (curata a mano da Mirko, non si scarta
+    # per un age score assente/basso); il resto e' il sottoinsieme piu'
+    # promettente secondo lo score gratuito
+    buzz_pool = watchlist + rest_sorted[: perf["buzz_check_pool_size"]]
+
+    # Stage 2: buzz score in parallelo, solo sul sottoinsieme selezionato
+    buzz_results = {}
+    with ThreadPoolExecutor(max_workers=perf["buzz_check_workers"]) as executor:
+        futures = {executor.submit(buzz_score, c, history, cfg): c for c in buzz_pool}
+        for future in as_completed(futures):
+            c = futures[future]
+            try:
+                buzz_results[c["candidate_id"]] = future.result()
+            except Exception as e:
+                buzz_results[c["candidate_id"]] = {
+                    "score": None, "available": False, "reason": f"errore rete: {e}",
+                    "mention_count": 0,
+                    "snapshot": {"run_at": _now_iso(), "mention_count": 0,
+                                 "publishers": [], "tier1_present": False},
+                }
+
+    ranked = []
+    for candidate in candidates:
+        buzz = buzz_results.get(candidate["candidate_id"])
+        sres = signal_score(candidate, cfg, buzz)
+
+        if buzz is not None:
+            # aggiorna lo storico solo per chi e' stato davvero controllato
+            # in questo run - mai un punteggio buzz costruito su dati non
+            # raccolti
+            history.setdefault(candidate["candidate_id"], {"runs": []})
+            runs = history[candidate["candidate_id"]]["runs"]
+            runs.append(buzz["snapshot"])
+            history[candidate["candidate_id"]]["runs"] = runs[-20:]  # bound crescita file
+
+        if sres["excluded"]:
+            continue
+        fres = fit_score(candidate, sres, profile_key, cfg)
+        if fres is None:
+            continue
+        ranked.append({"candidate": candidate, "signal": sres, "fit": fres})
+
+    ranked.sort(key=lambda r: r["fit"]["fit_score"], reverse=True)
+
+    top_n = cfg["swarm"]["top_n_candidates_for_swarm"]
+    threshold = cfg["swarm"]["rerun_threshold_points"]
+
+    for entry in ranked[:top_n]:
+        cid = entry["candidate"]["candidate_id"]
+        existing = feed.get(cid, {})
+        last_dossier = existing.get("dossier")
+        new_score = entry["signal"]["signal_score"] or 0
+        needs_dossier = (
+            last_dossier is None
+            or last_dossier.get("signal_score_at_generation") is None
+            or abs(new_score - last_dossier["signal_score_at_generation"]) >= threshold
+        )
+        if needs_dossier:
+            try:
+                entry["dossier"] = run_swarm_dossier(entry["candidate"], entry["signal"])
+            except Exception as e:
+                # mai un crash silenzioso: il candidato resta in classifica,
+                # solo il dossier AI risulta esplicitamente non disponibile
+                entry["dossier"] = {"error": f"Dossier AI non disponibile: {e}"}
+        else:
+            entry["dossier"] = last_dossier
+
+    # persistenza append-only: uno storico di punteggi per candidato, mai
+    # sovrascritto - e' l'unico modo per verificare nel tempo se il segnale
+    # ha davvero anticipato qualcosa
+    run_at = _now_iso()
+    for entry in ranked:
+        cid = entry["candidate"]["candidate_id"]
+        record = feed.setdefault(cid, {"identity": entry["candidate"], "history": []})
+        record["identity"] = entry["candidate"]
+        record["history"].append(
+            {
+                "run_at": run_at,
+                "signal_score": entry["signal"]["signal_score"],
+                "components": entry["signal"]["components"],
+                "partial_data": entry["signal"]["partial_data"],
+                "fit_score": entry["fit"]["fit_score"],
+                "profile_used": profile_key,
+            }
+        )
+        if "dossier" in entry:
+            record["dossier"] = entry["dossier"]
+
+    _save_json(FEED_FILE, feed)
+    _save_json(BUZZ_HISTORY_FILE, history)
+
+    return {
+        "run_at": run_at,
+        "profile_used": profile_key,
+        "candidates_evaluated": len(candidates),
+        "candidates_ranked": len(ranked),
+        "results": [
+            {
+                "candidate_id": e["candidate"]["candidate_id"],
+                "name": e["candidate"]["name"],
+                "club": e["candidate"].get("club"),
+                "tier": e["candidate"].get("tier"),
+                "source": e["candidate"].get("source"),
+                "signal_score": e["signal"]["signal_score"],
+                "components": e["signal"]["components"],
+                "fit_score": e["fit"]["fit_score"],
+                "partial_data": e["signal"]["partial_data"],
+                "dossier": e.get("dossier") or feed.get(e["candidate"]["candidate_id"], {}).get("dossier"),
+            }
+            for e in ranked
+        ],
+    }
+
+
+def latest_feed() -> dict:
+    return _load_json(FEED_FILE)

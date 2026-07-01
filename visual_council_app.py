@@ -1,21 +1,12 @@
 import os
 import re
 import json
-import requests
 from flask import Flask, render_template, request, jsonify
-from dotenv import load_dotenv
 
-load_dotenv()
+from openrouter_client import OPENROUTER_API_KEY, call_openrouter, get_available_models
+import discovery_engine
 
 app = Flask(__name__)
-
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
-HEADERS = {
-    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-    "HTTP-Referer": "https://mirko-tornani-ai-lab.com",
-    "X-Title": "Mirko Ouroboros Council",
-    "Content-Type": "application/json"
-}
 
 def inject_local_files_from_prompt(text):
     """
@@ -54,42 +45,6 @@ def inject_local_files_from_prompt(text):
                         
     return text + injected_data
 
-
-def get_available_models():
-    """Recupera e filtra i modelli live su OpenRouter."""
-    try:
-        res = requests.get("https://openrouter.ai/api/v1/models", headers=HEADERS)
-        if res.status_code == 200:
-            models_data = res.json().get('data', [])
-            # Prendiamo SOLO i modelli gratuiti per aggirare il problema del credito
-            filtered_free = []
-            for m in models_data:
-                mid = m['id']
-                if ":free" in mid or m.get('pricing', {}).get('prompt') == "0":
-                    filtered_free.append({"id": mid, "context_length": m.get('context_length', 0)})
-            
-            sorted_models = sorted(filtered_free, key=lambda x: x['context_length'], reverse=True)[:30]
-            return sorted_models
-        return []
-    except:
-        return []
-
-def call_openrouter(model, system_prompt, user_message, chat_history=None):
-    if not chat_history: chat_history = []
-    messages = [{"role": "system", "content": system_prompt}] + chat_history + [{"role": "user", "content": user_message}]
-    data = {"model": model, "messages": messages, "temperature": 0.5}
-    res = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=HEADERS, data=json.dumps(data))
-    if res.status_code == 200:
-        return res.json()['choices'][0]['message']['content']
-    else:
-        # Tenta di restituire il JSON di errore se presente
-        error_msg = res.text
-        try:
-            err_data = res.json()
-            if 'error' in err_data and 'message' in err_data['error']:
-                error_msg = err_data['error']['message']
-        except: pass
-        raise Exception(f"HTTP {res.status_code} - {error_msg}")
 
 @app.route("/")
 def index():
@@ -174,8 +129,8 @@ def correct_tactician():
         chat_history = [{"role": "assistant", "content": data["old_report"]}]
         prompt = f"Il Direttore Mirko (Man-in-the-Loop) ha rifiutato la tua ultima analisi e ORDINA: '{data['feedback']}'. Adeguati istantaneamente e rifai le conclusioni seguendo la direttiva applicandola ai dati originali."
         report = call_openrouter(
-            data["model"], 
-            "Sei il Tattico (L'Avvocato del Diavolo). Segui ciecamente gli ordini del tuo Direttore.", 
+            data["model"],
+            "Sei il Tattico (L'Avvocato del Diavolo). Segui ciecamente gli ordini del tuo Direttore.",
             prompt,
             chat_history
         )
@@ -183,6 +138,71 @@ def correct_tactician():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
 
+
+# ============================================================
+# OB1 RADAR - discovery talenti (mobile)
+# ============================================================
+
+@app.route("/radar")
+def radar_page():
+    return render_template("radar.html")
+
+
+@app.route("/api/radar/refresh", methods=["POST"])
+def radar_refresh():
+    data = request.json or {}
+    profile = data.get("profile", "tactical_profile")
+    try:
+        result = discovery_engine.refresh_radar(profile)
+        return jsonify({"status": "success", **result})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+
+@app.route("/api/radar/feed")
+def radar_feed():
+    try:
+        feed = discovery_engine.latest_feed()
+        results = []
+        for candidate_id, record in feed.items():
+            if not record.get("history"):
+                continue
+            last = record["history"][-1]
+            results.append({
+                "candidate_id": candidate_id,
+                "name": record["identity"].get("name"),
+                "club": record["identity"].get("club"),
+                "tier": record["identity"].get("tier"),
+                "source": record["identity"].get("source"),
+                "signal_score": last.get("signal_score"),
+                "components": last.get("components"),
+                "fit_score": last.get("fit_score"),
+                "partial_data": last.get("partial_data"),
+                "profile_used": last.get("profile_used"),
+                "run_at": last.get("run_at"),
+                "dossier": record.get("dossier"),
+            })
+        results.sort(key=lambda r: r["fit_score"] if r["fit_score"] is not None else -1, reverse=True)
+        return jsonify({"status": "success", "results": results})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+
+@app.route("/api/radar/config")
+def radar_config():
+    """Sottoinsieme di radar_config.yaml serializzabile in JSON, cosi' il
+    client puo' ricalcolare il Fit Score al volo quando si cambia profilo
+    (chip) senza rilanciare tutta la pipeline (~30s) a ogni tap."""
+    try:
+        cfg = discovery_engine.load_config()
+        return jsonify({
+            "status": "success",
+            "signal_score_weights": cfg["signal_score_weights"],
+            "purpose_profiles": cfg["purpose_profiles"],
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+
 if __name__ == "__main__":
-    import socket
-    app.run(host="0.0.0.0", port=8081, debug=True)
+    app.run(host="0.0.0.0", port=8081, debug=True, threaded=True)

@@ -3,3 +3,6 @@ __pycache__/
 *.pyc
 .vscode/
 widget_debug.log
+web_intel.json
+radar_feed.json
+buzz_history.json

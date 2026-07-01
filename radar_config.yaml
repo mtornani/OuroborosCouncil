@@ -1,0 +1,166 @@
+# OB1 RADAR - Configurazione algoritmo di discovery
+# Unico posto dove si toccano i pesi/soglie/fonti senza toccare codice.
+# Aggiornato: 2026-07-01
+
+# --- Universo dei candidati ---------------------------------------------
+# Due meccanismi diversi perché i dati liberi disponibili sono diversi:
+# - Serie C/D: Wikidata ha rose strutturate e interrogabili via SPARQL
+#   (verificato con query live: club "in lega" P118 + membership P54 corrente).
+# - Giovanili sudamericane: Wikidata NON ha dati strutturati per le rose dei
+#   tornei CONMEBOL (verificato: la pagina Wikidata e' solo un placeholder
+#   senza claim utili). I dati veri stanno nel testo della pagina Wikipedia
+#   corrispondente, in un formato a template regex-estraibile (verificato
+#   live sulla pagina "2025 South American U-20 Championship squads").
+candidate_sources:
+  wikidata_leagues:
+    # QID Wikidata delle leghe (stabili, non serve aggiornarli a stagione)
+    serie_c:
+      qid: "Q607965"
+      tier: serie_c
+    serie_d:
+      qid: "Q1141778"
+      tier: serie_d
+
+  wikipedia_youth_squads:
+    # Titoli pagina Wikipedia esatti da aggiornare quando esce una nuova
+    # edizione del torneo (pattern verificato: "{anno} South American
+    # U-XX Championship squads"). Tenerne 1-2 per volta, non serve storico.
+    - title: "2025 South American U-20 Championship squads"
+      tier: conmebol_u20
+    - title: "2025 South American U-17 Championship squads"
+      tier: conmebol_u17
+
+  # Watchlist manuale: nomi che Mirko vuole SEMPRE nella pool, a prescindere
+  # da cosa trovano le query automatiche (riuso di TRACKED_PLAYERS esistente
+  # in monitor/web_monitor.py, unito qui).
+  manual_watchlist:
+    - "Ryan Evaristo"
+    - "Andre Maia"
+    - "Noah Saviolo"
+    - "Bruno Baldini"
+    - "Kauan Toledo"
+    - "Pietro Saio"
+    - "Louis Buffon"
+
+  # Watchlist oriundi FSGC: l'eleggibilita' per discendenza sammarinese non
+  # e' deducibile in automatico in modo affidabile (serve l'albero genealogico
+  # del giocatore, dato che nessuna fonte libera fornisce). Mirko la cura a
+  # mano qui - vuota finche' non la popola lui.
+  fsgc_oriundi_watchlist: []
+
+# --- Layer A: eta' di riferimento per tier di competizione ---------------
+# Non "il piu' giovane", ma "giovane rispetto al livello che sta gia' reggendo".
+# reference_age = eta' tipica per quel tier; spread_years = quanti anni sotto
+# la reference_age servono per saturare il punteggio a 1.0 (satura, non premia
+# all'infinito un'eta' improbabile - bug di scala). Spread piu' stretto per i
+# tornei giovanili (la finestra d'eta' e' gia' vincolata dal regolamento).
+age_reference:
+  serie_c:
+    reference_age: 20
+    spread_years: 3
+  serie_d:
+    reference_age: 21
+    spread_years: 3
+  conmebol_u20:
+    reference_age: 19
+    spread_years: 2
+  conmebol_u17:
+    reference_age: 16
+    spread_years: 1.5
+
+# --- Layer A: pesi del Signal Score ---------------------------------------
+# 50/50 e' un punto di partenza dichiarato, NON un valore validato: con solo
+# due componenti liberamente disponibili non c'e' ancora evidenza per pesarle
+# diversamente. Vanno corrette quando radar_feed.json avra' abbastanza storico
+# per un riscontro reale (vedi sezione "verifica nel tempo" del piano).
+signal_score_weights:
+  age_vs_level: 0.5
+  buzz: 0.5
+
+# --- Layer A: sotto-pesi del Buzz Score -----------------------------------
+buzz_weights:
+  velocity: 0.4
+  niche_source_tier: 0.35
+  geographic_crossing: 0.25
+  # oltre questo numero di menzioni totali, il giocatore e' considerato
+  # "gia' mainstream" e il buzz viene penalizzato invece che premiato
+  mainstream_mention_threshold: 30
+
+# Tier delle fonti per il segnale "niche_source_tier".
+# NOTA: Google News RSS restituisce link di redirect (news.google.com/...),
+# non l'URL reale della testata (verificato live) - quindi la classificazione
+# si fa sul NOME della testata, che Google News mette in coda al titolo
+# ("Headline - Nome Testata"), non sul dominio dell'URL.
+# Tier 3 = stampa locale/di nicchia (bonus alto), Tier 1 = testate big
+# (una volta che parlano loro, il vantaggio e' gia' sfumato).
+source_tiers:
+  tier_1:
+    - "Gazzetta dello Sport"
+    - "Corriere dello Sport"
+    - "Sky Sport"
+    - "ESPN"
+    - "BBC"
+    - "Goal.com"
+    - "Tuttosport"
+  tier_2:
+    - "TuttoMercatoWeb"
+    - "Calciomercato.com"
+    - "Tuttocalciatori"
+    - "Transfermarkt"
+  # tutto il resto (stampa locale/regionale, siti di club, testate estere
+  # minori) e' trattato come tier 3 di default: e' li' che nasce il segnale.
+
+# --- Layer B: profili contestuali (Fit Score) -----------------------------
+# Nessun modello: solo filtri booleani + moltiplicatori applicati al
+# Signal Score. Selezionabili come chip rapidi in UI.
+purpose_profiles:
+  resale_value:
+    label: "Rivendita"
+    description: "Punta sull'upside: eta' relativa e velocita' del buzz contano di piu'."
+    weight_multipliers:
+      age_vs_level: 1.3
+      buzz: 1.2
+    max_tier: [serie_c, serie_d, conmebol_u20, conmebol_u17]
+
+  first_team_need:
+    label: "Rosa Serie C"
+    description: "Punta su conferme piu' solide, sconta l'hype puro del buzz."
+    weight_multipliers:
+      age_vs_level: 1.0
+      buzz: 0.7
+    max_tier: [serie_c, serie_d]
+
+  tactical_profile:
+    label: "Profilo tattico"
+    description: "Nessun bonus/malus di score, solo filtro per ruolo."
+    weight_multipliers:
+      age_vs_level: 1.0
+      buzz: 1.0
+    max_tier: [serie_c, serie_d, conmebol_u20, conmebol_u17]
+
+  fsgc_oriundi:
+    label: "Oriundi FSGC"
+    description: "Bacino piccolo apposta: filtra solo la watchlist oriundi, non l'intera pool."
+    weight_multipliers:
+      age_vs_level: 0.8
+      buzz: 0.8
+    max_tier: [serie_c, serie_d, conmebol_u20, conmebol_u17]
+    restrict_to_watchlist: fsgc_oriundi_watchlist
+
+# --- Swarm dossier ----------------------------------------------------------
+swarm:
+  top_n_candidates_for_swarm: 15
+  # rigira il dossier solo se il Signal Score e' cambiato di almeno questa
+  # soglia dall'ultimo dossier salvato, per non sprecare quota OpenRouter
+  # ripremendo "Aggiorna" piu' volte al giorno sugli stessi candidati.
+  rerun_threshold_points: 8
+
+# --- Performance ------------------------------------------------------------
+# La pool candidati e' nell'ordine delle centinaia (Serie C/D + CONMEBOL).
+# Il controllo buzz fa una chiamata di rete per candidato: farlo su tutti a
+# ogni "Aggiorna" significherebbe minuti di attesa da telefono. Si pre-filtra
+# per eta'-relativa-al-livello (gratis, zero rete) e si controlla il buzz
+# solo sul sottoinsieme piu' promettente, in parallelo.
+performance:
+  buzz_check_pool_size: 60
+  buzz_check_workers: 8

@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="it">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#0b0c10">
+    <title>OB1 RADAR</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap"
+        rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+        :root {
+            --bg: #0b0c10;
+            --panel: #14161b;
+            --panel-border: rgba(255, 255, 255, 0.08);
+            --text-main: rgba(255, 255, 255, 0.92);
+            --text-dim: rgba(255, 255, 255, 0.5);
+            --accent-high: #3ddc84;
+            /* segnale forte / vale la pena */
+            --accent-mid: #fca311;
+            /* segnale medio / dati parziali */
+            --accent-low: rgba(255, 255, 255, 0.25);
+            /* segnale debole / N/D */
+            --accent-doubt: #ff5c5c;
+            /* scettico / dubbio */
+            --font-main: 'Inter', -apple-system, sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+        }
+
+        html, body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text-main);
+            font-family: var(--font-main);
+            width: 100%;
+            overscroll-behavior-y: contain;
+        }
+
+        body {
+            max-width: 480px;
+            margin: 0 auto;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            padding-bottom: calc(84px + env(safe-area-inset-bottom));
+        }
+
+        /* HEADER */
+        header {
+            padding: 18px 16px 10px;
+            flex-shrink: 0;
+        }
+
+        .brand {
+            font-size: 22px;
+            font-weight: 900;
+            letter-spacing: 1px;
+        }
+
+        .brand span { color: var(--accent-high); }
+
+        .subtitle {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-dim);
+            margin-top: 4px;
+        }
+
+        .disclaimer {
+            font-size: 11px;
+            color: var(--text-dim);
+            border-left: 2px solid var(--accent-mid);
+            padding: 6px 10px;
+            margin-top: 10px;
+            line-height: 1.4;
+        }
+
+        /* PROFILE CHIPS */
+        .chip-row {
+            display: flex;
+            gap: 8px;
+            overflow-x: auto;
+            padding: 12px 16px;
+            flex-shrink: 0;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .chip-row::-webkit-scrollbar { display: none; }
+
+        .chip {
+            flex-shrink: 0;
+            font-family: var(--font-mono);
+            font-size: 12px;
+            padding: 8px 14px;
+            border-radius: 20px;
+            border: 1px solid var(--panel-border);
+            background: var(--panel);
+            color: var(--text-dim);
+            white-space: nowrap;
+        }
+
+        .chip.active {
+            border-color: var(--accent-high);
+            color: var(--accent-high);
+            background: rgba(61, 220, 132, 0.08);
+        }
+
+        /* LIST */
+        main {
+            flex: 1;
+            padding: 4px 16px 16px;
+        }
+
+        .empty-state {
+            text-align: center;
+            color: var(--text-dim);
+            font-size: 13px;
+            padding: 60px 20px;
+            line-height: 1.6;
+        }
+
+        .card {
+            background: var(--panel);
+            border: 1px solid var(--panel-border);
+            border-radius: 10px;
+            margin-bottom: 10px;
+            overflow: hidden;
+        }
+
+        .card-main {
+            padding: 12px 14px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .card-badge {
+            width: 4px;
+            align-self: stretch;
+            border-radius: 3px;
+            flex-shrink: 0;
+        }
+
+        .card-info { flex: 1; min-width: 0; }
+
+        .card-name {
+            font-weight: 800;
+            font-size: 15px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .card-meta {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-dim);
+            margin-top: 2px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .card-scores {
+            text-align: right;
+            flex-shrink: 0;
+            font-family: var(--font-mono);
+        }
+
+        .fit-score {
+            font-size: 18px;
+            font-weight: 700;
+        }
+
+        .signal-score {
+            font-size: 10px;
+            color: var(--text-dim);
+        }
+
+        .partial-flag {
+            display: inline-block;
+            font-family: var(--font-mono);
+            font-size: 9px;
+            color: var(--accent-mid);
+            border: 1px solid var(--accent-mid);
+            border-radius: 4px;
+            padding: 1px 4px;
+            margin-top: 3px;
+        }
+
+        .card-dossier {
+            display: none;
+            border-top: 1px solid var(--panel-border);
+            padding: 12px 14px 14px;
+            font-size: 12.5px;
+            line-height: 1.55;
+        }
+
+        .card.expanded .card-dossier { display: block; }
+
+        .dossier-role {
+            margin-bottom: 10px;
+        }
+
+        .dossier-role-label {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-dim);
+            margin-bottom: 3px;
+        }
+
+        .verdict-line {
+            font-family: var(--font-mono);
+            font-size: 12px;
+            padding: 8px 10px;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.04);
+            margin-bottom: 10px;
+        }
+
+        .dossier-error {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-dim);
+            font-style: italic;
+        }
+
+        /* BOTTOM BAR (thumb zone) */
+        .bottom-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            max-width: 480px;
+            margin: 0 auto;
+            background: linear-gradient(0deg, var(--bg) 60%, rgba(11,12,16,0));
+            padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+        }
+
+        #refresh-btn {
+            width: 100%;
+            padding: 15px;
+            border-radius: 12px;
+            border: none;
+            background: var(--accent-high);
+            color: #06120a;
+            font-family: var(--font-mono);
+            font-weight: 700;
+            font-size: 14px;
+            letter-spacing: 0.5px;
+        }
+
+        #refresh-btn:disabled {
+            background: var(--panel);
+            color: var(--text-dim);
+            border: 1px solid var(--panel-border);
+        }
+
+        .last-run {
+            text-align: center;
+            font-family: var(--font-mono);
+            font-size: 10px;
+            color: var(--text-dim);
+            margin-top: 6px;
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <div class="brand">OB1 <span>RADAR</span></div>
+        <div class="subtitle">discovery, non rassegna stampa</div>
+        <div class="disclaimer">
+            Prioritizzatore di attenzione, non motore di previsione: segnala chi merita
+            20 minuti del tuo occhio umano questa settimana. Il buzz e' un segnale di
+            corroborazione, mai l'unica prova.
+        </div>
+    </header>
+
+    <div class="chip-row" id="profile-chips"></div>
+
+    <main id="results"></main>
+
+    <div class="bottom-bar">
+        <button id="refresh-btn">AGGIORNA</button>
+        <div class="last-run" id="last-run">mai aggiornato</div>
+    </div>
+
+    <script>
+        const PROFILES = [
+            { key: "tactical_profile", label: "Profilo tattico" },
+            { key: "resale_value", label: "Rivendita" },
+            { key: "first_team_need", label: "Rosa Serie C" },
+            { key: "fsgc_oriundi", label: "Oriundi FSGC" },
+        ];
+
+        const state = {
+            activeProfile: "tactical_profile",
+            results: [],
+            config: null,
+            expanded: new Set(),
+        };
+
+        function tierLabel(tier) {
+            return { serie_c: "Serie C", serie_d: "Serie D", conmebol_u20: "CONMEBOL U20",
+                      conmebol_u17: "CONMEBOL U17", watchlist: "Watchlist" }[tier] || tier || "N/D";
+        }
+
+        function computeFitScore(candidate, profileKey) {
+            if (!candidate.components || Object.keys(candidate.components).length === 0) return null;
+            if (!state.config) return candidate.fit_score;
+            const profile = state.config.purpose_profiles[profileKey];
+            const weights = state.config.signal_score_weights;
+            if (!profile) return candidate.fit_score;
+
+            // filtri rigidi del profilo, replicati lato client (stessa logica
+            // di discovery_engine.fit_score)
+            if (profile.max_tier && !profile.max_tier.includes(candidate.tier)) return null;
+            if (profile.restrict_to_watchlist === "fsgc_oriundi_watchlist" &&
+                candidate.source !== "fsgc_oriundi_watchlist") return null;
+
+            const mult = profile.weight_multipliers || {};
+            let totalWeight = 0, combined = 0;
+            for (const key in candidate.components) {
+                const w = (weights[key] || 0) * (mult[key] !== undefined ? mult[key] : 1);
+                totalWeight += w;
+                combined += candidate.components[key] * w;
+            }
+            if (totalWeight === 0) return 0;
+            return Math.round((combined / totalWeight) * 1000) / 10;
+        }
+
+        function verdictBadge(candidate) {
+            const dossier = candidate.dossier;
+            if (!dossier) return { color: "var(--accent-low)", text: "IN CODA" };
+            if (dossier.error) return { color: "var(--accent-low)", text: "DOSSIER N/D" };
+            const g = dossier.giudice || {};
+            if (g.vale_la_pena === true) return { color: "var(--accent-high)", text: "DA SEGUIRE" };
+            if (g.vale_la_pena === false) return { color: "var(--accent-doubt)", text: "DUBBIO" };
+            return { color: "var(--accent-mid)", text: "VERDETTO N/D" };
+        }
+
+        function renderDossier(candidate) {
+            const d = candidate.dossier;
+            if (!d) return '<div class="dossier-error">Ancora nessun dossier per questo candidato (fuori dal top N di questo giro, o in attesa del prossimo Aggiorna).</div>';
+            if (d.error) return `<div class="dossier-error">${d.error}</div>`;
+            const g = d.giudice || {};
+            const verdictText = g.vale_la_pena === true ? "Vale la pena seguirlo ora"
+                : g.vale_la_pena === false ? "Non prioritario ora" : "Verdetto non disponibile";
+            return `
+                <div class="verdict-line">⚖️ ${verdictText}${g.confidence != null ? ` · confidence ${g.confidence}` : ""}<br>${g.motivazione || ""}</div>
+                <div class="dossier-role"><div class="dossier-role-label">📰 Cronista</div>${d.cronista || "N/D"}</div>
+                <div class="dossier-role"><div class="dossier-role-label">🔍 Verificatore</div>${d.verificatore || "N/D"}</div>
+                <div class="dossier-role"><div class="dossier-role-label">😈 Scettico</div>${d.scettico || "N/D"}</div>
+            `;
+        }
+
+        function render() {
+            const chipsEl = document.getElementById("profile-chips");
+            chipsEl.innerHTML = PROFILES.map(p =>
+                `<div class="chip ${p.key === state.activeProfile ? "active" : ""}" data-profile="${p.key}">${p.label}</div>`
+            ).join("");
+            chipsEl.querySelectorAll(".chip").forEach(el => {
+                el.addEventListener("click", () => {
+                    state.activeProfile = el.dataset.profile;
+                    render();
+                });
+            });
+
+            const scored = state.results
+                .map(c => ({ ...c, _fit: computeFitScore(c, state.activeProfile) }))
+                .filter(c => c._fit !== null);
+            scored.sort((a, b) => b._fit - a._fit);
+
+            const resultsEl = document.getElementById("results");
+            if (scored.length === 0) {
+                resultsEl.innerHTML = '<div class="empty-state">Nessun candidato ancora per questo profilo.<br>Premi AGGIORNA per far partire la scansione (Wikidata + Wikipedia + buzz Google News, ~30-60s).</div>';
+                return;
+            }
+
+            resultsEl.innerHTML = scored.map(c => {
+                const badge = verdictBadge(c);
+                const expanded = state.expanded.has(c.candidate_id);
+                return `
+                    <div class="card ${expanded ? "expanded" : ""}" data-id="${c.candidate_id}">
+                        <div class="card-main">
+                            <div class="card-badge" style="background:${badge.color}"></div>
+                            <div class="card-info">
+                                <div class="card-name">${c.name}</div>
+                                <div class="card-meta">${c.club || "club N/D"} · ${tierLabel(c.tier)}</div>
+                                ${c.partial_data ? '<div class="partial-flag">DATI PARZIALI</div>' : ""}
+                            </div>
+                            <div class="card-scores">
+                                <div class="fit-score" style="color:${badge.color}">${c._fit != null ? c._fit.toFixed(0) : "–"}</div>
+                                <div class="signal-score">signal ${c.signal_score != null ? c.signal_score : "–"}</div>
+                            </div>
+                        </div>
+                        <div class="card-dossier">${renderDossier(c)}</div>
+                    </div>
+                `;
+            }).join("");
+
+            resultsEl.querySelectorAll(".card").forEach(el => {
+                el.querySelector(".card-main").addEventListener("click", () => {
+                    const id = el.dataset.id;
+                    if (state.expanded.has(id)) state.expanded.delete(id);
+                    else state.expanded.add(id);
+                    render();
+                });
+            });
+        }
+
+        async function loadConfig() {
+            try {
+                const res = await fetch("/api/radar/config");
+                const data = await res.json();
+                if (data.status === "success") state.config = data;
+            } catch (e) { /* config non disponibile: si resta sui fit_score gia' salvati */ }
+        }
+
+        async function loadFeed() {
+            try {
+                const res = await fetch("/api/radar/feed");
+                const data = await res.json();
+                if (data.status === "success") state.results = data.results;
+            } catch (e) { /* nessun dato ancora, va bene: empty state */ }
+            render();
+        }
+
+        async function refresh() {
+            const btn = document.getElementById("refresh-btn");
+            btn.disabled = true;
+            btn.textContent = "SCANSIONE IN CORSO...";
+            try {
+                const res = await fetch("/api/radar/refresh", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ profile: state.activeProfile }),
+                });
+                const data = await res.json();
+                if (data.status === "success") {
+                    state.results = data.results;
+                    document.getElementById("last-run").textContent =
+                        `ultimo aggiornamento: ${new Date(data.run_at).toLocaleTimeString("it-IT")} · ${data.candidates_ranked}/${data.candidates_evaluated} candidati`;
+                    render();
+                } else {
+                    document.getElementById("last-run").textContent = `errore: ${data.message}`;
+                }
+            } catch (e) {
+                document.getElementById("last-run").textContent = `errore di rete: ${e}`;
+            } finally {
+                btn.disabled = false;
+                btn.textContent = "AGGIORNA";
+            }
+        }
+
+        document.getElementById("refresh-btn").addEventListener("click", refresh);
+
+        loadConfig();
+        loadFeed();
+    </script>
+</body>
+
+</html>
