@@ -389,6 +389,13 @@
     </div>
 
     <script>
+        function escapeHTML(str) {
+            if (str === null || str === undefined) return "";
+            return String(str).replace(/[&<>'"]/g,
+                tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag)
+            );
+        }
+
         const PROFILES = [
             { key: "tactical_profile", label: "Profilo tattico" },
             { key: "resale_value", label: "Rivendita" },
@@ -443,7 +450,8 @@
             // discovery_engine._weights_for_tier (squadre riserve pesano
             // l'eta' molto meno: e' un requisito di regolamento li', non
             // un segnale raro)
-            const weights = state.config.signal_score_weights[candidate.tier] || state.config.signal_score_weights.default;
+            const weights = (state.config.signal_score_weights && state.config.signal_score_weights[candidate.tier])
+                || (state.config.signal_score_weights && state.config.signal_score_weights.default) || {};
             if (!profile) return candidate.fit_score;
 
             // filtri rigidi del profilo, replicati lato client (stessa logica
@@ -477,16 +485,16 @@
         function renderDossier(candidate) {
             const d = candidate.dossier;
             if (!d) return '<div class="dossier-error">Ancora nessun dossier per questo candidato (fuori dal top N di questo giro, o in attesa del prossimo Aggiorna).</div>';
-            if (d.skipped) return `<div class="dossier-error">${d.skipped}</div>`;
-            if (d.error) return `<div class="dossier-error">${d.error}</div>`;
+            if (d.skipped) return `<div class="dossier-error">${escapeHTML(d.skipped)}</div>`;
+            if (d.error) return `<div class="dossier-error">${escapeHTML(d.error)}</div>`;
             const g = d.giudice || {};
             const verdictText = g.vale_la_pena === true ? "Vale la pena seguirlo ora"
                 : g.vale_la_pena === false ? "Non prioritario ora" : "Verdetto non disponibile";
             return `
-                <div class="verdict-line">⚖️ ${verdictText}${g.confidence != null ? ` · confidence ${g.confidence}` : ""}<br>${g.motivazione || ""}</div>
-                <div class="dossier-role"><div class="dossier-role-label">📰 Cronista</div>${d.cronista || "N/D"}</div>
-                <div class="dossier-role"><div class="dossier-role-label">🔍 Verificatore</div>${d.verificatore || "N/D"}</div>
-                <div class="dossier-role"><div class="dossier-role-label">😈 Scettico</div>${d.scettico || "N/D"}</div>
+                <div class="verdict-line">⚖️ ${escapeHTML(verdictText)}${g.confidence != null ? ` · confidence ${escapeHTML(g.confidence)}` : ""}<br>${escapeHTML(g.motivazione || "")}</div>
+                <div class="dossier-role"><div class="dossier-role-label">📰 Cronista</div>${escapeHTML(d.cronista || "N/D")}</div>
+                <div class="dossier-role"><div class="dossier-role-label">🔍 Verificatore</div>${escapeHTML(d.verificatore || "N/D")}</div>
+                <div class="dossier-role"><div class="dossier-role-label">😈 Scettico</div>${escapeHTML(d.scettico || "N/D")}</div>
             `;
         }
 
@@ -590,16 +598,16 @@
                 const badge = verdictBadge(c);
                 const expanded = state.expanded.has(c.candidate_id);
                 return `
-                    <div class="card ${expanded ? "expanded" : ""}" data-id="${c.candidate_id}">
+                    <div class="card ${expanded ? "expanded" : ""}" data-id="${escapeHTML(c.candidate_id)}">
                         <div class="card-main">
-                            <div class="card-badge" style="background:${badge.color}"></div>
+                            <div class="card-badge" style="background:${escapeHTML(badge.color)}"></div>
                             <div class="card-info">
-                                <div class="card-name">${c.name}</div>
-                                <div class="card-meta">${c.role ? c.role + " · " : ""}${c.club || "club N/D"} · ${tierLabel(c)}${computeAge(c.dob) !== null ? " · " + Math.floor(computeAge(c.dob)) + " anni" : ""}</div>
+                                <div class="card-name">${escapeHTML(c.name)}</div>
+                                <div class="card-meta">${c.role ? escapeHTML(c.role) + " · " : ""}${escapeHTML(c.club || "club N/D")} · ${escapeHTML(tierLabel(c))}${computeAge(c.dob) !== null ? " · " + Math.floor(computeAge(c.dob)) + " anni" : ""}</div>
                                 ${c.partial_data ? '<div class="partial-flag">DATI PARZIALI</div>' : ""}
                             </div>
                             <div class="card-scores">
-                                <div class="fit-score" style="color:${badge.color}">${c._fit != null ? c._fit.toFixed(0) : "–"}</div>
+                                <div class="fit-score" style="color:${escapeHTML(badge.color)}">${c._fit != null ? c._fit.toFixed(0) : "–"}</div>
                                 <div class="signal-score">signal ${c.signal_score != null ? c.signal_score : "–"}</div>
                             </div>
                         </div>

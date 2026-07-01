@@ -165,18 +165,19 @@ def radar_feed():
         feed = discovery_engine.latest_feed()
         results = []
         for candidate_id, record in feed.items():
-            if not record.get("history"):
+            if not record or not record.get("history"):
                 continue
             last = record["history"][-1]
+            identity = record.get("identity") or {}
             results.append({
                 "candidate_id": candidate_id,
-                "name": record["identity"].get("name"),
-                "club": record["identity"].get("club"),
-                "role": record["identity"].get("role"),
-                "dob": record["identity"].get("dob"),
-                "tier": record["identity"].get("tier"),
-                "nationality_label": record["identity"].get("nationality_label"),
-                "source": record["identity"].get("source"),
+                "name": identity.get("name"),
+                "club": identity.get("club"),
+                "role": identity.get("role"),
+                "dob": identity.get("dob"),
+                "tier": identity.get("tier"),
+                "nationality_label": identity.get("nationality_label"),
+                "source": identity.get("source"),
                 "signal_score": last.get("signal_score"),
                 "components": last.get("components"),
                 "fit_score": last.get("fit_score"),

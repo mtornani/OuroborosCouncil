@@ -35,8 +35,8 @@ def get_available_models():
         filtered_free = []
         for m in models_data:
             mid = m["id"]
-            is_free = ":free" in mid or m.get("pricing", {}).get("prompt") == "0"
-            is_text_only = m.get("architecture", {}).get("output_modalities") == ["text"]
+            is_free = ":free" in mid or (m.get("pricing") or {}).get("prompt") == "0"
+            is_text_only = (m.get("architecture") or {}).get("output_modalities") == ["text"]
             if is_free and is_text_only:
                 filtered_free.append({"id": mid, "context_length": m.get("context_length", 0)})
         return sorted(filtered_free, key=lambda x: x["context_length"], reverse=True)[:30]

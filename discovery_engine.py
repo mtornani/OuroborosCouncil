@@ -170,10 +170,10 @@ def _precise_dob(row: dict) -> str | None:
     un caso reale con precisione 'solo anno' aveva quasi certamente l'anno
     sbagliato) - mai un'eta' calcolata su un dato che Wikidata stesso non
     dichiara affidabile a quel livello."""
-    precision = row.get("dobPrecision", {}).get("value")
+    precision = (row.get("dobPrecision") or {}).get("value")
     if precision != str(DAY_PRECISION):
         return None
-    return row.get("dob", {}).get("value", "")[:10] or None
+    return (row.get("dob") or {}).get("value", "")[:10] or None
 
 
 _TRAILING_PAREN_RE = re.compile(r"\s*\([^()]*\)\s*$")
@@ -624,8 +624,8 @@ def signal_score(candidate: dict, cfg: dict, buzz: dict | None) -> dict:
         return {"signal_score": None, "components": {}, "partial_data": True,
                 "excluded": True, "buzz_detail": buzz}
 
-    total_weight = sum(weights[k] for k in components)
-    combined = sum(components[k] * weights[k] for k in components) / total_weight
+    total_weight = sum(weights.get(k, 0.0) for k in components)
+    combined = sum(components[k] * weights.get(k, 0.0) for k in components) / total_weight if total_weight else 0.0
     return {
         "signal_score": round(combined * 100, 1),
         "components": components,
@@ -658,10 +658,10 @@ def fit_score(candidate: dict, score_result: dict, profile_key: str, cfg: dict) 
     weights = _weights_for_tier(cfg, candidate.get("tier"))
     multipliers = profile.get("weight_multipliers", {})
     components = score_result["components"]
-    total_weight = sum(weights[k] * multipliers.get(k, 1.0) for k in components)
+    total_weight = sum(weights.get(k, 0.0) * multipliers.get(k, 1.0) for k in components)
     if total_weight == 0:
         return {"fit_score": 0.0}
-    combined = sum(components[k] * weights[k] * multipliers.get(k, 1.0) for k in components) / total_weight
+    combined = sum(components[k] * weights.get(k, 0.0) * multipliers.get(k, 1.0) for k in components) / total_weight
     return {"fit_score": round(combined * 100, 1), "profile": profile_key}
 
 
