@@ -35,10 +35,19 @@ USER_AGENT = "OB1Radar/0.1 (contact: mirko-tornani-ai-lab.com)"
 WIKIDATA_SPARQL_ENDPOINT = "https://query.wikidata.org/sparql"
 WIKIPEDIA_API = "https://en.wikipedia.org/w/api.php"
 
-# Solo giocatori nati da questo anno in poi: e' un radar di talenti giovani,
-# non un archivio storico dei club (costante strutturale, non un peso da
-# tarare in continuazione - resta nel codice, non in radar_config.yaml).
-MIN_BIRTH_YEAR = 1999
+# Solo giocatori fino a questa eta': e' un radar di talenti giovani, non
+# un archivio storico dei club. BUG TROVATO E CORRETTO: prima era un anno
+# di nascita ASSOLUTO (1999), che sembrava "giovani" solo perche' scritto
+# quando il 2026 era gia' l'anno corrente - il filtro si allarga da solo
+# ogni anno che passa (nel 2030 "dal 1999" includerebbe trentunenni). Ora
+# e' relativo a oggi, non si allarga mai da solo. Verificato dal vivo che
+# il vecchio bound (2026-1999=27 anni) faceva rientrare praticamente
+# un'intera rosa Serie C (eta' media reale 25.9), non solo i giovani.
+MAX_AGE_YEARS = 24
+
+
+def _min_birth_year() -> int:
+    return datetime.now().year - MAX_AGE_YEARS
 
 # Classe Wikidata "reserve team" (verificato live su Juventus Next Gen) -
 # costante strutturale, non un peso da tarare, resta nel codice.
@@ -93,6 +102,20 @@ def _clean_label(value: str) -> str:
     return value
 
 
+DAY_PRECISION = 11  # Wikidata: 11=giorno, 10=mese, 9=anno, ...
+
+
+def _precise_dob(row: dict) -> str | None:
+    """None se la data di nascita non e' precisa al giorno (verificato live:
+    un caso reale con precisione 'solo anno' aveva quasi certamente l'anno
+    sbagliato) - mai un'eta' calcolata su un dato che Wikidata stesso non
+    dichiara affidabile a quel livello."""
+    precision = row.get("dobPrecision", {}).get("value")
+    if precision != str(DAY_PRECISION):
+        return None
+    return row.get("dob", {}).get("value", "")[:10] or None
+
+
 _TRAILING_PAREN_RE = re.compile(r"\s*\([^()]*\)\s*$")
 
 
@@ -141,15 +164,26 @@ def _sparql_current_squad(league_qid: str) -> list[dict]:
     # l'eta' bassa e' un requisito di regolamento (obbligo U21), non un
     # segnale raro - da solo il Signal Score la trattava come rara (finche'
     # il primo dossier reale del Giudice non l'ha segnalato).
+    # p:P569/psv:P569/wikibase:timeValue+timePrecision invece del semplice
+    # wdt:P569: serve a scartare le date con precisione "solo anno" (9),
+    # non "giorno" (11) - verificato live su un caso reale (Esad Deniz,
+    # segnato "2010" con precisione anno su Wikidata, quasi certamente
+    # sbagliato: un Next Gen titolare a 16 anni e' implausibile, e lo
+    # stesso Cronista dello swarm - da conoscenza propria, non dai nostri
+    # dati - lo dava nato nel 2005). Una data non precisa al giorno viene
+    # trattata come mancante, mai presa per buona cosi' com'e'.
     query = f"""
-    SELECT ?player ?playerLabel ?club ?clubLabel ?posLabel ?dob ?isReserve WHERE {{
+    SELECT ?player ?playerLabel ?club ?clubLabel ?posLabel ?dob ?dobPrecision ?isReserve WHERE {{
       ?club wdt:P118 wd:{league_qid} .
       BIND(EXISTS {{ ?club wdt:P31/wdt:P279* wd:{RESERVE_TEAM_QID} }} AS ?isReserve)
       ?player p:P54 ?membership .
       ?membership ps:P54 ?club .
       FILTER NOT EXISTS {{ ?membership pq:P582 ?endTime . }}
-      ?player wdt:P569 ?dob .
-      FILTER(YEAR(?dob) >= {MIN_BIRTH_YEAR})
+      ?player p:P569 ?dobStatement .
+      ?dobStatement psv:P569 ?dobValue .
+      ?dobValue wikibase:timeValue ?dob .
+      ?dobValue wikibase:timePrecision ?dobPrecision .
+      FILTER(YEAR(?dob) >= {_min_birth_year()})
       OPTIONAL {{ ?player wdt:P413 ?pos . }}
       SERVICE wikibase:label {{ bd:serviceParam wikibase:language "it,en". }}
     }}
@@ -172,7 +206,7 @@ def _sparql_current_squad(league_qid: str) -> list[dict]:
                 "name": _clean_name(row.get("playerLabel", {}).get("value", "")),
                 "club": _clean_label(row.get("clubLabel", {}).get("value", "")),
                 "role": _normalize_role(row.get("posLabel", {}).get("value", "")),
-                "dob": row.get("dob", {}).get("value", "")[:10] or None,
+                "dob": _precise_dob(row),
                 "source": "wikidata",
                 "is_reserve": row.get("isReserve", {}).get("value") == "true",
             }
@@ -202,12 +236,15 @@ def _sparql_nationality_pool(country_qid: str, gender_qid: str) -> list[dict]:
     verificato live che senza non torna quasi altro che calciatrici donne
     per questo taglio d'eta'."""
     query = f"""
-    SELECT ?player ?playerLabel ?club ?clubLabel ?posLabel ?dob WHERE {{
+    SELECT ?player ?playerLabel ?club ?clubLabel ?posLabel ?dob ?dobPrecision WHERE {{
       ?player wdt:P27 wd:{country_qid} .
       ?player wdt:P106 wd:Q937857 .
       ?player wdt:P21 wd:{gender_qid} .
-      ?player wdt:P569 ?dob .
-      FILTER(YEAR(?dob) >= {MIN_BIRTH_YEAR})
+      ?player p:P569 ?dobStatement .
+      ?dobStatement psv:P569 ?dobValue .
+      ?dobValue wikibase:timeValue ?dob .
+      ?dobValue wikibase:timePrecision ?dobPrecision .
+      FILTER(YEAR(?dob) >= {_min_birth_year()})
       OPTIONAL {{ ?player wdt:P413 ?pos . }}
       OPTIONAL {{
         ?player p:P54 ?membership .
@@ -240,7 +277,7 @@ def _sparql_nationality_pool(country_qid: str, gender_qid: str) -> list[dict]:
                 "name": _clean_name(row.get("playerLabel", {}).get("value", "")),
                 "club": _clean_label(row.get("clubLabel", {}).get("value", "")),
                 "role": _normalize_role(row.get("posLabel", {}).get("value", "")),
-                "dob": row.get("dob", {}).get("value", "")[:10] or None,
+                "dob": _precise_dob(row),
                 "source": "wikidata",
             }
         )
@@ -316,7 +353,7 @@ def fetch_conmebol_squads(cfg: dict) -> list[dict]:
                 birth_year = int(m.group("by"))
             except (TypeError, ValueError):
                 continue
-            if birth_year < MIN_BIRTH_YEAR:
+            if birth_year < _min_birth_year():
                 continue
             raw_name = m.group("name")
             club = m.group("club") or m.group("club_plain") or ""
@@ -844,7 +881,7 @@ def _sparql_count_nationality(country_qid: str, gender_qid: str) -> int | None:
       ?player wdt:P106 wd:Q937857 .
       ?player wdt:P21 wd:{gender_qid} .
       ?player wdt:P569 ?dob .
-      FILTER(YEAR(?dob) >= {MIN_BIRTH_YEAR})
+      FILTER(YEAR(?dob) >= {_min_birth_year()})
     }}
     """
     url = WIKIDATA_SPARQL_ENDPOINT + "?" + urllib.parse.urlencode({"query": query, "format": "json"})

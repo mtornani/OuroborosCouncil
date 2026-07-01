@@ -156,44 +156,58 @@ candidate_sources:
 
 # --- Layer A: eta' di riferimento per tier di competizione ---------------
 # Non "il piu' giovane", ma "giovane rispetto al livello che sta gia' reggendo".
-# reference_age = eta' tipica per quel tier; spread_years = quanti anni sotto
-# la reference_age servono per saturare il punteggio a 1.0 (satura, non premia
-# all'infinito un'eta' improbabile - bug di scala). Spread piu' stretto per i
-# tornei giovanili (la finestra d'eta' e' gia' vincolata dal regolamento).
+# reference_age = eta' MEDIA REALE dei candidati attualmente in pool per quel
+# tier (calcolata dal vivo il 2026-07-01, non stimata a sensazione - i valori
+# precedenti erano un punto di partenza dichiarato non validato, si e' visto
+# che erano sbagliati anche di 5-6 anni). spread_years = deviazione standard
+# reale della stessa popolazione: satura il punteggio a 1.0 per chi e' circa
+# 1 deviazione standard sotto la media, non premia all'infinito un'eta'
+# improbabile. Da ricalcolare periodicamente (le rose cambiano stagione per
+# stagione) rifacendo il calcolo su fetch_serie_players()/fetch_conmebol_squads()
+# /fetch_nationality_players() - non serve un tool nuovo, sono dati che gia'
+# arriviamo a scaricare ogni "Aggiorna".
+#
+# ATTENZIONE CAMPIONI PICCOLI: serie_d (n=5) e serie_c_riserve (n=7) sono
+# calcolati su pochissimi candidati - trattarli come provvisori, non come
+# verita' assodata, finche' il pool non cresce con altri run.
 age_reference:
   serie_c:
-    reference_age: 20
-    spread_years: 3
+    # n=19, media 23.0, std 1.27
+    reference_age: 23.0
+    spread_years: 1.3
   serie_d:
-    reference_age: 21
-    spread_years: 3
+    # n=5 - CAMPIONE MOLTO PICCOLO, provvisorio
+    reference_age: 23.3
+    spread_years: 1.2
   # Squadre riserve/Next Gen (rilevate live via Wikidata: classe "reserve
   # team" Q2412834, non solo per nome - verificato che "Juventus Next Gen"
   # e' l'unica in Serie C al momento, ma il meccanismo regge se ne arrivano
-  # altre, es. Atalanta U23). Stessa eta' di riferimento del tier normale:
-  # la correzione vera e' nel peso (vedi signal_score_weights sotto), non
-  # qui - il problema non e' l'eta' di riferimento sbagliata, e' che in
-  # queste squadre "giovane" e' un requisito di regolamento (obbligo U21),
-  # non un segnale raro, quindi da solo pesa troppo poco per dire qualcosa.
+  # altre, es. Atalanta U23). La correzione principale per questo tier e'
+  # nel peso (vedi signal_score_weights sotto): in queste squadre "giovane"
+  # e' un requisito di regolamento (obbligo U21), non un segnale raro.
   serie_c_riserve:
-    reference_age: 20
-    spread_years: 3
+    # n=7 - CAMPIONE PICCOLO, provvisorio
+    reference_age: 22.0
+    spread_years: 2.5
   serie_d_riserve:
-    reference_age: 21
-    spread_years: 3
+    # n=0: nessuna squadra riserve gioca in Serie D al momento (verificato
+    # dal vivo) - valori ereditati da serie_d come placeholder, da ricalcolare
+    # se/quando una squadra riserve compare li'.
+    reference_age: 23.3
+    spread_years: 1.2
   conmebol_u20:
-    reference_age: 19
-    spread_years: 2
+    # n=227, media 20.6, std 0.78 - campione solido
+    reference_age: 20.6
+    spread_years: 0.8
   conmebol_u17:
-    reference_age: 16
-    spread_years: 1.5
+    # n=228, media 18.0, std 0.44 - campione solido, finestra stretta perche'
+    # il regolamento del torneo vincola gia' l'eta' entro un intervallo piccolo
+    reference_age: 18.0
+    spread_years: 0.5
   nationality_pool:
-    # spread piu' ampio degli altri tier: qui non si conosce il livello di
-    # lega esatto per la maggior parte dei candidati (verificato: club
-    # corrente risolvibile su Wikidata solo per una minoranza), quindi si
-    # accetta una finestra piu' larga invece di finti falsi negativi
-    reference_age: 20
-    spread_years: 5
+    # n=3398, media 22.3, std 1.70 - campione solido
+    reference_age: 22.3
+    spread_years: 1.7
 
 # --- Layer A: pesi del Signal Score, per tier -----------------------------
 # "default" vale per tutti i tier non elencati esplicitamente. 50/50 e' un
