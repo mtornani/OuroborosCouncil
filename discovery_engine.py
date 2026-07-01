@@ -89,6 +89,39 @@ def _clean_label(value: str) -> str:
     return value
 
 
+_TRAILING_PAREN_RE = re.compile(r"\s*\([^()]*\)\s*$")
+
+
+def _clean_name(value: str) -> str:
+    """Wikidata a volte allega un disambiguatore tra parentesi al nome
+    quando esistono omonimi (es. 'Alejandro Cichero (footballer, born
+    2003)') - va bene come dato interno, non come nome mostrato a Mirko."""
+    return _TRAILING_PAREN_RE.sub("", value).strip()
+
+
+# Wikidata (P413) restituisce etichette granulari in italiano ("mediano",
+# "ala sinistra", "trequartista"...), il parsing Wikipedia (CONMEBOL) da'
+# sigle inglesi (GK/DF/MF/FW). Un solo normalizzatore per i 4 macro-ruoli
+# utili a un filtro in UI - i dettagli granulari si perdono, va bene cosi'
+# per un filtro, non per un report tattico.
+_ROLE_BUCKETS = [
+    ("Portiere", ["portiere", "gk"]),
+    ("Difensore", ["difensore", "terzino", "libero", "df"]),
+    ("Centrocampista", ["centrocampista", "mediano", "mezzala", "trequartista", "regista", "mf"]),
+    ("Attaccante", ["attaccante", "ala", "punta", "seconda punta", "fw"]),
+]
+
+
+def _normalize_role(raw: str) -> str | None:
+    if not raw:
+        return None
+    raw_lower = raw.strip().lower()
+    for bucket, keywords in _ROLE_BUCKETS:
+        if any(raw_lower == kw or raw_lower.startswith(kw) for kw in keywords):
+            return bucket
+    return None  # etichetta non riconosciuta - mai un ruolo inventato
+
+
 # ============================================================
 # CANDIDATE POOL - Serie C/D via Wikidata SPARQL (verificato live)
 # ============================================================
@@ -98,13 +131,14 @@ def _sparql_current_squad(league_qid: str) -> list[dict]:
     senza data di fine (FILTER NOT EXISTS end time) - approccio verificato
     con query reale prima di scrivere questo codice."""
     query = f"""
-    SELECT ?player ?playerLabel ?club ?clubLabel ?dob WHERE {{
+    SELECT ?player ?playerLabel ?club ?clubLabel ?posLabel ?dob WHERE {{
       ?club wdt:P118 wd:{league_qid} .
       ?player p:P54 ?membership .
       ?membership ps:P54 ?club .
       FILTER NOT EXISTS {{ ?membership pq:P582 ?endTime . }}
       ?player wdt:P569 ?dob .
       FILTER(YEAR(?dob) >= {MIN_BIRTH_YEAR})
+      OPTIONAL {{ ?player wdt:P413 ?pos . }}
       SERVICE wikibase:label {{ bd:serviceParam wikibase:language "it,en". }}
     }}
     LIMIT 500
@@ -123,8 +157,9 @@ def _sparql_current_squad(league_qid: str) -> list[dict]:
         out.append(
             {
                 "candidate_id": qid,
-                "name": row.get("playerLabel", {}).get("value", ""),
+                "name": _clean_name(row.get("playerLabel", {}).get("value", "")),
                 "club": _clean_label(row.get("clubLabel", {}).get("value", "")),
+                "role": _normalize_role(row.get("posLabel", {}).get("value", "")),
                 "dob": row.get("dob", {}).get("value", "")[:10] or None,
                 "source": "wikidata",
             }
@@ -154,12 +189,13 @@ def _sparql_nationality_pool(country_qid: str, gender_qid: str) -> list[dict]:
     verificato live che senza non torna quasi altro che calciatrici donne
     per questo taglio d'eta'."""
     query = f"""
-    SELECT ?player ?playerLabel ?club ?clubLabel ?dob WHERE {{
+    SELECT ?player ?playerLabel ?club ?clubLabel ?posLabel ?dob WHERE {{
       ?player wdt:P27 wd:{country_qid} .
       ?player wdt:P106 wd:Q937857 .
       ?player wdt:P21 wd:{gender_qid} .
       ?player wdt:P569 ?dob .
       FILTER(YEAR(?dob) >= {MIN_BIRTH_YEAR})
+      OPTIONAL {{ ?player wdt:P413 ?pos . }}
       OPTIONAL {{
         ?player p:P54 ?membership .
         ?membership ps:P54 ?club .
@@ -188,8 +224,9 @@ def _sparql_nationality_pool(country_qid: str, gender_qid: str) -> list[dict]:
         out.append(
             {
                 "candidate_id": qid,
-                "name": row.get("playerLabel", {}).get("value", ""),
+                "name": _clean_name(row.get("playerLabel", {}).get("value", "")),
                 "club": _clean_label(row.get("clubLabel", {}).get("value", "")),
+                "role": _normalize_role(row.get("posLabel", {}).get("value", "")),
                 "dob": row.get("dob", {}).get("value", "")[:10] or None,
                 "source": "wikidata",
             }
@@ -268,13 +305,18 @@ def fetch_conmebol_squads(cfg: dict) -> list[dict]:
                 continue
             if birth_year < MIN_BIRTH_YEAR:
                 continue
-            name = m.group("name")
+            raw_name = m.group("name")
             club = m.group("club") or m.group("club_plain") or ""
             candidates.append(
                 {
-                    "candidate_id": f"wp-{slugify(name)}-{page['tier']}",
-                    "name": name,
+                    # ID dal nome grezzo (con eventuale disambiguatore Wikipedia
+                    # tra parentesi): e' li' apposta perche' esistono piu'
+                    # persone con lo stesso nome base - pulirlo prima
+                    # dell'ID fonderebbe per errore persone diverse.
+                    "candidate_id": f"wp-{slugify(raw_name)}-{page['tier']}",
+                    "name": _clean_name(raw_name),
                     "club": club.strip(),
+                    "role": _normalize_role(m.group("pos")),
                     "dob": f"{m.group('by')}-{int(m.group('bm')):02d}-{int(m.group('bd')):02d}",
                     "tier": page["tier"],
                     "source": "wikipedia",
@@ -304,6 +346,16 @@ def fetch_watchlist_candidates(cfg: dict) -> list[dict]:
     return out
 
 
+def _more_complete(a: dict, b: dict) -> dict:
+    """Un giocatore puo' comparire in piu' righe grezze con dati diversi
+    (piu' appartenenze 'correnti' contemporanee su Wikidata - verificato
+    live per club e ruolo). Tiene la riga con piu' campi utili valorizzati,
+    non semplicemente l'ultima incontrata."""
+    score_a = sum(1 for k in ("club", "role") if a.get(k))
+    score_b = sum(1 for k in ("club", "role") if b.get(k))
+    return a if score_a >= score_b else b
+
+
 def fetch_candidate_pool(cfg: dict) -> list[dict]:
     pool = (
         fetch_serie_players(cfg)
@@ -313,7 +365,8 @@ def fetch_candidate_pool(cfg: dict) -> list[dict]:
     )
     seen = {}
     for c in pool:
-        seen[c["candidate_id"]] = c  # dedup per candidate_id, ultima occorrenza vince
+        cid = c["candidate_id"]
+        seen[cid] = _more_complete(seen[cid], c) if cid in seen else c
     return list(seen.values())
 
 
@@ -656,6 +709,8 @@ def refresh_radar(profile_key: str = "tactical_profile") -> dict:
                 "candidate_id": e["candidate"]["candidate_id"],
                 "name": e["candidate"]["name"],
                 "club": e["candidate"].get("club"),
+                "role": e["candidate"].get("role"),
+                "dob": e["candidate"].get("dob"),
                 "tier": e["candidate"].get("tier"),
                 "nationality_label": e["candidate"].get("nationality_label"),
                 "source": e["candidate"].get("source"),
@@ -694,8 +749,7 @@ def _dedup_by_id(rows: list[dict]) -> list[dict]:
     seen = {}
     for r in rows:
         cid = r.get("candidate_id")
-        if cid not in seen or (r.get("club") and not seen[cid].get("club")):
-            seen[cid] = r
+        seen[cid] = _more_complete(seen[cid], r) if cid in seen else r
     return list(seen.values())
 
 

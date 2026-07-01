@@ -172,6 +172,8 @@ def radar_feed():
                 "candidate_id": candidate_id,
                 "name": record["identity"].get("name"),
                 "club": record["identity"].get("club"),
+                "role": record["identity"].get("role"),
+                "dob": record["identity"].get("dob"),
                 "tier": record["identity"].get("tier"),
                 "nationality_label": record["identity"].get("nationality_label"),
                 "source": record["identity"].get("source"),

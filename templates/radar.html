@@ -108,6 +108,87 @@
             background: rgba(61, 220, 132, 0.08);
         }
 
+        /* FILTER PANEL */
+        .filter-toggle-row {
+            padding: 0 16px 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .filter-toggle {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-dim);
+            border: 1px solid var(--panel-border);
+            border-radius: 8px;
+            padding: 6px 10px;
+        }
+
+        .filter-toggle.active {
+            color: var(--accent-high);
+            border-color: var(--accent-high);
+        }
+
+        .result-count {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-dim);
+        }
+
+        .filter-panel {
+            display: none;
+            padding: 4px 16px 14px;
+            border-bottom: 1px solid var(--panel-border);
+            margin-bottom: 6px;
+        }
+
+        .filter-panel.open { display: block; }
+
+        .filter-label {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-dim);
+            margin: 10px 0 6px;
+        }
+
+        .filter-label:first-child { margin-top: 0; }
+
+        .filter-chip-row {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        .filter-chip {
+            font-family: var(--font-mono);
+            font-size: 11.5px;
+            padding: 6px 12px;
+            border-radius: 16px;
+            border: 1px solid var(--panel-border);
+            background: var(--panel);
+            color: var(--text-dim);
+        }
+
+        .filter-chip.active {
+            border-color: var(--accent-high);
+            color: var(--accent-high);
+            background: rgba(61, 220, 132, 0.08);
+        }
+
+        .filter-select {
+            width: 100%;
+            font-family: var(--font-mono);
+            font-size: 12.5px;
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid var(--panel-border);
+            background: var(--panel);
+            color: var(--text-main);
+        }
+
         /* LIST */
         main {
             flex: 1;
@@ -284,6 +365,22 @@
 
     <div class="chip-row" id="profile-chips"></div>
 
+    <div class="filter-toggle-row">
+        <div class="filter-toggle" id="filter-toggle">FILTRI ▾</div>
+        <div class="result-count" id="result-count"></div>
+    </div>
+
+    <div class="filter-panel" id="filter-panel">
+        <div class="filter-label">Ruolo</div>
+        <div class="filter-chip-row" id="role-filters"></div>
+
+        <div class="filter-label">Eta' massima</div>
+        <div class="filter-chip-row" id="age-filters"></div>
+
+        <div class="filter-label">Paese / competizione</div>
+        <select class="filter-select" id="country-filter"></select>
+    </div>
+
     <main id="results"></main>
 
     <div class="bottom-bar">
@@ -299,17 +396,41 @@
             { key: "fsgc_oriundi", label: "Oriundi FSGC" },
         ];
 
+        const ROLES = ["Portiere", "Difensore", "Centrocampista", "Attaccante"];
+        const AGE_PRESETS = [
+            { key: "17", label: "U17", max: 17 },
+            { key: "20", label: "U20", max: 20 },
+            { key: "23", label: "U23", max: 23 },
+            { key: "all", label: "Tutte", max: null },
+        ];
+
         const state = {
             activeProfile: "tactical_profile",
             results: [],
             config: null,
             expanded: new Set(),
+            filterPanelOpen: false,
+            filters: { roles: new Set(), maxAge: "all", country: "all" },
         };
 
         function tierLabel(candidate) {
             if (candidate.tier === "nationality_pool") return candidate.nationality_label || "Pool nazionalita'";
             return { serie_c: "Serie C", serie_d: "Serie D", conmebol_u20: "CONMEBOL U20",
                       conmebol_u17: "CONMEBOL U17", watchlist: "Watchlist" }[candidate.tier] || candidate.tier || "N/D";
+        }
+
+        // chiave stabile per il filtro paese/competizione - stesso criterio
+        // di tierLabel ma senza dipendere dalla label (usata come value del <select>)
+        function groupKey(candidate) {
+            return candidate.tier === "nationality_pool" ? `nat:${candidate.nationality_label}` : `tier:${candidate.tier}`;
+        }
+
+        function computeAge(dob) {
+            if (!dob) return null;
+            const birth = new Date(dob);
+            if (isNaN(birth)) return null;
+            const diffMs = Date.now() - birth.getTime();
+            return diffMs / (1000 * 60 * 60 * 24 * 365.25);
         }
 
         function computeFitScore(candidate, profileKey) {
@@ -361,6 +482,72 @@
             `;
         }
 
+        function renderFilterPanel() {
+            const panel = document.getElementById("filter-panel");
+            panel.classList.toggle("open", state.filterPanelOpen);
+
+            const toggle = document.getElementById("filter-toggle");
+            const filtersActive = state.filters.roles.size > 0 || state.filters.maxAge !== "all" || state.filters.country !== "all";
+            toggle.classList.toggle("active", filtersActive);
+            toggle.textContent = `FILTRI ${state.filterPanelOpen ? "▴" : "▾"}`;
+
+            const roleEl = document.getElementById("role-filters");
+            roleEl.innerHTML = ROLES.map(r =>
+                `<div class="filter-chip ${state.filters.roles.has(r) ? "active" : ""}" data-role="${r}">${r}</div>`
+            ).join("");
+            roleEl.querySelectorAll(".filter-chip").forEach(el => {
+                el.addEventListener("click", () => {
+                    const r = el.dataset.role;
+                    if (state.filters.roles.has(r)) state.filters.roles.delete(r);
+                    else state.filters.roles.add(r);
+                    render();
+                });
+            });
+
+            const ageEl = document.getElementById("age-filters");
+            ageEl.innerHTML = AGE_PRESETS.map(p =>
+                `<div class="filter-chip ${state.filters.maxAge === p.key ? "active" : ""}" data-age="${p.key}">${p.label}</div>`
+            ).join("");
+            ageEl.querySelectorAll(".filter-chip").forEach(el => {
+                el.addEventListener("click", () => {
+                    state.filters.maxAge = el.dataset.age;
+                    render();
+                });
+            });
+
+            // opzioni paese/competizione calcolate dai risultati presenti,
+            // cosi' si aggiornano da sole quando radar_config.yaml cambia
+            // senza dover toccare questo file
+            const countryEl = document.getElementById("country-filter");
+            const groups = new Map();
+            for (const c of state.results) {
+                const key = groupKey(c);
+                if (!groups.has(key)) groups.set(key, tierLabel(c));
+            }
+            const sortedGroups = [...groups.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+            const prevValue = state.filters.country;
+            countryEl.innerHTML = '<option value="all">Tutti</option>' +
+                sortedGroups.map(([key, label]) => `<option value="${key}">${label}</option>`).join("");
+            countryEl.value = prevValue;
+            countryEl.onchange = () => {
+                state.filters.country = countryEl.value;
+                render();
+            };
+        }
+
+        function applyFilters(list) {
+            return list.filter(c => {
+                if (state.filters.roles.size > 0 && !state.filters.roles.has(c.role)) return false;
+                const preset = AGE_PRESETS.find(p => p.key === state.filters.maxAge);
+                if (preset && preset.max !== null) {
+                    const age = computeAge(c.dob);
+                    if (age === null || age > preset.max) return false;
+                }
+                if (state.filters.country !== "all" && groupKey(c) !== state.filters.country) return false;
+                return true;
+            });
+        }
+
         function render() {
             const chipsEl = document.getElementById("profile-chips");
             chipsEl.innerHTML = PROFILES.map(p =>
@@ -373,14 +560,21 @@
                 });
             });
 
-            const scored = state.results
+            renderFilterPanel();
+
+            let scored = state.results
                 .map(c => ({ ...c, _fit: computeFitScore(c, state.activeProfile) }))
                 .filter(c => c._fit !== null);
+            scored = applyFilters(scored);
             scored.sort((a, b) => b._fit - a._fit);
+
+            document.getElementById("result-count").textContent = `${scored.length} candidati`;
 
             const resultsEl = document.getElementById("results");
             if (scored.length === 0) {
-                resultsEl.innerHTML = '<div class="empty-state">Nessun candidato ancora per questo profilo.<br>Premi AGGIORNA per far partire la scansione (Wikidata + Wikipedia + buzz Google News, ~30-60s).</div>';
+                resultsEl.innerHTML = state.results.length === 0
+                    ? '<div class="empty-state">Nessun candidato ancora.<br>Premi AGGIORNA per far partire la scansione (Wikidata + Wikipedia + buzz Google News, ~30-60s).</div>'
+                    : '<div class="empty-state">Nessun candidato per questa combinazione di profilo/filtri.<br>Prova ad allargare i filtri.</div>';
                 return;
             }
 
@@ -393,7 +587,7 @@
                             <div class="card-badge" style="background:${badge.color}"></div>
                             <div class="card-info">
                                 <div class="card-name">${c.name}</div>
-                                <div class="card-meta">${c.club || "club N/D"} · ${tierLabel(c)}</div>
+                                <div class="card-meta">${c.role ? c.role + " · " : ""}${c.club || "club N/D"} · ${tierLabel(c)}${computeAge(c.dob) !== null ? " · " + Math.floor(computeAge(c.dob)) + " anni" : ""}</div>
                                 ${c.partial_data ? '<div class="partial-flag">DATI PARZIALI</div>' : ""}
                             </div>
                             <div class="card-scores">
@@ -461,6 +655,10 @@
         }
 
         document.getElementById("refresh-btn").addEventListener("click", refresh);
+        document.getElementById("filter-toggle").addEventListener("click", () => {
+            state.filterPanelOpen = !state.filterPanelOpen;
+            render();
+        });
 
         loadConfig();
         loadFeed();
