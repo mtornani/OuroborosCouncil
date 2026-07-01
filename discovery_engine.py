@@ -659,3 +659,111 @@ def refresh_radar(profile_key: str = "tactical_profile") -> dict:
 
 def latest_feed() -> dict:
     return _load_json(FEED_FILE)
+
+
+# ============================================================
+# DIAGNOSTICA DI COPERTURA - "quanto e' buona questa biblioteca qui?"
+# ============================================================
+# Non sceglie automaticamente la fonte migliore per paese (richiederebbe
+# avere piu' fonti candidate sullo stesso paese da confrontare, e oggi ne
+# abbiamo una sola verificata per contesto). Misura solo quanto e' densa
+# la copertura di una fonte gia' configurata, cosi' una copertura scarsa si
+# vede subito invece di scoprirla per caso (com'e' successo con Oliver Odell
+# e il club mancante). Riutilizzabile ogni volta che si aggiunge un paese.
+
+def _dedup_by_id(rows: list[dict]) -> list[dict]:
+    """Un giocatore puo' comparire piu' volte nei risultati grezzi (piu'
+    appartenenze 'correnti' contemporanee su Wikidata - verificato live:
+    per la Nigeria il conteggio grezzo superava il totale via COUNT). La
+    diagnostica deve riflettere i candidati DISTINTI che finiranno davvero
+    in pool dopo il dedup di fetch_candidate_pool, non le righe grezze -
+    altrimenti i numeri mostrati sono gonfiati e fuorvianti."""
+    seen = {}
+    for r in rows:
+        cid = r.get("candidate_id")
+        if cid not in seen or (r.get("club") and not seen[cid].get("club")):
+            seen[cid] = r
+    return list(seen.values())
+
+
+def _coverage_stats(rows: list[dict], total_hint: int | None = None) -> dict:
+    rows = _dedup_by_id(rows) if rows and rows[0].get("candidate_id") else rows
+    n = len(rows)
+    return {
+        "candidati": n,
+        "con_data_nascita": sum(1 for r in rows if r.get("dob")),
+        "con_club_noto": sum(1 for r in rows if r.get("club")),
+        "pct_con_club": round(sum(1 for r in rows if r.get("club")) / n * 100, 1) if n else 0.0,
+        "limite_500_raggiunto": n >= 500,
+        "totale_reale_stimato": total_hint,
+    }
+
+
+def _sparql_count_nationality(country_qid: str, gender_qid: str) -> int | None:
+    """Query di sole COUNT (senza LIMIT) per sapere se il totale reale supera
+    il tetto di 500 che mettiamo alla query principale (per restare veloci)."""
+    query = f"""
+    SELECT (COUNT(?player) AS ?count) WHERE {{
+      ?player wdt:P27 wd:{country_qid} .
+      ?player wdt:P106 wd:Q937857 .
+      ?player wdt:P21 wd:{gender_qid} .
+      ?player wdt:P569 ?dob .
+      FILTER(YEAR(?dob) >= {MIN_BIRTH_YEAR})
+    }}
+    """
+    url = WIKIDATA_SPARQL_ENDPOINT + "?" + urllib.parse.urlencode({"query": query, "format": "json"})
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.load(resp)
+        return int(data["results"]["bindings"][0]["count"]["value"])
+    except Exception:
+        return None
+
+
+def diagnose_coverage(cfg: dict | None = None) -> dict:
+    """Diagnostica copertura di TUTTE le fonti configurate. Non modifica
+    nulla, non salva nulla - solo lettura, per decidere se una fonte/paese
+    e' abbastanza densa da fidarsi o se serve cercare un'alternativa."""
+    cfg = cfg or load_config()
+    report = {"wikidata_leagues": {}, "wikidata_nationalities": {}, "wikipedia_youth_squads": {}}
+
+    for league_key, league_cfg in cfg["candidate_sources"]["wikidata_leagues"].items():
+        rows = _sparql_current_squad(league_cfg["qid"])
+        report["wikidata_leagues"][league_key] = _coverage_stats(rows)
+
+    for pool_key, pool_cfg in (cfg["candidate_sources"].get("wikidata_nationalities") or {}).items():
+        rows = _sparql_nationality_pool(pool_cfg["country_qid"], pool_cfg["gender_qid"])
+        total = _sparql_count_nationality(pool_cfg["country_qid"], pool_cfg["gender_qid"])
+        report["wikidata_nationalities"][pool_key] = _coverage_stats(rows, total_hint=total)
+
+    for page in cfg["candidate_sources"]["wikipedia_youth_squads"]:
+        wikitext = _fetch_wikipedia_wikitext(page["title"])
+        rows = [{"dob": "x", "club": m.group("club") or m.group("club_plain")}
+                for m in _NAT_FS_PLAYER_RE.finditer(wikitext or "")]
+        stats = _coverage_stats(rows)
+        stats["pagina_raggiungibile"] = wikitext is not None
+        report["wikipedia_youth_squads"][page["title"]] = stats
+
+    return report
+
+
+def probe_nationality(country_qid: str, gender_qid: str, label: str = "") -> dict:
+    """Diagnostica veloce su UN paese non ancora in config, per decidere se
+    vale la pena aggiungerlo. Non tocca radar_config.yaml - va aggiunto a
+    mano dopo aver visto numeri che convincono."""
+    rows = _sparql_nationality_pool(country_qid, gender_qid)
+    total = _sparql_count_nationality(country_qid, gender_qid)
+    stats = _coverage_stats(rows, total_hint=total)
+    stats["label"] = label or country_qid
+    return stats
+
+
+if __name__ == "__main__":
+    import sys as _sys
+
+    if len(_sys.argv) > 1 and _sys.argv[1] == "diagnose":
+        report = diagnose_coverage()
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+    else:
+        print("Uso: python3 discovery_engine.py diagnose")
