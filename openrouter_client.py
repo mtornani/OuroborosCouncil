@@ -20,7 +20,13 @@ HEADERS = {
 
 
 def get_available_models():
-    """Recupera e filtra i modelli live su OpenRouter (solo :free)."""
+    """Recupera e filtra i modelli live su OpenRouter (solo :free, solo testo).
+
+    Verificato dal vivo prima di fidarsene: tra i modelli ":free" c'erano
+    anche generatori musicali/audio (es. google/lyria-3-pro-preview, output
+    modality "audio") che rispondevano con testo senza senso a un prompt di
+    chat normale. Il filtro su output_modalities == ["text"] li esclude -
+    23 modelli testuali su 25 "free" nel campione verificato."""
     try:
         res = requests.get("https://openrouter.ai/api/v1/models", headers=HEADERS, timeout=15)
         if res.status_code != 200:
@@ -29,7 +35,9 @@ def get_available_models():
         filtered_free = []
         for m in models_data:
             mid = m["id"]
-            if ":free" in mid or m.get("pricing", {}).get("prompt") == "0":
+            is_free = ":free" in mid or m.get("pricing", {}).get("prompt") == "0"
+            is_text_only = m.get("architecture", {}).get("output_modalities") == ["text"]
+            if is_free and is_text_only:
                 filtered_free.append({"id": mid, "context_length": m.get("context_length", 0)})
         return sorted(filtered_free, key=lambda x: x["context_length"], reverse=True)[:30]
     except Exception:

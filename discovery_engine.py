@@ -545,13 +545,29 @@ _ROLES = {
 }
 
 
-def _pick_model() -> str:
+def _candidate_models() -> list[str]:
     models = get_available_models()
-    return models[0]["id"] if models else DEFAULT_FALLBACK_MODEL
+    return [m["id"] for m in models[:5]] or [DEFAULT_FALLBACK_MODEL]
+
+
+def _call_with_fallback(model_pool: list[str], system_prompt: str, user_message: str) -> tuple[str, str]:
+    """I modelli :free su OpenRouter possono essere rate-limited in modo
+    imprevedibile (verificato live: 1 su 6 modelli testati ha risposto 429
+    mentre gli altri andavano bene) - prova il prossimo candidato invece di
+    far fallire subito l'intero dossier per un singolo modello occupato.
+    Ritorna (risposta, modello_usato) cosi' il resto del dossier riusa lo
+    stesso modello che ha gia' dimostrato di rispondere."""
+    last_error = None
+    for model in model_pool:
+        try:
+            return call_openrouter(model, system_prompt, user_message), model
+        except Exception as e:
+            last_error = e
+    raise last_error
 
 
 def run_swarm_dossier(candidate: dict, score_result: dict) -> dict:
-    model = _pick_model()
+    model_pool = _candidate_models()
     context = (
         f"Giocatore: {candidate['name']}\nSquadra: {candidate.get('club', 'N/D')}\n"
         f"Tier competizione: {candidate.get('tier', 'N/D')}\n"
@@ -559,7 +575,9 @@ def run_swarm_dossier(candidate: dict, score_result: dict) -> dict:
         f"Componenti disponibili: {list(score_result.get('components', {}).keys())}"
     )
 
-    cronista = call_openrouter(model, _ROLES["cronista"], context)
+    # il primo ruolo sceglie il modello (provando la lista finche' uno
+    # risponde), i successivi riusano lo stesso per coerenza nel dossier
+    cronista, model = _call_with_fallback(model_pool, _ROLES["cronista"], context)
     verificatore = call_openrouter(model, _ROLES["verificatore"], f"{context}\n\nReport Cronista:\n{cronista}")
     scettico = call_openrouter(
         model, _ROLES["scettico"],
