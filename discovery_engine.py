@@ -26,6 +26,7 @@ import yaml
 
 from monitor.web_monitor import search_google_news, deduplicate_signals
 from openrouter_client import call_openrouter, get_available_models
+from nvidia_client import call_nvidia, get_available_models as get_available_nvidia_models
 
 try:
     import psycopg2
@@ -680,22 +681,30 @@ _ROLES = {
 }
 
 
-def _candidate_models() -> list[str]:
-    models = get_available_models()
-    return [m["id"] for m in models[:5]] or [DEFAULT_FALLBACK_MODEL]
+def _candidate_models() -> list[tuple]:
+    """OpenRouter provato per primo (provider gia' cablato da sempre), NVIDIA
+    NIM come riserva vera se impostata (NVIDIA_API_KEY in .env) - non solo
+    un test isolato, un secondo provider genuino nella stessa catena di
+    fallback. Verificato dal vivo quali modelli NVIDIA rispondono per
+    davvero prima di fidarsene (nvidia_client.VERIFIED_MODELS: il catalogo
+    /v1/models ne mostra 121, ma non tutti sono abilitati per ogni account -
+    alcuni danno 404 'Not found for account' nonostante compaiano li')."""
+    pool = [(call_openrouter, m["id"]) for m in get_available_models()[:5]]
+    pool += [(call_nvidia, m["id"]) for m in get_available_nvidia_models()]
+    return pool or [(call_openrouter, DEFAULT_FALLBACK_MODEL)]
 
 
-def _call_with_fallback(model_pool: list[str], system_prompt: str, user_message: str) -> tuple[str, str]:
-    """I modelli :free su OpenRouter possono essere rate-limited in modo
-    imprevedibile (verificato live: 1 su 6 modelli testati ha risposto 429
-    mentre gli altri andavano bene) - prova il prossimo candidato invece di
-    far fallire subito l'intero dossier per un singolo modello occupato.
-    Ritorna (risposta, modello_usato) cosi' il resto del dossier riusa lo
-    stesso modello che ha gia' dimostrato di rispondere."""
+def _call_with_fallback(model_pool: list[tuple], system_prompt: str, user_message: str):
+    """I modelli gratuiti possono essere rate-limited in modo imprevedibile
+    (verificato live: sia su OpenRouter con 429 per-modello e per-account,
+    sia il bisogno di un secondo provider quando il primo e' esaurito per
+    la giornata) - prova il prossimo candidato invece di far fallire subito
+    l'intero dossier. Ritorna (risposta, call_fn, modello) cosi' il resto
+    del dossier riusa lo stesso provider/modello che ha gia' risposto."""
     last_error = None
-    for model in model_pool:
+    for call_fn, model in model_pool:
         try:
-            return call_openrouter(model, system_prompt, user_message), model
+            return call_fn(model, system_prompt, user_message), call_fn, model
         except Exception as e:
             last_error = e
     raise last_error
@@ -710,15 +719,15 @@ def run_swarm_dossier(candidate: dict, score_result: dict) -> dict:
         f"Componenti disponibili: {list(score_result.get('components', {}).keys())}"
     )
 
-    # il primo ruolo sceglie il modello (provando la lista finche' uno
-    # risponde), i successivi riusano lo stesso per coerenza nel dossier
-    cronista, model = _call_with_fallback(model_pool, _ROLES["cronista"], context)
-    verificatore = call_openrouter(model, _ROLES["verificatore"], f"{context}\n\nReport Cronista:\n{cronista}")
-    scettico = call_openrouter(
+    # il primo ruolo sceglie provider+modello (provando la lista finche' uno
+    # risponde), i successivi riusano la stessa coppia per coerenza nel dossier
+    cronista, call_fn, model = _call_with_fallback(model_pool, _ROLES["cronista"], context)
+    verificatore = call_fn(model, _ROLES["verificatore"], f"{context}\n\nReport Cronista:\n{cronista}")
+    scettico = call_fn(
         model, _ROLES["scettico"],
         f"{context}\n\nReport Cronista:\n{cronista}\n\nReport Verificatore:\n{verificatore}",
     )
-    giudice_raw = call_openrouter(
+    giudice_raw = call_fn(
         model, _ROLES["giudice"],
         f"Cronista:\n{cronista}\n\nVerificatore:\n{verificatore}\n\nScettico:\n{scettico}",
     )
@@ -731,6 +740,7 @@ def run_swarm_dossier(candidate: dict, score_result: dict) -> dict:
         "generated_at": _now_iso(),
         "signal_score_at_generation": score_result.get("signal_score"),
         "model": model,
+        "provider": "nvidia" if call_fn is call_nvidia else "openrouter",
         "cronista": cronista,
         "verificatore": verificatore,
         "scettico": scettico,
