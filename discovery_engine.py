@@ -182,8 +182,11 @@ _TRAILING_PAREN_RE = re.compile(r"\s*\([^()]*\)\s*$")
 def _clean_name(value: str) -> str:
     """Wikidata a volte allega un disambiguatore tra parentesi al nome
     quando esistono omonimi (es. 'Alejandro Cichero (footballer, born
-    2003)') - va bene come dato interno, non come nome mostrato a Mirko."""
-    return _TRAILING_PAREN_RE.sub("", value).strip()
+    2003)') - va bene come dato interno, non come nome mostrato a Mirko.
+    Stesso ripiego sul QID nudo gia' visto per il club (verificato live:
+    'Q138840467' mostrato come se fosse un nome) - stessa correzione."""
+    cleaned = _TRAILING_PAREN_RE.sub("", value).strip()
+    return "" if _BARE_QID_RE.match(cleaned) else cleaned
 
 
 # Wikidata (P413) restituisce etichette granulari in italiano ("mediano",
@@ -263,7 +266,7 @@ def _sparql_current_squad(league_qid: str) -> list[dict]:
         out.append(
             {
                 "candidate_id": qid,
-                "name": _clean_name(row.get("playerLabel", {}).get("value", "")),
+                "name": _clean_name(row.get("playerLabel", {}).get("value", "")) or f"Senza nome ({qid})",
                 "club": _clean_label(row.get("clubLabel", {}).get("value", "")),
                 "role": _normalize_role(row.get("posLabel", {}).get("value", "")),
                 "dob": _precise_dob(row),
@@ -334,7 +337,7 @@ def _sparql_nationality_pool(country_qid: str, gender_qid: str) -> list[dict]:
         out.append(
             {
                 "candidate_id": qid,
-                "name": _clean_name(row.get("playerLabel", {}).get("value", "")),
+                "name": _clean_name(row.get("playerLabel", {}).get("value", "")) or f"Senza nome ({qid})",
                 "club": _clean_label(row.get("clubLabel", {}).get("value", "")),
                 "role": _normalize_role(row.get("posLabel", {}).get("value", "")),
                 "dob": _precise_dob(row),
