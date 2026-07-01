@@ -306,7 +306,18 @@ purpose_profiles:
 
 # --- Swarm dossier ----------------------------------------------------------
 swarm:
-  top_n_candidates_for_swarm: 15
+  # misurato dal vivo in produzione: 15 candidati sequenziali x 4 chiamate
+  # AI ciascuno hanno superato i 9 minuti senza finire (503 da Cloud Run).
+  # Abbassato a 8 e parallelizzato (swarm_workers) per stare comodi entro
+  # il timeout del servizio.
+  top_n_candidates_for_swarm: 8
+  # dossier in parallelo per candidato (ogni dossier resta 4 chiamate
+  # sequenziali al suo interno, serve coerenza tra i 4 ruoli - solo i
+  # candidati diversi tra loro corrono in parallelo). Tenuto basso per non
+  # sommare troppe richieste/minuto sullo stesso provider (soprattutto
+  # Gemini free tier, quota per-minuto piu' stretta di quanto sembri dal
+  # limite giornaliero).
+  swarm_workers: 3
   # rigira il dossier solo se il Signal Score e' cambiato di almeno questa
   # soglia dall'ultimo dossier salvato, per non sprecare quota OpenRouter
   # ripremendo "Aggiorna" piu' volte al giorno sugli stessi candidati.

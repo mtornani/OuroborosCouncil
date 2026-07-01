@@ -832,6 +832,13 @@ def refresh_radar(profile_key: str = "tactical_profile") -> dict:
     # AI su un verdetto gia' prevedibile.
     swarm_candidates = [e for e in ranked if not _needs_more_signal(e["signal"])]
 
+    # Misurato dal vivo: un ciclo sequenziale su top_n=15 (4 chiamate AI
+    # ciascuno) ha superato i 9 minuti senza finire, troncato da Cloud Run
+    # con un 503. I dossier di candidati DIVERSI sono indipendenti tra loro
+    # (solo le 4 chiamate DENTRO un dossier devono restare in ordine, per
+    # coerenza Cronista->Giudice) - si parallelizza a livello di candidato,
+    # non dentro il singolo dossier.
+    to_generate = []
     for entry in swarm_candidates[:top_n]:
         cid = entry["candidate"]["candidate_id"]
         existing = feed.get(cid, {})
@@ -843,14 +850,23 @@ def refresh_radar(profile_key: str = "tactical_profile") -> dict:
             or abs(new_score - last_dossier["signal_score_at_generation"]) >= threshold
         )
         if needs_dossier:
+            to_generate.append(entry)
+        else:
+            entry["dossier"] = last_dossier
+
+    with ThreadPoolExecutor(max_workers=cfg["swarm"]["swarm_workers"]) as executor:
+        futures = {
+            executor.submit(run_swarm_dossier, entry["candidate"], entry["signal"]): entry
+            for entry in to_generate
+        }
+        for future in as_completed(futures):
+            entry = futures[future]
             try:
-                entry["dossier"] = run_swarm_dossier(entry["candidate"], entry["signal"])
+                entry["dossier"] = future.result()
             except Exception as e:
                 # mai un crash silenzioso: il candidato resta in classifica,
                 # solo il dossier AI risulta esplicitamente non disponibile
                 entry["dossier"] = {"error": f"Dossier AI non disponibile: {e}"}
-        else:
-            entry["dossier"] = last_dossier
 
     for entry in ranked:
         if "dossier" not in entry and _needs_more_signal(entry["signal"]):
