@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import threading
 from flask import Flask, render_template, request, jsonify
 
 from openrouter_client import OPENROUTER_API_KEY, call_openrouter, get_available_models
@@ -148,15 +149,55 @@ def radar_page():
     return render_template("radar.html")
 
 
+# Una scansione completa (Wikidata + Wikipedia + buzz + fino a 15 dossier AI
+# a 4 chiamate sequenziali ciascuno) puo' richiedere diversi minuti - troppo
+# per stare dentro una singola request HTTP sincrona: il worker gunicorn
+# (--timeout 120) la ammazza a meta', il client vede la connessione cadere e
+# fetch() lo riporta come "TypeError: Failed to fetch" anche se il codice
+# funziona (verificato dal vivo: curl sulla stessa route restava appeso
+# senza risposta oltre i 150s). Girare il refresh in un thread di sfondo e
+# far fare polling al client elimina il limite di tempo della request.
+_radar_job_lock = threading.Lock()
+_radar_job = {"status": "idle", "result": None, "message": None}
+
+
+def _run_radar_job(profile):
+    try:
+        result = discovery_engine.refresh_radar(profile)
+        with _radar_job_lock:
+            _radar_job["status"] = "done"
+            _radar_job["result"] = result
+            _radar_job["message"] = None
+    except Exception as e:
+        with _radar_job_lock:
+            _radar_job["status"] = "error"
+            _radar_job["result"] = None
+            _radar_job["message"] = str(e)
+
+
 @app.route("/api/radar/refresh", methods=["POST"])
 def radar_refresh():
     data = request.json or {}
     profile = data.get("profile", "tactical_profile")
-    try:
-        result = discovery_engine.refresh_radar(profile)
-        return jsonify({"status": "success", **result})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)})
+    with _radar_job_lock:
+        if _radar_job["status"] == "running":
+            return jsonify({"status": "already_running"})
+        _radar_job["status"] = "running"
+        _radar_job["result"] = None
+        _radar_job["message"] = None
+    threading.Thread(target=_run_radar_job, args=(profile,), daemon=True).start()
+    return jsonify({"status": "started"})
+
+
+@app.route("/api/radar/refresh/status")
+def radar_refresh_status():
+    with _radar_job_lock:
+        job = dict(_radar_job)
+    if job["status"] == "done":
+        return jsonify({"status": "success", **job["result"]})
+    if job["status"] == "error":
+        return jsonify({"status": "error", "message": job["message"]})
+    return jsonify({"status": job["status"]})
 
 
 @app.route("/api/radar/feed")

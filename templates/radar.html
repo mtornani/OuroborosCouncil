@@ -589,7 +589,7 @@
             const resultsEl = document.getElementById("results");
             if (scored.length === 0) {
                 resultsEl.innerHTML = state.results.length === 0
-                    ? '<div class="empty-state">Nessun candidato ancora.<br>Premi AGGIORNA per far partire la scansione (Wikidata + Wikipedia + buzz Google News, ~30-60s).</div>'
+                    ? '<div class="empty-state">Nessun candidato ancora.<br>Premi AGGIORNA per far partire la scansione (Wikidata + Wikipedia + buzz + dossier AI, puo\' richiedere alcuni minuti).</div>'
                     : '<div class="empty-state">Nessun candidato per questa combinazione di profilo/filtri.<br>Prova ad allargare i filtri.</div>';
                 return;
             }
@@ -643,6 +643,37 @@
             render();
         }
 
+        async function pollRadarStatus(btn, elapsedSec) {
+            let data;
+            try {
+                const res = await fetch("/api/radar/refresh/status");
+                data = await res.json();
+            } catch (e) {
+                document.getElementById("last-run").textContent = `errore di rete: ${e}`;
+                btn.disabled = false;
+                btn.textContent = "AGGIORNA";
+                return;
+            }
+
+            if (data.status === "running" || data.status === "started") {
+                btn.textContent = `SCANSIONE IN CORSO... (${elapsedSec}s)`;
+                setTimeout(() => pollRadarStatus(btn, elapsedSec + 3), 3000);
+                return;
+            }
+
+            btn.disabled = false;
+            btn.textContent = "AGGIORNA";
+
+            if (data.status === "success") {
+                state.results = data.results;
+                document.getElementById("last-run").textContent =
+                    `ultimo aggiornamento: ${new Date(data.run_at).toLocaleTimeString("it-IT")} · ${data.candidates_ranked}/${data.candidates_evaluated} candidati`;
+                render();
+            } else {
+                document.getElementById("last-run").textContent = `errore: ${data.message}`;
+            }
+        }
+
         async function refresh() {
             const btn = document.getElementById("refresh-btn");
             btn.disabled = true;
@@ -653,21 +684,14 @@
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ profile: state.activeProfile }),
                 });
-                const data = await res.json();
-                if (data.status === "success") {
-                    state.results = data.results;
-                    document.getElementById("last-run").textContent =
-                        `ultimo aggiornamento: ${new Date(data.run_at).toLocaleTimeString("it-IT")} · ${data.candidates_ranked}/${data.candidates_evaluated} candidati`;
-                    render();
-                } else {
-                    document.getElementById("last-run").textContent = `errore: ${data.message}`;
-                }
+                await res.json();
             } catch (e) {
                 document.getElementById("last-run").textContent = `errore di rete: ${e}`;
-            } finally {
                 btn.disabled = false;
                 btn.textContent = "AGGIORNA";
+                return;
             }
+            pollRadarStatus(btn, 3);
         }
 
         document.getElementById("refresh-btn").addEventListener("click", refresh);
