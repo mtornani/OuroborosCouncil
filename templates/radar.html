@@ -272,6 +272,18 @@
             margin-top: 3px;
         }
 
+        .club-update-flag {
+            display: inline-block;
+            font-family: var(--font-mono);
+            font-size: 9px;
+            color: var(--accent-doubt);
+            border: 1px solid var(--accent-doubt);
+            border-radius: 4px;
+            padding: 1px 4px;
+            margin-top: 3px;
+            margin-left: 4px;
+        }
+
         .card-dossier {
             display: none;
             border-top: 1px solid var(--panel-border);
@@ -396,6 +408,14 @@
             );
         }
 
+        function clubUpdate(candidate) {
+            // giudice.club_aggiornato e' valorizzato solo quando il Cronista
+            // ha davvero cercato sul web (server tool OpenRouter) e trovato
+            // una squadra diversa da quella su Wikidata - vedi discovery_engine.py
+            const g = candidate.dossier && candidate.dossier.giudice;
+            return (g && g.club_aggiornato) || null;
+        }
+
         const PROFILES = [
             { key: "tactical_profile", label: "Profilo tattico" },
             { key: "resale_value", label: "Rivendita" },
@@ -490,8 +510,14 @@
             const g = d.giudice || {};
             const verdictText = g.vale_la_pena === true ? "Vale la pena seguirlo ora"
                 : g.vale_la_pena === false ? "Non prioritario ora" : "Verdetto non disponibile";
+            const clubLine = g.club_aggiornato
+                ? `<div class="club-update-flag" style="display:block;margin:6px 0;">⚠️ Squadra su Wikidata non aggiornata - risulta ora a ${escapeHTML(g.club_aggiornato)} (confermato via ricerca web)</div>`
+                : g.club_verificato_via_ricerca
+                    ? `<div style="font-size:10px;color:var(--text-dim);margin:6px 0;">✓ squadra confermata via ricerca web</div>`
+                    : `<div style="font-size:10px;color:var(--text-dim);margin:6px 0;">squadra non riverificata via ricerca web - solo da Wikidata</div>`;
             return `
                 <div class="verdict-line">⚖️ ${escapeHTML(verdictText)}${g.confidence != null ? ` · confidence ${escapeHTML(g.confidence)}` : ""}<br>${escapeHTML(g.motivazione || "")}</div>
+                ${clubLine}
                 <div class="dossier-role"><div class="dossier-role-label">📰 Cronista</div>${escapeHTML(d.cronista || "N/D")}</div>
                 <div class="dossier-role"><div class="dossier-role-label">🔍 Verificatore</div>${escapeHTML(d.verificatore || "N/D")}</div>
                 <div class="dossier-role"><div class="dossier-role-label">😈 Scettico</div>${escapeHTML(d.scettico || "N/D")}</div>
@@ -605,6 +631,7 @@
                                 <div class="card-name">${escapeHTML(c.name)}</div>
                                 <div class="card-meta">${c.role ? escapeHTML(c.role) + " · " : ""}${escapeHTML(c.club || "club N/D")} · ${escapeHTML(tierLabel(c))}${computeAge(c.dob) !== null ? " · " + Math.floor(computeAge(c.dob)) + " anni" : ""}</div>
                                 ${c.partial_data ? '<div class="partial-flag">DATI PARZIALI</div>' : ""}
+                                ${clubUpdate(c) ? `<div class="club-update-flag">CLUB AGGIORNATO: ${escapeHTML(clubUpdate(c))}</div>` : ""}
                             </div>
                             <div class="card-scores">
                                 <div class="fit-score" style="color:${escapeHTML(badge.color)}">${c._fit != null ? c._fit.toFixed(0) : "–"}</div>

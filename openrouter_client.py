@@ -44,13 +44,26 @@ def get_available_models():
         return []
 
 
-def call_openrouter(model, system_prompt, user_message, chat_history=None):
+def call_openrouter(model, system_prompt, user_message, chat_history=None, web_search=False):
+    """web_search=True aggiunge il server tool nativo di OpenRouter
+    (openrouter:web_search): e' il modello stesso a decidere se e quante
+    volte cercare, OpenRouter esegue la ricerca e inietta i risultati nella
+    stessa risposta - nessuna chiamata aggiuntiva lato nostro, nessuna chiave
+    di ricerca separata da gestire. Sostituisce il vecchio pattern
+    "plugin web esplicito"/suffisso ':online', deprecati da OpenRouter a
+    favore di questo tool (verificato sulla doc ufficiale prima di
+    scriverlo)."""
     if not chat_history:
         chat_history = []
     messages = [{"role": "system", "content": system_prompt}] + chat_history + [
         {"role": "user", "content": user_message}
     ]
     data = {"model": model, "messages": messages, "temperature": 0.5}
+    if web_search:
+        data["tools"] = [{
+            "type": "openrouter:web_search",
+            "parameters": {"engine": "auto", "max_results": 3, "search_context_size": "low"},
+        }]
     res = requests.post(
         "https://openrouter.ai/api/v1/chat/completions",
         headers=HEADERS,

@@ -675,10 +675,25 @@ def fit_score(candidate: dict, score_result: dict, profile_key: str, cfg: dict) 
 # ============================================================
 
 _ROLES = {
-    "cronista": "Sei il Cronista. Raccogli i fatti grezzi disponibili su questo giocatore (squadra, ruolo, eta', fonti che lo citano). Nessuna opinione, solo fatti, in italiano, conciso.",
+    "cronista": (
+        "Sei il Cronista. Raccogli i fatti grezzi disponibili su questo giocatore (squadra, ruolo, eta', "
+        "fonti che lo citano). Se hai uno strumento di ricerca web, USALO per verificare la squadra "
+        "ATTUALE del giocatore (cerca il nome + 'transfer'/'trasferimento'/'firma con' nell'anno corrente): "
+        "il campo squadra qui sotto viene da Wikidata e puo' essere non aggiornato rispetto a un "
+        "trasferimento reale gia' avvenuto. Se la ricerca conferma una squadra diversa da quella indicata, "
+        "dillo esplicitamente ('SQUADRA AGGIORNATA: ...'); se la ricerca non trova nulla di piu' recente o "
+        "non hai potuto cercare, dillo altrettanto esplicitamente, mai un silenzio su questo punto. "
+        "Nessuna opinione, solo fatti, in italiano, conciso."
+    ),
     "verificatore": "Sei il Verificatore. Controlla la coerenza del segnale nel report del Cronista: e' corroborato da piu' fonti indipendenti o da una sola? Il salto di menzioni sembra reale o rumore statistico? Rispondi in italiano, conciso.",
     "scettico": "Sei lo Scettico. Leggi i report precedenti e cerca il motivo per cui questo segnale potrebbe essere un falso positivo: nome comune/omonimia, contesto competitivo debole, dati insufficienti. Sii duro, in italiano, conciso.",
-    "giudice": 'Sei il Giudice. Sintetizza i report precedenti in un verdetto finale in JSON RIGOROSO: {"vale_la_pena": true/false, "confidence": 0-100, "motivazione": "una riga"}. Nessun testo fuori dal JSON.',
+    "giudice": (
+        'Sei il Giudice. Sintetizza i report precedenti in un verdetto finale in JSON RIGOROSO: '
+        '{"vale_la_pena": true/false, "confidence": 0-100, "motivazione": "una riga", '
+        '"club_aggiornato": "nome club se il Cronista ne ha confermato uno diverso via ricerca web, altrimenti null", '
+        '"club_verificato_via_ricerca": true/false (true solo se il Cronista ha esplicitamente riportato un esito di ricerca web, anche se ha confermato lo stesso club)}. '
+        'Nessun testo fuori dal JSON.'
+    ),
 }
 
 
@@ -697,6 +712,22 @@ def _candidate_models() -> list[tuple]:
     pool += [(call_openrouter, m["id"]) for m in get_available_models()[:5]]
     pool += [(call_nvidia, m["id"]) for m in get_available_nvidia_models()]
     return pool or [(call_openrouter, DEFAULT_FALLBACK_MODEL)]
+
+
+def _grounded_cronista_pool() -> list[tuple]:
+    """Solo il server tool nativo di OpenRouter (openrouter:web_search) sa
+    davvero cercare sul web dentro la stessa chiamata - ne' l'endpoint
+    OpenAI-compatibile di Gemini (verificato sulla doc ufficiale: grounding
+    disponibile solo per generazione immagini, non per chat.completions) ne'
+    NVIDIA NIM lo offrono. Per questo il Cronista prova prima ESCLUSIVAMENTE
+    modelli OpenRouter con web_search=True, non l'intera pool a 3 provider -
+    altrimenti Gemini (primo in _candidate_models per quota) risponderebbe
+    per primo senza aver cercato nulla, e il dossier lo spaccerebbe per
+    verificato quando non lo e'."""
+    return [
+        (lambda model, sp, um: call_openrouter(model, sp, um, web_search=True), m["id"])
+        for m in get_available_models()[:5]
+    ]
 
 
 def _call_with_fallback(model_pool: list[tuple], system_prompt: str, user_message: str):
@@ -724,9 +755,19 @@ def run_swarm_dossier(candidate: dict, score_result: dict) -> dict:
         f"Componenti disponibili: {list(score_result.get('components', {}).keys())}"
     )
 
-    # il primo ruolo sceglie provider+modello (provando la lista finche' uno
-    # risponde), i successivi riusano la stessa coppia per coerenza nel dossier
-    cronista, call_fn, model = _call_with_fallback(model_pool, _ROLES["cronista"], context)
+    # Il Cronista prova prima la pool con ricerca web reale (solo OpenRouter
+    # la supporta): se quella e' irraggiungibile (nessuna chiave, rate limit
+    # su tutti i modelli), retrocede alla pool normale senza ricerca invece
+    # di far fallire l'intero dossier - ma "grounded" resta False, cosi' il
+    # resto del dossier non spaccia per verificata un'informazione che non
+    # lo e'. I ruoli successivi riusano la stessa coppia provider/modello
+    # del Cronista per coerenza nel dossier.
+    try:
+        cronista, call_fn, model = _call_with_fallback(_grounded_cronista_pool(), _ROLES["cronista"], context)
+        grounded = True
+    except Exception:
+        cronista, call_fn, model = _call_with_fallback(model_pool, _ROLES["cronista"], context)
+        grounded = False
     verificatore = call_fn(model, _ROLES["verificatore"], f"{context}\n\nReport Cronista:\n{cronista}")
     scettico = call_fn(
         model, _ROLES["scettico"],
@@ -739,13 +780,22 @@ def run_swarm_dossier(candidate: dict, score_result: dict) -> dict:
     try:
         giudice = json.loads(giudice_raw.replace("```json", "").replace("```", "").strip())
     except Exception:
-        giudice = {"vale_la_pena": None, "confidence": None, "motivazione": giudice_raw[:200]}
+        giudice = {
+            "vale_la_pena": None, "confidence": None, "motivazione": giudice_raw[:200],
+            "club_aggiornato": None, "club_verificato_via_ricerca": False,
+        }
 
     return {
         "generated_at": _now_iso(),
         "signal_score_at_generation": score_result.get("signal_score"),
         "model": model,
         "provider": {call_gemini: "gemini", call_nvidia: "nvidia"}.get(call_fn, "openrouter"),
+        # True solo se il tool di ricerca web era disponibile al Cronista in
+        # questa chiamata - il modello decide da se' se e quanto cercare
+        # (server tool OpenRouter), quindi non garantisce che una ricerca sia
+        # avvenuta per davvero: quel dettaglio sta in
+        # giudice.club_verificato_via_ricerca, letto dal report del Cronista.
+        "web_search_tool_available": grounded,
         "cronista": cronista,
         "verificatore": verificatore,
         "scettico": scettico,
