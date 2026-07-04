@@ -689,6 +689,12 @@ def bayesian_estimate(history: list[dict], cfg: dict) -> dict | None:
     bcfg = cfg["bayesian"]
     mean = None
     variance = bcfg["prior_variance"]
+    # innovazione normalizzata (z-score) dell'ULTIMA osservazione valida:
+    # quanto quel numero ha sorpreso il modello rispetto a cio' che si
+    # aspettava da tutte le run precedenti, in deviazioni standard - non e'
+    # un sottoprodotto scartato, alimenta la sonda di cambiamento di stato
+    # (radar_config.yaml: state_change.shock_z_threshold).
+    last_innovation_z = None
     for obs in history:
         score = obs.get("signal_score")
         if score is None:
@@ -698,8 +704,11 @@ def bayesian_estimate(history: list[dict], cfg: dict) -> dict | None:
             mean = score
             continue
         predicted_variance = variance + bcfg["process_variance"]
+        innovation = score - mean
+        innovation_std = (predicted_variance + obs_variance) ** 0.5
+        last_innovation_z = innovation / innovation_std if innovation_std > 0 else 0.0
         gain = predicted_variance / (predicted_variance + obs_variance)
-        mean = mean + gain * (score - mean)
+        mean = mean + gain * innovation
         variance = (1 - gain) * predicted_variance
     if mean is None:
         return None
@@ -709,7 +718,108 @@ def bayesian_estimate(history: list[dict], cfg: dict) -> dict | None:
         "std_dev": round(std_dev, 1),
         "confidence_band": [round(max(0.0, mean - 1.96 * std_dev), 1), round(min(100.0, mean + 1.96 * std_dev), 1)],
         "n_observations": len(history),
+        "last_innovation_z": round(last_innovation_z, 2) if last_innovation_z is not None else None,
     }
+
+
+def _update_cusum(cusum_state: dict, z: float, cfg: dict) -> dict:
+    """CUSUM a due code sullo z-score (non sul punteggio grezzo, cosi' resta
+    comparabile tra tier/candidati con rumore atteso diverso). Persistito
+    per candidato tra un run e l'altro (radar_feed.json), non ricalcolato
+    da zero ogni volta - altrimenti una deriva lenta non si accumulerebbe
+    mai abbastanza da superare la soglia."""
+    scfg = cfg["state_change"]
+    k = scfg["cusum_k"]
+    pos = max(0.0, cusum_state.get("pos", 0.0) + z - k)
+    neg = max(0.0, cusum_state.get("neg", 0.0) - z - k)
+    return {"pos": round(pos, 3), "neg": round(neg, 3)}
+
+
+# ============================================================
+# LAYER D - sonda di cambiamento di stato (IL TURNO)
+# ============================================================
+# Decide se un candidato merita di entrare nel turno di revisione o restare
+# silenzioso in archivio. ZERO invenzioni: ogni tipo di cambiamento o e' un
+# fatto verificato (club aggiornato via ricerca web, dati parziali risolti,
+# verdetto swarm ribaltato) o un test statistico consolidato (innovazione
+# Kalman, CUSUM) - mai una soglia arbitraria su "sembra diverso".
+
+def detect_state_change(
+    candidate: dict,
+    previous_last_entry: dict | None,
+    previous_dossier: dict | None,
+    current_dossier: dict | None,
+    current_partial_data: bool,
+    bayes: dict | None,
+    cusum_state: dict,
+    cfg: dict,
+) -> dict | None:
+    scfg = cfg["state_change"]
+    current_dossier = current_dossier or {}
+    giudice = current_dossier.get("giudice") or {}
+
+    # 1. club aggiornato - solo se il Cronista l'ha davvero verificato via
+    # ricerca web in QUESTO run, mai su un sospetto non confermato
+    club_aggiornato = giudice.get("club_aggiornato")
+    if club_aggiornato:
+        return {
+            "type": "club",
+            "tag": "CLUB DA CORREGGERE",
+            "lead": f"Il club noto (\"{candidate.get('club') or 'N/D'}\") e' superato: la ricerca web conferma {club_aggiornato}.",
+        }
+
+    # 2. dati parziali risolti dall'ultima volta - prima non c'era abbastanza
+    # per fidarsi, ora si', un motivo genuino per riguardarlo
+    if previous_last_entry and previous_last_entry.get("partial_data") and not current_partial_data:
+        return {
+            "type": "resolved",
+            "tag": "DATI COMPLETATI",
+            "lead": "Prima il segnale era su dati parziali (poco da fidarsi); ora i dati si sono completati.",
+        }
+
+    # 3. verdetto swarm ribaltato
+    prev_verdict = (previous_dossier or {}).get("giudice", {}).get("vale_la_pena")
+    curr_verdict = giudice.get("vale_la_pena")
+    if prev_verdict is not None and curr_verdict is not None and prev_verdict != curr_verdict:
+        return {
+            "type": "verdict",
+            "tag": "VERDETTO RIBALTATO",
+            "lead": f"Il verdetto dello swarm e' cambiato: {'ora vale la pena seguirlo' if curr_verdict else 'non e piu prioritario ora'}.",
+        }
+
+    # 4. shock statistico - salto che l'incertezza attesa non giustifica
+    z = (bayes or {}).get("last_innovation_z")
+    if z is not None and abs(z) >= scfg["shock_z_threshold"]:
+        rising = z > 0
+        return {
+            "type": "rising" if rising else "falling",
+            "tag": f"SALTO ANOMALO ({'SALITA' if rising else 'DISCESA'})",
+            "lead": f"Il segnale ha fatto un salto che il modello non si aspettava (z={z:+.1f}), non spiegabile dal solo rumore normale.",
+        }
+
+    # 5. deriva lenta ma sostenuta (nessun singolo salto la giustificherebbe)
+    if cusum_state.get("pos", 0.0) >= scfg["cusum_threshold"]:
+        return {
+            "type": "rising",
+            "tag": "TENDENZA SOSTENUTA (SALITA)",
+            "lead": "Nessun singolo salto anomalo, ma la tendenza e' salita in modo consistente su piu' run.",
+        }
+    if cusum_state.get("neg", 0.0) >= scfg["cusum_threshold"]:
+        return {
+            "type": "falling",
+            "tag": "TENDENZA SOSTENUTA (DISCESA)",
+            "lead": "Nessun singolo salto anomalo, ma la tendenza e' scesa in modo consistente su piu' run.",
+        }
+
+    # 6. nuovo ingresso: mai visto prima in un dossier
+    if previous_last_entry is None:
+        return {
+            "type": "new",
+            "tag": "NUOVO INGRESSO",
+            "lead": "Primo dossier per questo candidato: nessuno storico precedente da confrontare.",
+        }
+
+    return None
 
 
 # ============================================================
@@ -974,6 +1084,12 @@ def refresh_radar(profile_key: str = "tactical_profile") -> dict:
     for entry in ranked:
         cid = entry["candidate"]["candidate_id"]
         record = feed.setdefault(cid, {"identity": entry["candidate"], "history": []})
+
+        # stato PRIMA di questo run - serve alla sonda di cambiamento per
+        # sapere cosa confrontare, va catturato prima di sovrascrivere nulla
+        previous_last_entry = record["history"][-1] if record["history"] else None
+        previous_dossier = record.get("dossier")
+
         record["identity"] = entry["candidate"]
         record["history"].append(
             {
@@ -987,6 +1103,30 @@ def refresh_radar(profile_key: str = "tactical_profile") -> dict:
         )
         if "dossier" in entry:
             record["dossier"] = entry["dossier"]
+
+        # sonda di cambiamento di stato: solo sui candidati con un dossier
+        # AI vero questo giro (stesso sottoinsieme stretto del funnel, mai
+        # sull'intera pool) - un dossier "skipped"/"error" non ha un
+        # giudice da confrontare, quindi non genera un caso da rivedere
+        current_dossier = entry.get("dossier") or {}
+        has_real_dossier = "giudice" in current_dossier
+        if has_real_dossier:
+            bayes = bayesian_estimate(record["history"], cfg)
+            z = (bayes or {}).get("last_innovation_z")
+            cusum_state = record.get("cusum", {"pos": 0.0, "neg": 0.0})
+            if z is not None:
+                cusum_state = _update_cusum(cusum_state, z, cfg)
+            record["cusum"] = cusum_state
+            record["history"][-1]["state_change"] = detect_state_change(
+                candidate=entry["candidate"],
+                previous_last_entry=previous_last_entry,
+                previous_dossier=previous_dossier,
+                current_dossier=current_dossier,
+                current_partial_data=entry["signal"]["partial_data"],
+                bayes=bayes,
+                cusum_state=cusum_state,
+                cfg=cfg,
+            )
 
     _save_json(FEED_FILE, feed)
     _save_json(BUZZ_HISTORY_FILE, history)
