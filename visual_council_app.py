@@ -149,6 +149,11 @@ def radar_page():
     return render_template("radar.html")
 
 
+@app.route("/turno")
+def turno_page():
+    return render_template("turno.html")
+
+
 # Una scansione completa (Wikidata + Wikipedia + buzz + fino a 15 dossier AI
 # a 4 chiamate sequenziali ciascuno) puo' richiedere diversi minuti - troppo
 # per stare dentro una singola request HTTP sincrona: il worker gunicorn
@@ -231,6 +236,62 @@ def radar_feed():
             })
         results.sort(key=lambda r: r["fit_score"] if r["fit_score"] is not None else -1, reverse=True)
         return jsonify({"status": "success", "results": results})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+
+@app.route("/api/radar/turno")
+def radar_turno():
+    """IL TURNO: solo i candidati con un cambiamento di stato rilevato
+    nell'ultimo refresh (discovery_engine.detect_state_change), non l'intera
+    pool - vedi radar_config.yaml sezione state_change. Chi non ha nulla di
+    cambiato resta silenzioso in archivio (conteggiato in skipped_count, mai
+    restituito)."""
+    try:
+        feed = discovery_engine.latest_feed()
+        cfg = discovery_engine.load_config()
+        cases = []
+        skipped = 0
+        for candidate_id, record in feed.items():
+            if not record or not record.get("history"):
+                continue
+            last = record["history"][-1]
+            change = last.get("state_change")
+            if not change:
+                skipped += 1
+                continue
+            identity = record.get("identity") or {}
+            giudice = (record.get("dossier") or {}).get("giudice") or {}
+            cases.append({
+                "candidate_id": candidate_id,
+                "name": identity.get("name"),
+                "club": identity.get("club"),
+                "role": identity.get("role"),
+                "dob": identity.get("dob"),
+                "tier": identity.get("tier"),
+                "nationality_label": identity.get("nationality_label"),
+                "signal_score": last.get("signal_score"),
+                "components": last.get("components"),
+                "fit_score": last.get("fit_score"),
+                "partial_data": last.get("partial_data"),
+                "run_at": last.get("run_at"),
+                "bayesian": discovery_engine.bayesian_estimate(record["history"], cfg),
+                "change": change,
+                "verdict": {
+                    "vale_la_pena": giudice.get("vale_la_pena"),
+                    "confidence": giudice.get("confidence"),
+                    "motivazione": giudice.get("motivazione"),
+                },
+            })
+        # priorita': fatti verificati prima delle statistiche, poi per punteggio
+        priority = {"club": 0, "verdict": 1, "resolved": 2, "rising": 3, "falling": 3, "new": 4}
+        cases.sort(key=lambda c: (priority.get(c["change"]["type"], 9), -(c["signal_score"] or 0)))
+        return jsonify({
+            "status": "success",
+            "cases": cases,
+            "skipped_count": skipped,
+            "total_count": len(feed),
+        })
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
 
