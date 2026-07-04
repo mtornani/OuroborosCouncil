@@ -332,3 +332,18 @@ swarm:
 performance:
   buzz_check_pool_size: 60
   buzz_check_workers: 8
+
+# --- Stima bayesiana (Layer C) -----------------------------------------------
+# Il Signal Score di un singolo run e' un punto, rumoroso: dipende da quali
+# fonti hanno risposto quella volta (buzz specialmente). Qui NON si prevede
+# il futuro (servirebbero esiti reali verificati, che non abbiamo ancora,
+# vedi radar_feed history) - si stima solo il "livello vero" attuale del
+# segnale filtrando il rumore tra le osservazioni ripetute nel tempo
+# (filtro alla Kalman, 1 dimensione). Converge verso il punteggio quando le
+# run sono ripetute e coerenti; resta incerto (banda larga) su un candidato
+# visto una volta sola o con dati parziali.
+bayesian:
+  prior_variance: 400          # incertezza iniziale, prima osservazione (std=20 punti)
+  process_variance: 25         # quanto puo' "muoversi" il livello vero tra due run (std=5 punti)
+  observation_variance_full: 25      # rumore atteso di un'osservazione con dati completi (std=5)
+  observation_variance_partial: 100  # rumore atteso con dati parziali (std=10) - meno fidata

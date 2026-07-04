@@ -204,6 +204,7 @@ def radar_refresh_status():
 def radar_feed():
     try:
         feed = discovery_engine.latest_feed()
+        cfg = discovery_engine.load_config()
         results = []
         for candidate_id, record in feed.items():
             if not record or not record.get("history"):
@@ -226,6 +227,7 @@ def radar_feed():
                 "profile_used": last.get("profile_used"),
                 "run_at": last.get("run_at"),
                 "dossier": record.get("dossier"),
+                "bayesian": discovery_engine.bayesian_estimate(record["history"], cfg),
             })
         results.sort(key=lambda r: r["fit_score"] if r["fit_score"] is not None else -1, reverse=True)
         return jsonify({"status": "success", "results": results})

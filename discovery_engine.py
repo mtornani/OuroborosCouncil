@@ -671,6 +671,48 @@ def fit_score(candidate: dict, score_result: dict, profile_key: str, cfg: dict) 
 
 
 # ============================================================
+# LAYER C - stima bayesiana del "livello vero" (filtro alla Kalman, 1D)
+# ============================================================
+# NON e' un algoritmo predittivo (non abbiamo ancora esiti reali verificati
+# per calibrarlo, vedi discussione su validazione) - e' un filtro che stima
+# quanto fidarsi del Signal Score attuale alla luce delle osservazioni
+# passate dello STESSO candidato, gia' salvate in radar_feed.json. Un run
+# isolato e rumoroso pesa meno di una serie di run coerenti nel tempo.
+# Formula standard (Kalman 1D): ad ogni osservazione, l'incertezza cresce
+# per il tempo passato (process_variance) poi si restringe in base a quanto
+# la nuova osservazione e' vicina alla stima corrente rispetto al suo
+# rumore atteso (observation_variance, piu' alto se dati parziali).
+
+def bayesian_estimate(history: list[dict], cfg: dict) -> dict | None:
+    if not history:
+        return None
+    bcfg = cfg["bayesian"]
+    mean = None
+    variance = bcfg["prior_variance"]
+    for obs in history:
+        score = obs.get("signal_score")
+        if score is None:
+            continue
+        obs_variance = bcfg["observation_variance_partial"] if obs.get("partial_data") else bcfg["observation_variance_full"]
+        if mean is None:
+            mean = score
+            continue
+        predicted_variance = variance + bcfg["process_variance"]
+        gain = predicted_variance / (predicted_variance + obs_variance)
+        mean = mean + gain * (score - mean)
+        variance = (1 - gain) * predicted_variance
+    if mean is None:
+        return None
+    std_dev = variance ** 0.5
+    return {
+        "estimate": round(mean, 1),
+        "std_dev": round(std_dev, 1),
+        "confidence_band": [round(max(0.0, mean - 1.96 * std_dev), 1), round(min(100.0, mean + 1.96 * std_dev), 1)],
+        "n_observations": len(history),
+    }
+
+
+# ============================================================
 # SWARM - dossier sulle candidature (Cronista/Verificatore/Scettico/Giudice)
 # ============================================================
 
@@ -969,6 +1011,7 @@ def refresh_radar(profile_key: str = "tactical_profile") -> dict:
                 "fit_score": e["fit"]["fit_score"],
                 "partial_data": e["signal"]["partial_data"],
                 "dossier": e.get("dossier") or feed.get(e["candidate"]["candidate_id"], {}).get("dossier"),
+                "bayesian": bayesian_estimate(feed[e["candidate"]["candidate_id"]]["history"], cfg),
             }
             for e in ranked
         ],

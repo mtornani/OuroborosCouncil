@@ -529,6 +529,20 @@
             return `<div class="score-breakdown">score = ${text}</div>`;
         }
 
+        function renderBayesianLine(candidate) {
+            // Non e' una previsione: e' quanto ci si puo' fidare del Signal
+            // Score attuale alla luce delle osservazioni passate dello stesso
+            // candidato (filtro alla Kalman su radar_feed.history, vedi
+            // discovery_engine.bayesian_estimate). Banda stretta = segnale
+            // ripetuto e coerente; banda larga = vista una volta sola o su
+            // dati parziali, poco da fidarsi ancora.
+            const b = candidate.bayesian;
+            if (!b) return "";
+            const n = b.n_observations === 1 ? "1 osservazione" : `${b.n_observations} osservazioni`;
+            return `<div class="score-breakdown">stima bayesiana <b>${b.estimate}</b> ` +
+                `(banda ${b.confidence_band[0]}–${b.confidence_band[1]}, ${n})</div>`;
+        }
+
         function verdictBadge(candidate) {
             const dossier = candidate.dossier;
             if (!dossier) return { color: "var(--accent-low)", text: "IN CODA" };
@@ -671,6 +685,7 @@
                                 ${c.partial_data ? '<div class="partial-flag">DATI PARZIALI</div>' : ""}
                                 ${clubUpdate(c) ? `<div class="club-update-flag">CLUB AGGIORNATO: ${escapeHTML(clubUpdate(c))}</div>` : ""}
                                 ${renderBreakdownLine(c)}
+                                ${renderBayesianLine(c)}
                             </div>
                             <div class="card-scores">
                                 <div class="fit-score" style="color:${escapeHTML(badge.color)}">${c._fit != null ? c._fit.toFixed(0) : "–"}</div>
