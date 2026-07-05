@@ -1252,8 +1252,32 @@ def refresh_radar(profile_key: str = "tactical_profile") -> dict:
     }
 
 
+def _sanitize_dossier(dossier: dict) -> dict:
+    """Il dossier e' persistito e riusato tal quale finche' il Signal Score
+    non si sposta oltre rerun_threshold_points (vedi refresh_radar) - quindi
+    sanificare solo all'atto della generazione non basta: un dossier scritto
+    PRIMA di questo fix (o da un modello che ha comunque ignorato la regola)
+    resta a leak nel file finche' il punteggio non cambia abbastanza da
+    giustificare un nuovo dossier, il che puo' non succedere mai. Sanificare
+    anche in lettura garantisce che sia sempre pulito, indipendentemente da
+    quando il testo e' stato scritto."""
+    if not dossier:
+        return dossier
+    for key in ("cronista", "verificatore", "scettico"):
+        if dossier.get(key):
+            dossier[key] = _sanitize_technical_terms(dossier[key])
+    giudice = dossier.get("giudice")
+    if isinstance(giudice, dict) and giudice.get("motivazione"):
+        giudice["motivazione"] = _sanitize_technical_terms(giudice["motivazione"])
+    return dossier
+
+
 def latest_feed() -> dict:
-    return _load_json(FEED_FILE)
+    feed = _load_json(FEED_FILE)
+    for record in feed.values():
+        if record.get("dossier"):
+            _sanitize_dossier(record["dossier"])
+    return feed
 
 
 # ============================================================
