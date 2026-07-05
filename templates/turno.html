@@ -85,7 +85,14 @@
             cursor: pointer; width: 100%;
         }
         .btn-primary:hover { filter: brightness(1.08); }
-        .btn-primary:disabled { opacity: 0.55; cursor: default; }
+        .btn-primary:disabled {
+            background: var(--panel);
+            color: var(--text-faint);
+            border: 1px solid var(--line);
+            cursor: not-allowed;
+            filter: none;
+        }
+        .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
         .btn-secondary {
             background: none; border: 1px solid var(--line); color: var(--text-dim);
             padding: 13px 20px; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.04em;
@@ -167,7 +174,7 @@
                 <div class="intake-stats">
                     <div><div class="stat-num" id="statCount">—</div><div class="stat-label">casi da rivedere</div></div>
                     <div><div class="stat-num" id="statMinutes">—</div><div class="stat-label">minuti stimati</div></div>
-                    <div><div class="stat-num" id="statSkipped">—</div><div class="stat-label">invariati, saltati</div></div>
+                    <div><div class="stat-num" id="statSkipped">—</div><div class="stat-label">in archivio, quieti</div></div>
                 </div>
                 <button class="btn-primary" id="startBtn">INIZIA IL TURNO</button>
                 <button class="btn-secondary" id="scanBtn">CERCA AGGIORNAMENTI PRIMA</button>
@@ -213,7 +220,7 @@
             club: "club", verdict: "verdetto", resolved: "dati", rising: "salita", falling: "discesa", new: "nuovo",
         };
 
-        const state = { config: null, cases: [], skipped: 0, total: 0 };
+        const state = { config: null, cases: [], skipped: 0, total: 0, scanning: false };
         let idx = 0;
         let flagged = new Set();
         let startTime = null;
@@ -281,15 +288,37 @@
 
         function renderIntake() {
             const n = state.cases.length;
-            document.getElementById("statCount").textContent = n;
-            document.getElementById("statMinutes").textContent = n === 0 ? "0" : `~${Math.max(1, n * 2)}`;
-            document.getElementById("statSkipped").textContent = state.skipped.toLocaleString("it-IT");
-            document.getElementById("startBtn").disabled = n === 0;
-            document.getElementById("intakeHeadline").textContent = n === 0
-                ? "Nessun caso da rivedere ora. Tutto tranquillo."
-                : "Non c'è una lista da scorrere. C'è un turno da fare.";
-            document.getElementById("skipNote").textContent = state.skipped > 0
-                ? `${state.skipped.toLocaleString("it-IT")} candidati in archivio non hanno mostrato nessun cambiamento dall'ultimo giro - non li devi rivedere.`
+            const startBtn = document.getElementById("startBtn");
+            const headline = document.getElementById("intakeHeadline");
+
+            // Tre stati onesti, mai un solo "tutto tranquillo" generico:
+            // - scansione in corso: i numeri sotto sono vecchi, dirlo chiaro
+            // - mai scansionato: zero storia, non "tutto tranquillo" (sarebbe
+            //   un'affermazione non guadagnata - non sappiamo ancora nulla)
+            // - scansionato e stabile: qui si', "tutto tranquillo" e' vero
+            if (state.scanning) {
+                headline.textContent = "Scansione in corso. I numeri qui sotto sono ancora quelli del giro precedente.";
+                startBtn.disabled = true;
+                startBtn.textContent = "ATTENDI LA SCANSIONE...";
+            } else if (state.total === 0) {
+                headline.textContent = "Nessuna scansione fatta ancora. Premi \"cerca aggiornamenti\" per iniziare.";
+                startBtn.disabled = true;
+                startBtn.textContent = "INIZIA IL TURNO";
+            } else if (n === 0) {
+                headline.textContent = "Scansionato: nessun caso da rivedere ora. Tutto tranquillo davvero.";
+                startBtn.disabled = true;
+                startBtn.textContent = "INIZIA IL TURNO";
+            } else {
+                headline.textContent = "Non c'è una lista da scorrere. C'è un turno da fare.";
+                startBtn.disabled = false;
+                startBtn.textContent = "INIZIA IL TURNO";
+            }
+
+            document.getElementById("statCount").textContent = state.scanning ? "—" : n;
+            document.getElementById("statMinutes").textContent = state.scanning ? "—" : (n === 0 ? "0" : `~${Math.max(1, n * 2)}`);
+            document.getElementById("statSkipped").textContent = state.scanning ? "—" : state.skipped.toLocaleString("it-IT");
+            document.getElementById("skipNote").textContent = (!state.scanning && state.skipped > 0)
+                ? `${state.skipped.toLocaleString("it-IT")} candidati sono gia' in archivio e non richiedono attenzione ora - alcuni perche' davvero fermi, altri perche' non ancora ripassati dalla sonda. Non li devi rivedere.`
                 : "";
             document.getElementById("eyebrowDate").textContent =
                 `turno del ${new Date().toLocaleDateString("it-IT", { day: "numeric", month: "long" })}`;
@@ -424,12 +453,20 @@
             const btn = document.getElementById("scanBtn");
             btn.disabled = false;
             btn.textContent = "CERCA AGGIORNAMENTI PRIMA";
+            state.scanning = false;
+            renderIntake();
         }
 
-        document.getElementById("scanBtn").addEventListener("click", async () => {
+        function startScan() {
             const btn = document.getElementById("scanBtn");
             btn.disabled = true;
             btn.textContent = "SCANSIONE IN CORSO...";
+            state.scanning = true;
+            renderIntake();
+        }
+
+        document.getElementById("scanBtn").addEventListener("click", async () => {
+            startScan();
             try {
                 const res = await fetch("/api/radar/refresh", {
                     method: "POST",
@@ -445,7 +482,23 @@
             pollScanStatus(3);
         });
 
+        // Se la pagina viene ricaricata mentre una scansione lanciata prima
+        // e' ancora in corso, senza questo controllo l'interfaccia
+        // mostrerebbe uno stato "inattivo" bugiardo - si controlla lo stato
+        // reale del job prima di decidere cosa disegnare.
+        async function checkOngoingScan() {
+            try {
+                const res = await fetch("/api/radar/refresh/status");
+                const data = await res.json();
+                if (data.status === "running" || data.status === "started") {
+                    startScan();
+                    pollScanStatus(3);
+                }
+            } catch (e) { /* non blocca il resto della pagina */ }
+        }
+
         loadConfig();
+        checkOngoingScan();
         loadTurno();
     </script>
 </body>
