@@ -1127,6 +1127,13 @@ def refresh_radar(profile_key: str = "tactical_profile") -> dict:
                 cusum_state=cusum_state,
                 cfg=cfg,
             )
+            # persistenza incrementale: il dossier AI e' la parte lenta e
+            # costosa del turno (piu' chiamate LLM in catena per candidato).
+            # Salvare subito dopo ognuno, non solo a fine ciclo, protegge
+            # quel lavoro da un crash/timeout a meta' turno - altrimenti un
+            # riavvio del container a turno quasi finito butterebbe via
+            # anche i dossier gia' generati insieme al resto.
+            _save_json(FEED_FILE, feed)
 
     _save_json(FEED_FILE, feed)
     _save_json(BUZZ_HISTORY_FILE, history)

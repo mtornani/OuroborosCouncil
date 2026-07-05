@@ -22,4 +22,13 @@ EXPOSE 8080
 # leggibile, mai Cloud Run che tronca la connessione a meta'.
 # "exec" in forma shell serve a espandere $PORT all'avvio (pattern standard
 # per Cloud Run).
+#
+# IMPORTANTE in fase di deploy (non impostabile da qui, e' un flag di
+# `gcloud run deploy`, non del container): il refresh vero gira in un
+# thread di sfondo (visual_council_app._run_radar_job), fuori da una
+# request HTTP attiva. Cloud Run di default alloca CPU solo mentre risponde
+# a una richiesta - senza --no-cpu-throttling quel thread viene affamato di
+# CPU tra un polling e l'altro del client, e una scansione misurata in
+# ~60s in locale puo' arrivare a durare minuti in produzione per questo,
+# non per il lavoro che fa davvero.
 CMD exec gunicorn --bind 0.0.0.0:$PORT --workers 1 --timeout 570 visual_council_app:app
