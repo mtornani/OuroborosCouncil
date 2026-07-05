@@ -24,6 +24,62 @@
             --verified: #4db8ab;
             --verified-dim: rgba(77,184,171,0.14);
             --doubt: #d97463;
+            color-scheme: dark;
+        }
+
+        /* Tema chiaro: testo scuro su fondo quasi bianco, per leggerlo al
+           sole - il solo scuro riflette troppo ed e' illeggibile con luce
+           diretta. Segue prefers-color-scheme di sistema, ma l'interruttore
+           in alto puo' forzarlo indipendentemente (vedi data-theme). */
+        @media (prefers-color-scheme: light) {
+            :root {
+                --ink: #f3f5f6;
+                --panel: #ffffff;
+                --line: rgba(10,14,19,0.14);
+                --text: #10151b;
+                --text-dim: rgba(16,21,27,0.66);
+                --text-faint: rgba(16,21,27,0.42);
+                --signal: #a1650f;
+                --signal-dim: rgba(161,101,15,0.10);
+                --verified: #1c7b71;
+                --verified-dim: rgba(28,123,113,0.10);
+                --doubt: #a8483a;
+                color-scheme: light;
+            }
+        }
+        :root[data-theme="dark"] {
+            --ink: #0a0e13; --panel: #121922; --line: rgba(231,235,238,0.14);
+            --text: #e7ebee; --text-dim: rgba(231,235,238,0.64); --text-faint: rgba(231,235,238,0.40);
+            --signal: #f2a93c; --signal-dim: rgba(242,169,60,0.14);
+            --verified: #4db8ab; --verified-dim: rgba(77,184,171,0.14);
+            --doubt: #d97463;
+            color-scheme: dark;
+        }
+        :root[data-theme="light"] {
+            --ink: #f3f5f6; --panel: #ffffff; --line: rgba(10,14,19,0.14);
+            --text: #10151b; --text-dim: rgba(16,21,27,0.66); --text-faint: rgba(16,21,27,0.42);
+            --signal: #a1650f; --signal-dim: rgba(161,101,15,0.10);
+            --verified: #1c7b71; --verified-dim: rgba(28,123,113,0.10);
+            --doubt: #a8483a;
+            color-scheme: light;
+        }
+
+        .theme-toggle {
+            position: fixed;
+            top: calc(10px + env(safe-area-inset-top));
+            right: 14px;
+            z-index: 50;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border: 1px solid var(--line);
+            background: var(--panel);
+            color: var(--text-dim);
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
         }
 
         html, body {
@@ -163,6 +219,7 @@
 </head>
 
 <body>
+    <button class="theme-toggle" id="themeToggle" aria-label="Cambia tema chiaro/scuro" title="Chiaro/scuro">☀</button>
     <div class="app">
         <div class="progress-rail"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
 
@@ -496,6 +553,36 @@
                 }
             } catch (e) { /* non blocca il resto della pagina */ }
         }
+
+        // Tema: ricorda la scelta manuale (localStorage) - se l'utente non
+        // ha mai forzato nulla, segue il sistema/prefers-color-scheme senza
+        // toccare l'attributo, cosi' il sole del telefono non viene ignorato.
+        const THEME_KEY = "sentinel-theme";
+        function applyTheme(theme) {
+            const root = document.documentElement;
+            if (theme) {
+                root.setAttribute("data-theme", theme);
+            } else {
+                root.removeAttribute("data-theme");
+            }
+            const isLight = theme === "light" ||
+                (!theme && window.matchMedia("(prefers-color-scheme: light)").matches);
+            document.getElementById("themeToggle").textContent = isLight ? "☾" : "☀";
+            document.querySelector('meta[name="theme-color"]').setAttribute(
+                "content", isLight ? "#f3f5f6" : "#0a0e13");
+        }
+        function initTheme() {
+            const saved = localStorage.getItem(THEME_KEY);
+            applyTheme(saved || null);
+        }
+        document.getElementById("themeToggle").addEventListener("click", () => {
+            const current = document.documentElement.getAttribute("data-theme") ||
+                (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+            const next = current === "light" ? "dark" : "light";
+            localStorage.setItem(THEME_KEY, next);
+            applyTheme(next);
+        });
+        initTheme();
 
         loadConfig();
         checkOngoingScan();

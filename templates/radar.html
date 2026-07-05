@@ -28,6 +28,55 @@
             /* scettico / dubbio */
             --font-main: 'Inter', -apple-system, sans-serif;
             --font-mono: 'JetBrains Mono', monospace;
+            color-scheme: dark;
+        }
+
+        /* Tema chiaro: solo scuro era illeggibile al sole diretto (troppo
+           riflesso). Segue prefers-color-scheme di sistema; l'interruttore
+           in alto lo forza indipendentemente via data-theme. */
+        @media (prefers-color-scheme: light) {
+            :root {
+                --bg: #f2f4f3;
+                --panel: #ffffff;
+                --panel-border: rgba(16, 21, 27, 0.12);
+                --text-main: rgba(16, 21, 27, 0.92);
+                --text-dim: rgba(16, 21, 27, 0.55);
+                --accent-high: #1f8a53;
+                --accent-mid: #b36a0e;
+                --accent-low: rgba(16, 21, 27, 0.25);
+                --accent-doubt: #c23b3b;
+                color-scheme: light;
+            }
+        }
+        :root[data-theme="dark"] {
+            --bg: #0b0c10; --panel: #14161b; --panel-border: rgba(255, 255, 255, 0.08);
+            --text-main: rgba(255, 255, 255, 0.92); --text-dim: rgba(255, 255, 255, 0.5);
+            --accent-high: #3ddc84; --accent-mid: #fca311; --accent-low: rgba(255, 255, 255, 0.25); --accent-doubt: #ff5c5c;
+            color-scheme: dark;
+        }
+        :root[data-theme="light"] {
+            --bg: #f2f4f3; --panel: #ffffff; --panel-border: rgba(16, 21, 27, 0.12);
+            --text-main: rgba(16, 21, 27, 0.92); --text-dim: rgba(16, 21, 27, 0.55);
+            --accent-high: #1f8a53; --accent-mid: #b36a0e; --accent-low: rgba(16, 21, 27, 0.25); --accent-doubt: #c23b3b;
+            color-scheme: light;
+        }
+
+        .theme-toggle {
+            position: fixed;
+            top: calc(10px + env(safe-area-inset-top));
+            right: 14px;
+            z-index: 50;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border: 1px solid var(--panel-border);
+            background: var(--panel);
+            color: var(--text-dim);
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
         }
 
         html, body {
@@ -374,6 +423,7 @@
 </head>
 
 <body>
+    <button class="theme-toggle" id="themeToggle" aria-label="Cambia tema chiaro/scuro" title="Chiaro/scuro">☀</button>
     <header>
         <div class="brand">OB1 <span>RADAR</span></div>
         <div class="subtitle">discovery, non rassegna stampa</div>
@@ -780,6 +830,26 @@
             state.filterPanelOpen = !state.filterPanelOpen;
             render();
         });
+
+        const THEME_KEY = "sentinel-theme";
+        function applyTheme(theme) {
+            const root = document.documentElement;
+            if (theme) root.setAttribute("data-theme", theme);
+            else root.removeAttribute("data-theme");
+            const isLight = theme === "light" ||
+                (!theme && window.matchMedia("(prefers-color-scheme: light)").matches);
+            document.getElementById("themeToggle").textContent = isLight ? "☾" : "☀";
+            document.querySelector('meta[name="theme-color"]').setAttribute(
+                "content", isLight ? "#f2f4f3" : "#0b0c10");
+        }
+        document.getElementById("themeToggle").addEventListener("click", () => {
+            const current = document.documentElement.getAttribute("data-theme") ||
+                (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+            const next = current === "light" ? "dark" : "light";
+            localStorage.setItem(THEME_KEY, next);
+            applyTheme(next);
+        });
+        applyTheme(localStorage.getItem(THEME_KEY) || null);
 
         loadConfig();
         loadFeed();
