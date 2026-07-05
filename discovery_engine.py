@@ -963,6 +963,22 @@ def _call_with_fallback(model_pool: list[tuple], system_prompt: str, user_messag
 # cosi' com'e' in una motivazione mostrata a Mirko).
 _COMPONENT_LABELS_IT = {"age_vs_level": "eta' rispetto al livello di squadra", "buzz": "velocita' di menzione nelle fonti (buzz)"}
 
+# _PLAIN_LANGUAGE_RULE e' un'istruzione testuale nel prompt, non una garanzia:
+# verificato dal vivo che un modello free puo' ignorarla e ripetere comunque
+# la chiave grezza vista nel context ("age_vs_level" ricomparso in un
+# verdetto mostrato a Mirko nonostante il divieto esplicito). Una sostituzione
+# deterministica sull'output e' l'unica vera rete di sicurezza.
+_TECHNICAL_TERM_PATTERN = re.compile(
+    "|".join(re.escape(k) for k in sorted(_COMPONENT_LABELS_IT, key=len, reverse=True)),
+    re.IGNORECASE,
+)
+
+
+def _sanitize_technical_terms(text: str) -> str:
+    if not text:
+        return text
+    return _TECHNICAL_TERM_PATTERN.sub(lambda m: _COMPONENT_LABELS_IT[m.group(0).lower()], text)
+
 
 def run_swarm_dossier(candidate: dict, score_result: dict) -> dict:
     model_pool = _candidate_models()
@@ -987,15 +1003,18 @@ def run_swarm_dossier(candidate: dict, score_result: dict) -> dict:
     except Exception:
         cronista, call_fn, model = _call_with_fallback(model_pool, _ROLES["cronista"], context)
         grounded = False
-    verificatore = call_fn(model, _ROLES["verificatore"], f"{context}\n\nReport Cronista:\n{cronista}")
-    scettico = call_fn(
+    cronista = _sanitize_technical_terms(cronista)
+    verificatore = _sanitize_technical_terms(
+        call_fn(model, _ROLES["verificatore"], f"{context}\n\nReport Cronista:\n{cronista}")
+    )
+    scettico = _sanitize_technical_terms(call_fn(
         model, _ROLES["scettico"],
         f"{context}\n\nReport Cronista:\n{cronista}\n\nReport Verificatore:\n{verificatore}",
-    )
-    giudice_raw = call_fn(
+    ))
+    giudice_raw = _sanitize_technical_terms(call_fn(
         model, _ROLES["giudice"],
         f"Cronista:\n{cronista}\n\nVerificatore:\n{verificatore}\n\nScettico:\n{scettico}",
-    )
+    ))
     try:
         giudice = json.loads(giudice_raw.replace("```json", "").replace("```", "").strip())
     except Exception:
