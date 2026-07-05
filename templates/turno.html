@@ -276,6 +276,15 @@
         const CHANGE_LABELS = {
             club: "club", verdict: "verdetto", resolved: "dati", rising: "salita", falling: "discesa", new: "nuovo",
         };
+        const TIER_LABELS = {
+            serie_c: "Serie C", serie_d: "Serie D",
+            serie_c_riserve: "Serie C (riserve)", serie_d_riserve: "Serie D (riserve)",
+            conmebol_u20: "CONMEBOL U20", conmebol_u17: "CONMEBOL U17", watchlist: "Watchlist",
+        };
+        function tierLabel(c) {
+            if (c.tier === "nationality_pool") return c.nationality_label || "Pool nazionalita'";
+            return TIER_LABELS[c.tier] || c.tier || "N/D";
+        }
 
         const state = { config: null, cases: [], skipped: 0, total: 0, scanning: false };
         let idx = 0;
@@ -421,7 +430,7 @@
                 <div class="identity-row">
                     <div>
                         <div class="id-name">${escapeHTML(c.name)}</div>
-                        <div class="id-meta">${c.role ? escapeHTML(c.role) + " · " : ""}${age !== null ? Math.floor(age) + " anni · " : ""}${escapeHTML(c.tier || "")}</div>
+                        <div class="id-meta">${c.role ? escapeHTML(c.role) + " · " : ""}${age !== null ? Math.floor(age) + " anni · " : ""}${escapeHTML(tierLabel(c))}</div>
                         <div class="id-meta">${escapeHTML(c.club || "club N/D")}</div>
                     </div>
                     <div class="id-score">

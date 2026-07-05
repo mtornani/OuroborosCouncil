@@ -762,10 +762,20 @@ def detect_state_change(
     # ricerca web in QUESTO run, mai su un sospetto non confermato
     club_aggiornato = giudice.get("club_aggiornato")
     if club_aggiornato:
+        old_club = candidate.get("club") or "N/D"
+        # Se i due nomi si assomigliano (es. "RCD Mallorca" / "RCD Mallorca
+        # B") il cambio sembra irrilevante a prima vista, mentre spesso e'
+        # proprio la differenza che conta (prima squadra vs riserve) - il
+        # testo lo dice esplicitamente invece di lasciarlo dedurre.
         return {
             "type": "club",
             "tag": "CLUB DA CORREGGERE",
-            "lead": f"Il club noto (\"{candidate.get('club') or 'N/D'}\") e' superato: la ricerca web conferma {club_aggiornato}.",
+            "lead": (
+                f"Attenzione: negli archivi risultava a \"{old_club}\", ma la ricerca web piu' recente dice "
+                f"\"{club_aggiornato}\". Controlla di persona se e' un cambio di squadra vero (es. da prima "
+                f"squadra a squadra riserve/giovanile, o viceversa) prima di scartarlo o promuoverlo - "
+                f"i due nomi possono sembrare uguali a colpo d'occhio ma indicare un livello molto diverso."
+            ),
         }
 
     # 2. dati parziali risolti dall'ultima volta - prima non c'era abbastanza
@@ -826,6 +836,17 @@ def detect_state_change(
 # SWARM - dossier sulle candidature (Cronista/Verificatore/Scettico/Giudice)
 # ============================================================
 
+# Lette da un procuratore/scout, non da chi ha scritto il codice: mai un
+# nome di variabile o un termine tecnico interno (es. "age_vs_level") nel
+# testo libero di nessun ruolo - vale per tutti e quattro, ripetuto in ogni
+# prompt perche' verificato dal vivo che altrimenti il Giudice ripete
+# parola per parola le chiavi che gli passiamo nel contesto.
+_PLAIN_LANGUAGE_RULE = (
+    "Scrivi per un procuratore o scout, non per un programmatore: mai nomi "
+    "di variabili o termini tecnici interni (es. non scrivere 'age_vs_level', "
+    "scrivi 'eta' rispetto al livello di squadra'). "
+)
+
 _ROLES = {
     "cronista": (
         "Sei il Cronista. Raccogli i fatti grezzi disponibili su questo giocatore (squadra, ruolo, eta', "
@@ -833,18 +854,19 @@ _ROLES = {
         "ATTUALE del giocatore (cerca il nome + 'transfer'/'trasferimento'/'firma con' nell'anno corrente): "
         "il campo squadra qui sotto viene da Wikidata e puo' essere non aggiornato rispetto a un "
         "trasferimento reale gia' avvenuto. Se la ricerca conferma una squadra diversa da quella indicata, "
-        "dillo esplicitamente ('SQUADRA AGGIORNATA: ...'); se la ricerca non trova nulla di piu' recente o "
-        "non hai potuto cercare, dillo altrettanto esplicitamente, mai un silenzio su questo punto. "
-        "Nessuna opinione, solo fatti, in italiano, conciso."
+        "dillo esplicitamente ('SQUADRA AGGIORNATA: ...') e specifica se e' un cambio di livello reale "
+        "(es. da prima squadra a squadra riserve/giovanile, o il contrario), non solo il nome nuovo; se la "
+        "ricerca non trova nulla di piu' recente o non hai potuto cercare, dillo altrettanto esplicitamente, "
+        "mai un silenzio su questo punto. Nessuna opinione, solo fatti, in italiano, conciso. " + _PLAIN_LANGUAGE_RULE
     ),
-    "verificatore": "Sei il Verificatore. Controlla la coerenza del segnale nel report del Cronista: e' corroborato da piu' fonti indipendenti o da una sola? Il salto di menzioni sembra reale o rumore statistico? Rispondi in italiano, conciso.",
-    "scettico": "Sei lo Scettico. Leggi i report precedenti e cerca il motivo per cui questo segnale potrebbe essere un falso positivo: nome comune/omonimia, contesto competitivo debole, dati insufficienti. Sii duro, in italiano, conciso.",
+    "verificatore": "Sei il Verificatore. Controlla la coerenza del segnale nel report del Cronista: e' corroborato da piu' fonti indipendenti o da una sola? Il salto di menzioni sembra reale o rumore statistico? Rispondi in italiano, conciso. " + _PLAIN_LANGUAGE_RULE,
+    "scettico": "Sei lo Scettico. Leggi i report precedenti e cerca il motivo per cui questo segnale potrebbe essere un falso positivo: nome comune/omonimia, contesto competitivo debole, dati insufficienti. Sii duro, in italiano, conciso. " + _PLAIN_LANGUAGE_RULE,
     "giudice": (
         'Sei il Giudice. Sintetizza i report precedenti in un verdetto finale in JSON RIGOROSO: '
         '{"vale_la_pena": true/false, "confidence": 0-100, "motivazione": "una riga", '
         '"club_aggiornato": "nome club se il Cronista ne ha confermato uno diverso via ricerca web, altrimenti null", '
         '"club_verificato_via_ricerca": true/false (true solo se il Cronista ha esplicitamente riportato un esito di ricerca web, anche se ha confermato lo stesso club)}. '
-        'Nessun testo fuori dal JSON.'
+        'Nessun testo fuori dal JSON. ' + _PLAIN_LANGUAGE_RULE
     ),
 }
 
@@ -898,13 +920,21 @@ def _call_with_fallback(model_pool: list[tuple], system_prompt: str, user_messag
     raise last_error
 
 
+# Nomi dei componenti in italiano semplice - mai le chiavi grezze nel
+# contesto che va allo swarm, altrimenti il Giudice le ripete parola per
+# parola nel suo verdetto (verificato dal vivo: "age_vs_level" comparso
+# cosi' com'e' in una motivazione mostrata a Mirko).
+_COMPONENT_LABELS_IT = {"age_vs_level": "eta' rispetto al livello di squadra", "buzz": "velocita' di menzione nelle fonti (buzz)"}
+
+
 def run_swarm_dossier(candidate: dict, score_result: dict) -> dict:
     model_pool = _candidate_models()
+    component_names = [_COMPONENT_LABELS_IT.get(k, k) for k in score_result.get("components", {})]
     context = (
         f"Giocatore: {candidate['name']}\nSquadra: {candidate.get('club', 'N/D')}\n"
         f"Tier competizione: {candidate.get('tier', 'N/D')}\n"
         f"Signal Score: {score_result.get('signal_score', 'N/D')}\n"
-        f"Componenti disponibili: {list(score_result.get('components', {}).keys())}"
+        f"Componenti disponibili: {', '.join(component_names) if component_names else 'nessuno'}"
     )
 
     # Il Cronista prova prima la pool con ricerca web reale (solo OpenRouter
