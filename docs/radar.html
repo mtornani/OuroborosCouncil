@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ouroboros Radar</title>
+<style>
+:root {
+  --surface: #fcfcfb; --page: #f9f9f7;
+  --ink: #0b0b0b; --ink2: #52514e; --muted: #898781;
+  --grid: #e1e0d9; --axis: #c3c2b7; --ring: rgba(11,11,11,.10);
+  --open: #0ca30c; --closing: #ec835a; --closed: #898781;
+  --adi: #2a78d6; --brk: #eb6834;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface: #1a1a19; --page: #0d0d0d;
+    --ink: #ffffff; --ink2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,.10);
+    --open: #0ca30c; --closing: #ec835a; --closed: #898781;
+    --adi: #3987e5; --brk: #d95926;
+  }
+}
+* { box-sizing: border-box; margin: 0; }
+body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--page); color: var(--ink); padding: 24px; line-height: 1.45; }
+main { max-width: 1040px; margin: 0 auto; }
+h1 { font-size: 1.5rem; } h2 { font-size: 1.1rem; margin: 28px 0 8px; }
+.sub { color: var(--ink2); margin: 4px 0 20px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr));
+  gap: 12px; margin-bottom: 24px; }
+.tile { background: var(--surface); border: 1px solid var(--ring);
+  border-radius: 10px; padding: 14px 16px; }
+.tile .v { font-size: 1.9rem; font-weight: 650; }
+.tile .l { color: var(--ink2); font-size: .82rem; }
+.chartbox { background: var(--surface); border: 1px solid var(--ring);
+  border-radius: 10px; padding: 16px; overflow-x: auto; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px,1fr));
+  gap: 12px; margin-top: 12px; }
+.card { background: var(--surface); border: 1px solid var(--ring);
+  border-radius: 10px; padding: 14px 16px; }
+.card header { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.card h3 { font-size: 1rem; }
+.badge { font-size: .7rem; font-weight: 650; padding: 2px 8px;
+  border-radius: 999px; white-space: nowrap; }
+.b-open { color: var(--open); border: 1px solid var(--open); }
+.b-closing { color: var(--closing); border: 1px solid var(--closing); }
+.b-closed { color: var(--closed); border: 1px solid var(--closed); }
+.meta { color: var(--ink2); font-size: .8rem; margin: 4px 0 10px; }
+.eta { color: var(--closing); font-weight: 600; }
+.barrow { display: grid; grid-template-columns: 64px 1fr 34px;
+  align-items: center; gap: 8px; margin: 4px 0; }
+.barlabel { font-size: .72rem; color: var(--muted); }
+.barval { font-size: .78rem; color: var(--ink2); text-align: right;
+  font-variant-numeric: tabular-nums; }
+.track { height: 6px; background: var(--grid); border-radius: 4px; }
+.fill { height: 6px; border-radius: 4px; }
+.f-adi { background: var(--adi); } .f-brk { background: var(--brk); }
+.reasons { margin: 10px 0 0 16px; padding: 0; color: var(--ink2);
+  font-size: .78rem; }
+.reasons li { margin: 2px 0; }
+.legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: .78rem;
+  color: var(--ink2); margin-top: 8px; }
+.legend .dot { display: inline-block; width: 9px; height: 9px;
+  border-radius: 50%; margin-right: 5px; }
+.note { color: var(--ink2); font-size: .82rem; margin-bottom: 8px; }
+.tablewrap { overflow-x: auto; background: var(--surface);
+  border: 1px solid var(--ring); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: .82rem; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--grid); }
+th { color: var(--muted); font-weight: 600; }
+td { font-variant-numeric: tabular-nums; } td.ttl { color: var(--ink2); }
+tr:last-child td { border-bottom: none; }
+#tip { position: fixed; pointer-events: none; background: var(--surface);
+  border: 1px solid var(--ring); border-radius: 8px; padding: 8px 10px;
+  font-size: .75rem; max-width: 260px; display: none; z-index: 10;
+  box-shadow: 0 4px 14px rgba(0,0,0,.25); }
+footer { color: var(--muted); font-size: .75rem; margin-top: 28px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>🐍 Ouroboros Radar</h1>
+  <p class="sub">Curva di diffusione dell'attenzione — aggiornato 2026-07-05 17:52 UTC</p>
+
+  <div class="tiles">
+    <div class="tile"><div class="v">7</div><div class="l">giocatori in watchlist</div></div>
+    <div class="tile"><div class="v" style="color:var(--closing)">2</div><div class="l">finestre in chiusura</div></div>
+    <div class="tile"><div class="v">0</div><div class="l">candidati discovery</div></div>
+  </div>
+
+  <h2>La curva — dove si trova ogni giocatore</h2>
+  <div class="chartbox">
+    <svg id="curve" viewBox="0 0 1000 320" width="100%" role="img"
+         aria-label="Posizione dei giocatori sulla curva di diffusione dell'attenzione, asse ADI da 0 a 100"></svg>
+    <div class="legend">
+      <span><span class="dot" style="background:var(--open)"></span>OPEN — finestra aperta</span>
+      <span><span class="dot" style="background:var(--closing)"></span>CLOSING — agire ora</span>
+      <span><span class="dot" style="background:var(--closed)"></span>CLOSED — mainstream</span>
+    </div>
+  </div>
+
+  <h2>Schede giocatore</h2>
+  <div class="cards">
+    <article class="card w-closing">
+      <header>
+        <h3>Kauan Toledo</h3>
+        <span class="badge b-closing">🟠 CLOSING</span>
+      </header>
+      <p class="meta"> · Crossing the Chasm </p>
+      <div class="bars">
+        <div class="barrow"><span class="barlabel">ADI</span>
+          <div class="track"><div class="fill f-adi" style="width:43.6%"></div></div>
+          <span class="barval">43.6</span></div>
+        <div class="barrow"><span class="barlabel">Breakout</span>
+          <div class="track"><div class="fill f-brk" style="width:7.0%"></div></div>
+          <span class="barval">7.0</span></div>
+      </div>
+      <ul class="reasons"><li>(un solo snapshot: derivate non ancora calcolabili)</li><li>1 titolo con keyword di mercato (interesse/osservatori/transfer...)</li><li>coperto dagli specialisti di mercato (tier 1)</li><li>pagina Wikipedia in 1 lingua</li><li>menzionato in 3 lingue diverse</li></ul>
+    </article>
+    <article class="card w-closing">
+      <header>
+        <h3>Louis Buffon</h3>
+        <span class="badge b-closing">🟠 CLOSING</span>
+      </header>
+      <p class="meta"> · Crossing the Chasm </p>
+      <div class="bars">
+        <div class="barrow"><span class="barlabel">ADI</span>
+          <div class="track"><div class="fill f-adi" style="width:54.5%"></div></div>
+          <span class="barval">54.5</span></div>
+        <div class="barrow"><span class="barlabel">Breakout</span>
+          <div class="track"><div class="fill f-brk" style="width:7.0%"></div></div>
+          <span class="barval">7.0</span></div>
+      </div>
+      <ul class="reasons"><li>(un solo snapshot: derivate non ancora calcolabili)</li><li>1 titolo con keyword di mercato (interesse/osservatori/transfer...)</li><li>coperto dagli specialisti di mercato (tier 1)</li><li>pagina Wikipedia in 9 lingue</li><li>menzionato in 3 lingue diverse</li></ul>
+    </article>
+    <article class="card w-open">
+      <header>
+        <h3>Pietro Saio</h3>
+        <span class="badge b-open">🟢 OPEN</span>
+      </header>
+      <p class="meta"> · Early Adopter </p>
+      <div class="bars">
+        <div class="barrow"><span class="barlabel">ADI</span>
+          <div class="track"><div class="fill f-adi" style="width:34.7%"></div></div>
+          <span class="barval">34.7</span></div>
+        <div class="barrow"><span class="barlabel">Breakout</span>
+          <div class="track"><div class="fill f-brk" style="width:15.0%"></div></div>
+          <span class="barval">15.0</span></div>
+      </div>
+      <ul class="reasons"><li>(un solo snapshot: derivate non ancora calcolabili)</li><li>5 titoli con keyword di mercato (interesse/osservatori/transfer...)</li><li>coperto dagli specialisti di mercato (tier 1)</li><li>nessuna pagina Wikipedia (invisibile al pubblico)</li><li>menzionato in 5 lingue diverse</li></ul>
+    </article>
+    <article class="card w-open">
+      <header>
+        <h3>Ryan Evaristo</h3>
+        <span class="badge b-open">🟢 OPEN</span>
+      </header>
+      <p class="meta"> · Innovator </p>
+      <div class="bars">
+        <div class="barrow"><span class="barlabel">ADI</span>
+          <div class="track"><div class="fill f-adi" style="width:0.0%"></div></div>
+          <span class="barval">0.0</span></div>
+        <div class="barrow"><span class="barlabel">Breakout</span>
+          <div class="track"><div class="fill f-brk" style="width:0.0%"></div></div>
+          <span class="barval">0.0</span></div>
+      </div>
+      <ul class="reasons"><li>(un solo snapshot: derivate non ancora calcolabili)</li><li>nessuna menzione news negli ultimi 30 giorni</li><li>nessuna pagina Wikipedia (invisibile al pubblico)</li></ul>
+    </article>
+    <article class="card w-open">
+      <header>
+        <h3>Andre Maia</h3>
+        <span class="badge b-open">🟢 OPEN</span>
+      </header>
+      <p class="meta"> · Innovator </p>
+      <div class="bars">
+        <div class="barrow"><span class="barlabel">ADI</span>
+          <div class="track"><div class="fill f-adi" style="width:9.9%"></div></div>
+          <span class="barval">9.9</span></div>
+        <div class="barrow"><span class="barlabel">Breakout</span>
+          <div class="track"><div class="fill f-brk" style="width:0.0%"></div></div>
+          <span class="barval">0.0</span></div>
+      </div>
+      <ul class="reasons"><li>(un solo snapshot: derivate non ancora calcolabili)</li><li>solo fonti locali/nicchia (tier 0)</li><li>nessuna pagina Wikipedia (invisibile al pubblico)</li></ul>
+    </article>
+    <article class="card w-open">
+      <header>
+        <h3>Bruno Baldini</h3>
+        <span class="badge b-open">🟢 OPEN</span>
+      </header>
+      <p class="meta"> · Early Adopter </p>
+      <div class="bars">
+        <div class="barrow"><span class="barlabel">ADI</span>
+          <div class="track"><div class="fill f-adi" style="width:32.9%"></div></div>
+          <span class="barval">32.9</span></div>
+        <div class="barrow"><span class="barlabel">Breakout</span>
+          <div class="track"><div class="fill f-brk" style="width:0.0%"></div></div>
+          <span class="barval">0.0</span></div>
+      </div>
+      <ul class="reasons"><li>(un solo snapshot: derivate non ancora calcolabili)</li><li>solo fonti locali/nicchia (tier 0)</li><li>pagina Wikipedia in 1 lingua</li></ul>
+    </article>
+    <article class="card w-closed">
+      <header>
+        <h3>Noah Saviolo</h3>
+        <span class="badge b-closed">⚪ CLOSED</span>
+      </header>
+      <p class="meta"> · Mainstream </p>
+      <div class="bars">
+        <div class="barrow"><span class="barlabel">ADI</span>
+          <div class="track"><div class="fill f-adi" style="width:73.0%"></div></div>
+          <span class="barval">73.0</span></div>
+        <div class="barrow"><span class="barlabel">Breakout</span>
+          <div class="track"><div class="fill f-brk" style="width:15.0%"></div></div>
+          <span class="barval">15.0</span></div>
+      </div>
+      <ul class="reasons"><li>(un solo snapshot: derivate non ancora calcolabili)</li><li>9 titoli con keyword di mercato (interesse/osservatori/transfer...)</li><li>fonti tier 2 (mainstream) ne parlano</li><li>pagina Wikipedia in 6 lingue</li><li>menzionato in 5 lingue diverse</li></ul>
+    </article>
+  </div>
+
+  <h2>Vista tabellare</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Giocatore</th><th>Finestra</th><th>Fase</th><th>ADI</th><th>Breakout</th><th>Mainstream tra</th></tr></thead>
+    <tbody><tr><td>Kauan Toledo</td><td>CLOSING</td><td>Crossing the Chasm</td><td>43.6</td><td>7.0</td><td>—</td></tr><tr><td>Louis Buffon</td><td>CLOSING</td><td>Crossing the Chasm</td><td>54.5</td><td>7.0</td><td>—</td></tr><tr><td>Pietro Saio</td><td>OPEN</td><td>Early Adopter</td><td>34.7</td><td>15.0</td><td>—</td></tr><tr><td>Ryan Evaristo</td><td>OPEN</td><td>Innovator</td><td>0.0</td><td>0.0</td><td>—</td></tr><tr><td>Andre Maia</td><td>OPEN</td><td>Innovator</td><td>9.9</td><td>0.0</td><td>—</td></tr><tr><td>Bruno Baldini</td><td>OPEN</td><td>Early Adopter</td><td>32.9</td><td>0.0</td><td>—</td></tr><tr><td>Noah Saviolo</td><td>CLOSED</td><td>Mainstream</td><td>73.0</td><td>15.0</td><td>—</td></tr></tbody>
+  </table></div>
+
+  <footer>Fonti: Google News RSS (6 lingue) · Wikipedia API · Wikimedia Pageviews.
+  Zero dati inventati: fonte muta = campo non disponibile. ADI = posizione sulla
+  curva; Breakout = velocita' di attraversamento. La decisione resta all'occhio umano.</footer>
+</main>
+<div id="tip"></div>
+<script>
+const PLAYERS = [{"name": "Kauan Toledo", "club": "", "adi": 43.6, "breakout": 7.0, "phase": "Crossing the Chasm", "window": "CLOSING", "weeks": null, "adi_reasons": ["coperto dagli specialisti di mercato (tier 1)", "pagina Wikipedia in 1 lingua", "menzionato in 3 lingue diverse"], "breakout_reasons": ["(un solo snapshot: derivate non ancora calcolabili)", "1 titolo con keyword di mercato (interesse/osservatori/transfer...)"]}, {"name": "Louis Buffon", "club": "", "adi": 54.5, "breakout": 7.0, "phase": "Crossing the Chasm", "window": "CLOSING", "weeks": null, "adi_reasons": ["coperto dagli specialisti di mercato (tier 1)", "pagina Wikipedia in 9 lingue", "menzionato in 3 lingue diverse", "~198 visite/giorno alla pagina Wikipedia"], "breakout_reasons": ["(un solo snapshot: derivate non ancora calcolabili)", "1 titolo con keyword di mercato (interesse/osservatori/transfer...)"]}, {"name": "Pietro Saio", "club": "", "adi": 34.7, "breakout": 15.0, "phase": "Early Adopter", "window": "OPEN", "weeks": null, "adi_reasons": ["coperto dagli specialisti di mercato (tier 1)", "nessuna pagina Wikipedia (invisibile al pubblico)", "menzionato in 5 lingue diverse"], "breakout_reasons": ["(un solo snapshot: derivate non ancora calcolabili)", "5 titoli con keyword di mercato (interesse/osservatori/transfer...)"]}, {"name": "Ryan Evaristo", "club": "", "adi": 0.0, "breakout": 0.0, "phase": "Innovator", "window": "OPEN", "weeks": null, "adi_reasons": ["nessuna menzione news negli ultimi 30 giorni", "nessuna pagina Wikipedia (invisibile al pubblico)"], "breakout_reasons": ["(un solo snapshot: derivate non ancora calcolabili)"]}, {"name": "Andre Maia", "club": "", "adi": 9.9, "breakout": 0.0, "phase": "Innovator", "window": "OPEN", "weeks": null, "adi_reasons": ["solo fonti locali/nicchia (tier 0)", "nessuna pagina Wikipedia (invisibile al pubblico)"], "breakout_reasons": ["(un solo snapshot: derivate non ancora calcolabili)"]}, {"name": "Bruno Baldini", "club": "", "adi": 32.9, "breakout": 0.0, "phase": "Early Adopter", "window": "OPEN", "weeks": null, "adi_reasons": ["solo fonti locali/nicchia (tier 0)", "pagina Wikipedia in 1 lingua"], "breakout_reasons": ["(un solo snapshot: derivate non ancora calcolabili)"]}, {"name": "Noah Saviolo", "club": "", "adi": 73.0, "breakout": 15.0, "phase": "Mainstream", "window": "CLOSED", "weeks": null, "adi_reasons": ["fonti tier 2 (mainstream) ne parlano", "pagina Wikipedia in 6 lingue", "menzionato in 5 lingue diverse"], "breakout_reasons": ["(un solo snapshot: derivate non ancora calcolabili)", "9 titoli con keyword di mercato (interesse/osservatori/transfer...)"]}];
+const svg = document.getElementById('curve');
+const NS = 'http://www.w3.org/2000/svg';
+const W = 1000, H = 320, PAD = {l: 30, r: 30, t: 26, b: 46};
+const px = adi => PAD.l + (W - PAD.l - PAD.r) * adi / 100;
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+function el(tag, attrs, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  (parent || svg).appendChild(e); return e;
+}
+// campana di Rogers (gaussiana) come sfondo recessivo
+const mu = 50, sigma = 20, baseY = H - PAD.b;
+let d = `M ${px(0)} ${baseY}`;
+for (let x = 0; x <= 100; x += 2) {
+  const y = baseY - 200 * Math.exp(-((x - mu) ** 2) / (2 * sigma ** 2));
+  d += ` L ${px(x)} ${y.toFixed(1)}`;
+}
+d += ` L ${px(100)} ${baseY} Z`;
+el('path', {d, fill: css('--grid'), 'fill-opacity': .55, stroke: css('--axis'), 'stroke-width': 1});
+// bande di fase (hairline) + etichette
+const bands = [[0,15,'Innovator'],[15,40,'Early Adopter'],[40,65,'Crossing'],[65,100,'Mainstream']];
+bands.forEach(([lo, hi, label]) => {
+  if (lo > 0) el('line', {x1: px(lo), y1: PAD.t, x2: px(lo), y2: baseY,
+    stroke: css('--grid'), 'stroke-width': 1, 'stroke-dasharray': '3 4'});
+  const t = el('text', {x: (px(lo) + px(hi)) / 2, y: baseY + 18,
+    'text-anchor': 'middle', 'font-size': 12, fill: css('--muted')});
+  t.textContent = label;
+});
+// asse
+el('line', {x1: px(0), y1: baseY, x2: px(100), y2: baseY, stroke: css('--axis'), 'stroke-width': 1});
+[0, 25, 50, 75, 100].forEach(v => {
+  const t = el('text', {x: px(v), y: baseY + 34, 'text-anchor': 'middle',
+    'font-size': 10, fill: css('--muted')});
+  t.textContent = 'ADI ' + v;
+});
+// dot per giocatore, con anti-collisione verticale semplice
+const colors = {OPEN: css('--open'), CLOSING: css('--closing'), CLOSED: css('--closed')};
+const placed = [];
+const tip = document.getElementById('tip');
+PLAYERS.forEach(p => {
+  const x = px(p.adi);
+  let y = baseY - 200 * Math.exp(-((p.adi - mu) ** 2) / (2 * sigma * sigma)) - 14;
+  while (placed.some(q => Math.abs(q.x - x) < 46 && Math.abs(q.y - y) < 18)) y -= 20;
+  placed.push({x, y});
+  const g = el('g', {cursor: 'pointer'});
+  el('circle', {cx: x, cy: y, r: 13, fill: 'transparent'}, g); // hit target
+  el('circle', {cx: x, cy: y, r: 6, fill: colors[p.window],
+    stroke: css('--surface'), 'stroke-width': 2}, g);
+  // clamp: l'etichetta non deve uscire dal viewBox ai bordi
+  const lx = Math.max(50, Math.min(W - 50, x));
+  const t = el('text', {x: lx, y: y - 11, 'text-anchor': 'middle',
+    'font-size': 11, 'font-weight': 600, fill: css('--ink')}, g);
+  t.textContent = p.name;
+  g.addEventListener('mousemove', ev => {
+    tip.style.display = 'block';
+    tip.style.left = Math.min(ev.clientX + 14, window.innerWidth - 280) + 'px';
+    tip.style.top = (ev.clientY + 14) + 'px';
+    tip.innerHTML = `<strong>${p.name}</strong> ${p.club ? '· ' + p.club : ''}<br>` +
+      `${p.phase} — finestra ${p.window}<br>` +
+      `ADI ${p.adi} · Breakout ${p.breakout}` +
+      (p.weeks ? `<br>⏳ mainstream tra ~${p.weeks} settimane` : '');
+  });
+  g.addEventListener('mouseleave', () => tip.style.display = 'none');
+});
+</script>
+</body>
+</html>

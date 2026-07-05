@@ -5,6 +5,26 @@
 
 ---
 
+## 🐍 OUROBOROS RADAR — Early Adopter Player Scouting
+
+Il modulo `scout/` applica la curva di diffusione di Rogers all'attenzione
+del mercato: misura dove si trova ogni giocatore sulla curva (**ADI**),
+a che velocità la sta attraversando (**Breakout Score**) e se la finestra
+di vantaggio è OPEN / CLOSING / CLOSED. Run giornaliero via GitHub Actions,
+alert Telegram quando una finestra si chiude, dashboard su `/radar`
+nell'app deployata.
+
+📖 **Documentazione completa: [RADAR.md](RADAR.md)** · Report live:
+[RADAR_REPORT.md](RADAR_REPORT.md) · Watchlist: [players.yaml](players.yaml)
+
+```bash
+python -m scout run       # raccolta + scoring + report + alert
+python -m scout status    # stato watchlist
+python -m scout add "Nome Cognome" --club X --born 2008
+```
+
+---
+
 ## 🚀 Quick Start
 
 ### Opzione 1: Script Python standalone

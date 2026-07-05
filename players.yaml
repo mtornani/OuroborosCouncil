@@ -1,0 +1,34 @@
+# OUROBOROS RADAR — Watchlist giocatori
+# =======================================
+# Questi sono i giocatori che il radar monitora ogni giorno.
+# Il radar NON giudica il talento (quello lo fa OB1 + l'occhio umano):
+# misura DOVE si trova il giocatore sulla curva di diffusione
+# dell'attenzione e QUANTO VELOCEMENTE la sta attraversando.
+#
+# Aggiungi un giocatore:
+#   python -m scout add "Nome Cognome" --club "Club" --born 2008 --position "AT"
+# oppure modifica questo file a mano.
+#
+# Campi:
+#   club:     club attuale (solo informativo, mostrato nei report)
+#   born:     anno di nascita
+#   position: ruolo
+#   country:  paese (informativo)
+#   aliases:  nomi alternativi con cui i media lo chiamano
+#   notes:    perche' e' in watchlist (contesto per l'occhio umano)
+
+players:
+  Ryan Evaristo:
+    notes: "OB1 tracked"
+  Andre Maia:
+    notes: "OB1 tracked"
+  Noah Saviolo:
+    notes: "OB1 tracked"
+  Bruno Baldini:
+    notes: "OB1 tracked"
+  Kauan Toledo:
+    notes: "OB1 tracked"
+  Pietro Saio:
+    notes: "OB1 tracked"
+  Louis Buffon:
+    notes: "OB1 tracked"

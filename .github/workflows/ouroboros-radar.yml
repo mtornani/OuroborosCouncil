@@ -1,0 +1,56 @@
+# OUROBOROS RADAR — run giornaliero
+# Raccoglie i segnali, aggiorna lo storico (il repo E' il database),
+# rigenera i report e manda gli alert Telegram se una finestra si chiude.
+name: Ouroboros Radar
+
+on:
+  schedule:
+    # Ogni giorno alle 05:30 UTC (prima del monitor Miss Minute delle 06:00)
+    - cron: '30 5 * * *'
+  workflow_dispatch: # Trigger manuale
+
+permissions:
+  contents: write # per committare storico e report
+
+jobs:
+  radar:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests pyyaml
+
+      - name: Run Radar
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python -m scout run
+
+      - name: Commit history & reports
+        run: |
+          git config user.name "ouroboros-radar[bot]"
+          git config user.email "radar@users.noreply.github.com"
+          git add data/radar RADAR_REPORT.md docs/radar.html
+          if git diff --cached --quiet; then
+            echo "Nessun cambiamento da committare"
+          else
+            git commit -m "radar: snapshot $(date -u +%Y-%m-%d)"
+            git push
+          fi
+
+      - name: Save radar artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: radar-${{ github.run_number }}
+          path: |
+            data/radar/latest.json
+            RADAR_REPORT.md
+            docs/radar.html
+          retention-days: 14

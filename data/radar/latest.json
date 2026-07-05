@@ -1,0 +1,165 @@
+[
+  {
+    "player": "Ryan Evaristo",
+    "club": "",
+    "born": "",
+    "position": "",
+    "date": "2026-07-05",
+    "adi": 0.0,
+    "adi_reasons": [
+      "nessuna menzione news negli ultimi 30 giorni",
+      "nessuna pagina Wikipedia (invisibile al pubblico)"
+    ],
+    "breakout": 0.0,
+    "breakout_reasons": [
+      "(un solo snapshot: derivate non ancora calcolabili)"
+    ],
+    "phase": "INNOVATOR",
+    "phase_desc": "Nessuno ne parla: solo fonti iper-locali",
+    "window": "OPEN",
+    "window_desc": "Fase innovator: monitorare, segnali di attenzione assenti",
+    "weeks_to_mainstream": null,
+    "snapshots": 1
+  },
+  {
+    "player": "Andre Maia",
+    "club": "",
+    "born": "",
+    "position": "",
+    "date": "2026-07-05",
+    "adi": 9.9,
+    "adi_reasons": [
+      "solo fonti locali/nicchia (tier 0)",
+      "nessuna pagina Wikipedia (invisibile al pubblico)"
+    ],
+    "breakout": 0.0,
+    "breakout_reasons": [
+      "(un solo snapshot: derivate non ancora calcolabili)"
+    ],
+    "phase": "INNOVATOR",
+    "phase_desc": "Nessuno ne parla: solo fonti iper-locali",
+    "window": "OPEN",
+    "window_desc": "Fase innovator: monitorare, segnali di attenzione assenti",
+    "weeks_to_mainstream": null,
+    "snapshots": 1
+  },
+  {
+    "player": "Noah Saviolo",
+    "club": "",
+    "born": "",
+    "position": "",
+    "date": "2026-07-05",
+    "adi": 73.0,
+    "adi_reasons": [
+      "fonti tier 2 (mainstream) ne parlano",
+      "pagina Wikipedia in 6 lingue",
+      "menzionato in 5 lingue diverse"
+    ],
+    "breakout": 15.0,
+    "breakout_reasons": [
+      "(un solo snapshot: derivate non ancora calcolabili)",
+      "9 titoli con keyword di mercato (interesse/osservatori/transfer...)"
+    ],
+    "phase": "MAINSTREAM",
+    "phase_desc": "Visibilita' piena: la finestra e' chiusa",
+    "window": "CLOSED",
+    "window_desc": "Gia' mainstream: la concorrenza ha le stesse informazioni",
+    "weeks_to_mainstream": null,
+    "snapshots": 1
+  },
+  {
+    "player": "Bruno Baldini",
+    "club": "",
+    "born": "",
+    "position": "",
+    "date": "2026-07-05",
+    "adi": 32.9,
+    "adi_reasons": [
+      "solo fonti locali/nicchia (tier 0)",
+      "pagina Wikipedia in 1 lingua"
+    ],
+    "breakout": 0.0,
+    "breakout_reasons": [
+      "(un solo snapshot: derivate non ancora calcolabili)"
+    ],
+    "phase": "EARLY_ADOPTER",
+    "phase_desc": "Gli addetti ai lavori lo conoscono, il pubblico no",
+    "window": "OPEN",
+    "window_desc": "Early adopter stabile: finestra aperta, visionare con calma",
+    "weeks_to_mainstream": null,
+    "snapshots": 1
+  },
+  {
+    "player": "Kauan Toledo",
+    "club": "",
+    "born": "",
+    "position": "",
+    "date": "2026-07-05",
+    "adi": 43.6,
+    "adi_reasons": [
+      "coperto dagli specialisti di mercato (tier 1)",
+      "pagina Wikipedia in 1 lingua",
+      "menzionato in 3 lingue diverse"
+    ],
+    "breakout": 7.0,
+    "breakout_reasons": [
+      "(un solo snapshot: derivate non ancora calcolabili)",
+      "1 titolo con keyword di mercato (interesse/osservatori/transfer...)"
+    ],
+    "phase": "CROSSING",
+    "phase_desc": "Sta attraversando il chasm: mainstream in arrivo",
+    "window": "CLOSING",
+    "window_desc": "Sta uscendo dalla fase early adopter: visionare/agire ORA, ogni settimana di attesa aumenta concorrenza e prezzo",
+    "weeks_to_mainstream": null,
+    "snapshots": 1
+  },
+  {
+    "player": "Pietro Saio",
+    "club": "",
+    "born": "",
+    "position": "",
+    "date": "2026-07-05",
+    "adi": 34.7,
+    "adi_reasons": [
+      "coperto dagli specialisti di mercato (tier 1)",
+      "nessuna pagina Wikipedia (invisibile al pubblico)",
+      "menzionato in 5 lingue diverse"
+    ],
+    "breakout": 15.0,
+    "breakout_reasons": [
+      "(un solo snapshot: derivate non ancora calcolabili)",
+      "5 titoli con keyword di mercato (interesse/osservatori/transfer...)"
+    ],
+    "phase": "EARLY_ADOPTER",
+    "phase_desc": "Gli addetti ai lavori lo conoscono, il pubblico no",
+    "window": "OPEN",
+    "window_desc": "Early adopter stabile: finestra aperta, visionare con calma",
+    "weeks_to_mainstream": null,
+    "snapshots": 1
+  },
+  {
+    "player": "Louis Buffon",
+    "club": "",
+    "born": "",
+    "position": "",
+    "date": "2026-07-05",
+    "adi": 54.5,
+    "adi_reasons": [
+      "coperto dagli specialisti di mercato (tier 1)",
+      "pagina Wikipedia in 9 lingue",
+      "menzionato in 3 lingue diverse",
+      "~198 visite/giorno alla pagina Wikipedia"
+    ],
+    "breakout": 7.0,
+    "breakout_reasons": [
+      "(un solo snapshot: derivate non ancora calcolabili)",
+      "1 titolo con keyword di mercato (interesse/osservatori/transfer...)"
+    ],
+    "phase": "CROSSING",
+    "phase_desc": "Sta attraversando il chasm: mainstream in arrivo",
+    "window": "CLOSING",
+    "window_desc": "Sta uscendo dalla fase early adopter: visionare/agire ORA, ogni settimana di attesa aumenta concorrenza e prezzo",
+    "weeks_to_mainstream": null,
+    "snapshots": 1
+  }
+]

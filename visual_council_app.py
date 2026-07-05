@@ -97,6 +97,33 @@ def index():
         return "<h1>Errore: Chiave API OpenRouter mancante nel file .env.</h1>", 500
     return render_template("council.html")
 
+
+# ============================================================
+# OUROBOROS RADAR — early adopter player scouting
+# La dashboard e i dati vengono generati dalla GitHub Action
+# (ouroboros-radar.yml) e committati nel repo: il deploy da
+# Google Cloud console li serve cosi' come sono, zero runtime extra.
+# ============================================================
+
+@app.route("/radar")
+def radar_dashboard():
+    radar_file = os.path.join(os.path.dirname(__file__), "docs", "radar.html")
+    if not os.path.exists(radar_file):
+        return ("<h1>Radar non ancora generato.</h1>"
+                "<p>Esegui <code>python -m scout run</code> o attendi il "
+                "primo run della GitHub Action <em>Ouroboros Radar</em>.</p>"), 404
+    with open(radar_file, "r", encoding="utf-8") as f:
+        return f.read()
+
+
+@app.route("/radar/data")
+def radar_data():
+    latest = os.path.join(os.path.dirname(__file__), "data", "radar", "latest.json")
+    if not os.path.exists(latest):
+        return jsonify({"error": "no_radar_run_yet"}), 404
+    with open(latest, "r", encoding="utf-8") as f:
+        return jsonify(json.load(f))
+
 @app.route("/api/orchestrate", methods=["POST"])
 def orchestrate():
     data = request.json
