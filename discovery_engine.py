@@ -737,6 +737,185 @@ def _update_cusum(cusum_state: dict, z: float, cfg: dict) -> dict:
 
 
 # ============================================================
+# LAYER E - LA CURVA: posizione sulla curva di adozione
+# ============================================================
+# Lo scopo del radar, nella formulazione piu' precisa: trovare il giocatore
+# mentre e' ANCORA nella fase early adopter ma sta per uscirne - quando piu'
+# fattori oggettivi convergono e indicano che visibilita' e concorrenza
+# stanno per salire, e con loro il costo per averlo. Basi consolidate, non
+# inventate qui: curva di diffusione a S (Rogers/Bass: la fase di massima
+# accelerazione PRECEDE il punto di flesso) e two-step flow (la notizia
+# scala dalla stampa di nicchia alle testate generaliste un gradino per
+# volta - la scalata dei tier delle fonti e' il preavviso del crossing).
+#
+# Tutto e' calcolato dagli snapshot gia' persistiti in buzz_history.json
+# ({run_at, mention_count, publishers, tier1_present} per run): zero nuove
+# chiamate di rete, zero dati inventati. Nessuna stima temporale ("croce
+# tra 2 settimane") perche' i run avvengono a intervalli irregolari (solo
+# quando si preme "cerca aggiornamenti") e sarebbe una precisione finta.
+
+_PHASE_LABELS = {
+    0: "invisibile",
+    1: "nicchia",
+    2: "fermento",
+    3: "decollo imminente",
+    4: "crossing",
+    5: "mainstream",
+}
+
+# max_results della query Google News in buzz_score: oltre questo numero il
+# conteggio menzioni satura e la crescita non e' piu' misurabile - il
+# fattore accelerazione in quel caso si dichiara muto, non attivo ne'
+# inattivo per finta.
+_MENTION_SATURATION = 8
+
+
+def adoption_curve_assessment(candidate_id: str, history: dict, cfg: dict) -> dict:
+    """Classifica la posizione del candidato sulla curva di adozione (fasi
+    0-5, vedi _PHASE_LABELS e radar_config.yaml sezione adoption_curve) e
+    calcola i 4 fattori di decollo con una spiegazione in italiano ciascuno:
+    sono LORO l'output per l'occhio umano, il numero e' solo il riassunto."""
+    acfg = cfg["adoption_curve"]
+    runs = history.get(candidate_id, {}).get("runs", [])
+    if len(runs) < acfg["min_runs_for_assessment"]:
+        return {
+            "phase": None, "phase_label": "storico insufficiente",
+            "runs_seen": len(runs), "exit_pressure": None, "factors": None,
+        }
+
+    counts = [r.get("mention_count", 0) or 0 for r in runs]
+    cur = runs[-1]
+
+    # tier-1 gia' visto prima di questo run = mainstream, il vantaggio e'
+    # sfumato; tier-1 per la PRIMA volta ora = crossing, finestra chiusa in
+    # questo istante (e' lo stesso evento del geographic_crossing di
+    # buzz_score, riletto come posizione di fase)
+    tier1_before = any(r.get("tier1_present") for r in runs[:-1])
+    tier1_now = bool(cur.get("tier1_present"))
+    if tier1_before:
+        return {"phase": 5, "phase_label": _PHASE_LABELS[5], "runs_seen": len(runs),
+                "exit_pressure": None, "factors": None}
+    if tier1_now:
+        return {"phase": 4, "phase_label": _PHASE_LABELS[4], "runs_seen": len(runs),
+                "exit_pressure": None, "factors": None}
+
+    # --- 4 fattori di decollo, ognuno indipendente e ispezionabile ---
+    factors = {}
+
+    # accelerazione: la crescita delle menzioni non sta rallentando sugli
+    # ultimi due intervalli (firma pre-flesso di una curva a S)
+    d_prev = counts[-2] - counts[-3]
+    d_last = counts[-1] - counts[-2]
+    saturated = counts[-1] >= _MENTION_SATURATION and counts[-2] >= _MENTION_SATURATION
+    factors["accelerazione"] = {
+        "active": (not saturated) and d_last > 0 and d_last >= d_prev,
+        "detail": (
+            "conteggio menzioni al tetto della query: crescita ulteriore non misurabile"
+            if saturated else
+            f"menzioni {counts[-3]} → {counts[-2]} → {counts[-1]} negli ultimi controlli"
+        ),
+    }
+
+    # scalata dei tier: prima fonte tier-2 (nazionale/di settore) comparsa
+    # negli ultimi N run, dopo controlli di sola stampa di nicchia
+    def _tier2_in(run):
+        return any(_source_tier(p, cfg) == 2 for p in (run.get("publishers") or []))
+    window = acfg["tier_climb_recent_window"]
+    climb_active = any(_tier2_in(r) for r in runs[-window:]) and not any(_tier2_in(r) for r in runs[:-window])
+    factors["scalata_tier"] = {
+        "active": climb_active,
+        "detail": (
+            "prima testata di livello nazionale/di settore comparsa negli ultimi controlli, prima solo stampa locale"
+            if climb_active else
+            "nessuna scalata recente nel livello delle fonti"
+        ),
+    }
+
+    # allargamento fonti: piu' testate DISTINTE di quante mai viste in un
+    # singolo controllo precedente - adozione indipendente, non lo stesso
+    # blog che insiste
+    distinct_now = len(set(cur.get("publishers") or []))
+    distinct_max_before = max((len(set(r.get("publishers") or [])) for r in runs[:-1]), default=0)
+    breadth_active = distinct_now >= 2 and distinct_now > distinct_max_before
+    factors["allargamento_fonti"] = {
+        "active": breadth_active,
+        "detail": f"{distinct_now} testate distinte in questo controllo (massimo precedente: {distinct_max_before})",
+    }
+
+    # persistenza: presente nelle fonti da N controlli consecutivi - gli
+    # spike (una partita buona, un articolo isolato) decadono, l'adozione
+    # vera persiste
+    k = acfg["persistence_min_runs"]
+    persist_active = len(runs) >= k and all(c > 0 for c in counts[-k:])
+    factors["persistenza"] = {
+        "active": persist_active,
+        "detail": (
+            f"presente nelle fonti da almeno {k} controlli consecutivi"
+            if persist_active else "presenza discontinua nelle fonti"
+        ),
+    }
+
+    weights = acfg["factor_weights"]
+    n_active = sum(1 for f in factors.values() if f["active"])
+    exit_pressure = round(sum(weights[name] for name, f in factors.items() if f["active"]))
+
+    if n_active >= acfg["takeoff_min_factors"]:
+        phase = 3
+    elif persist_active or (counts[-1] > 0 and counts[-2] > 0):
+        phase = 2
+    elif counts[-1] > 0:
+        phase = 1
+    else:
+        phase = 0
+
+    return {
+        "phase": phase, "phase_label": _PHASE_LABELS[phase],
+        "runs_seen": len(runs), "exit_pressure": exit_pressure, "factors": factors,
+    }
+
+
+# --- Validazione retroattiva della curva -------------------------------------
+# La differenza tra una metodologia e un'opinione formattata bene: quando un
+# candidato attraversa davvero verso il mainstream (fase 4), si guarda
+# indietro nel suo storico e si registra se il radar l'aveva marcato
+# "decollo imminente" PRIMA. Col tempo questo registro misura quanto il
+# rilevatore anticipa per davvero - ed e' il dato con cui correggere i pesi
+# dei fattori, invece che a sensazione.
+
+CURVE_VALIDATION_FILE = BASE_DIR / "curve_validation.json"
+
+
+def _record_curve_crossing(record: dict, candidate: dict, run_at: str) -> None:
+    ledger = _load_json(CURVE_VALIDATION_FILE)
+    events = ledger.get("events", [])
+    # un candidato attraversa una sola volta: mai duplicare l'evento se un
+    # run successivo rilegge lo stesso stato
+    if any(ev.get("candidate_id") == candidate["candidate_id"] for ev in events):
+        return
+    prior_phases = [
+        e["curve"].get("phase")
+        for e in record["history"][:-1]
+        if isinstance(e.get("curve"), dict)
+    ]
+    events.append({
+        "candidate_id": candidate["candidate_id"],
+        "name": candidate.get("name"),
+        "crossed_at": run_at,
+        "anticipato": 3 in prior_phases,
+        "fasi_precedenti": [p for p in prior_phases if p is not None][-5:],
+    })
+    _save_json(CURVE_VALIDATION_FILE, {"events": events})
+
+
+def curve_validation_summary() -> dict:
+    events = _load_json(CURVE_VALIDATION_FILE).get("events", [])
+    return {
+        "crossings": len(events),
+        "anticipated": sum(1 for e in events if e.get("anticipato")),
+    }
+
+
+# ============================================================
 # LAYER D - sonda di cambiamento di stato (IL TURNO)
 # ============================================================
 # Decide se un candidato merita di entrare nel turno di revisione o restare
@@ -755,6 +934,7 @@ def detect_state_change(
     cusum_state: dict,
     cfg: dict,
     buzz_detail: dict | None = None,
+    curve: dict | None = None,
 ) -> dict | None:
     scfg = cfg["state_change"]
     current_dossier = current_dossier or {}
@@ -777,6 +957,28 @@ def detect_state_change(
                 f"\"{club_aggiornato}\". Controlla di persona se e' un cambio di squadra vero (es. da prima "
                 f"squadra a squadra riserve/giovanile, o viceversa) prima di scartarlo o promuoverlo - "
                 f"i due nomi possono sembrare uguali a colpo d'occhio ma indicare un livello molto diverso."
+            ),
+        }
+
+    # 1a. DECOLLO IMMINENTE (Layer E, la ragione per cui il radar esiste):
+    # piu' fattori oggettivi indipendenti convergono mentre il giocatore e'
+    # ANCORA fuori dai riflettori mainstream - accelerazione delle menzioni,
+    # scalata del livello delle fonti, allargamento delle testate,
+    # persistenza. Non un singolo spike (quello e' FINESTRA PRECOCE, piu'
+    # sotto, volutamente piu' debole): una congiunzione. I dettagli attivi
+    # vengono elencati nel testo, cosi' il "perche' ora" e' verificabile
+    # riga per riga, mai un punteggio da prendere sulla fiducia.
+    if (curve or {}).get("phase") == 3:
+        active_details = [f["detail"] for f in curve["factors"].values() if f["active"]]
+        return {
+            "type": "takeoff",
+            "tag": "DECOLLO IMMINENTE",
+            "lead": (
+                "Piu' segnali indipendenti stanno convergendo, e nessuna testata mainstream "
+                "se n'e' ancora accorta: " + "; ".join(active_details) + ". "
+                "Di solito e' l'ultimo tratto della fase in cui guardarlo costa poco - dopo, "
+                "visibilita' e concorrenza salgono. Se il profilo ti interessa, e' ora il "
+                "momento dell'occhio umano."
             ),
         }
 
@@ -1098,6 +1300,10 @@ def refresh_radar(profile_key: str = "tactical_profile") -> dict:
             runs = history[candidate["candidate_id"]]["runs"]
             runs.append(buzz["snapshot"])
             history[candidate["candidate_id"]]["runs"] = runs[-20:]  # bound crescita file
+            # Layer E: posizione sulla curva di adozione, calcolata SOLO per
+            # chi ha uno snapshot fresco in questo run - mai una fase stimata
+            # su dati non raccolti oggi
+            sres["curve"] = adoption_curve_assessment(candidate["candidate_id"], history, cfg)
 
         if sres["excluded"]:
             continue
@@ -1120,6 +1326,16 @@ def refresh_radar(profile_key: str = "tactical_profile") -> dict:
     # AI su un verdetto gia' prevedibile.
     swarm_candidates = [e for e in ranked if not _needs_more_signal(e["signal"])]
 
+    # Un candidato in fase "decollo imminente" (Layer E) compra SEMPRE un
+    # posto nella finestra swarm, anche fuori dal top_n del fit score: e' il
+    # caso per cui il radar esiste, e lasciarlo in archivio silenzioso
+    # perche' il suo punteggio contestuale non era tra i primi 15 sarebbe il
+    # falso negativo peggiore possibile per lo scopo dichiarato.
+    swarm_window = swarm_candidates[:top_n]
+    for e in swarm_candidates[top_n:]:
+        if (e["signal"].get("curve") or {}).get("phase") == 3:
+            swarm_window.append(e)
+
     # Misurato dal vivo: un ciclo sequenziale su top_n=15 (4 chiamate AI
     # ciascuno) ha superato i 9 minuti senza finire, troncato da Cloud Run
     # con un 503. I dossier di candidati DIVERSI sono indipendenti tra loro
@@ -1127,7 +1343,7 @@ def refresh_radar(profile_key: str = "tactical_profile") -> dict:
     # coerenza Cronista->Giudice) - si parallelizza a livello di candidato,
     # non dentro il singolo dossier.
     to_generate = []
-    for entry in swarm_candidates[:top_n]:
+    for entry in swarm_window:
         cid = entry["candidate"]["candidate_id"]
         existing = feed.get(cid, {})
         last_dossier = existing.get("dossier")
@@ -1185,10 +1401,18 @@ def refresh_radar(profile_key: str = "tactical_profile") -> dict:
                 "partial_data": entry["signal"]["partial_data"],
                 "fit_score": entry["fit"]["fit_score"],
                 "profile_used": profile_key,
+                "curve": entry["signal"].get("curve"),
             }
         )
         if "dossier" in entry:
             record["dossier"] = entry["dossier"]
+
+        # validazione retroattiva (Layer E): il crossing e' il momento della
+        # verita' - si registra SEMPRE quando la fase 4 scatta, per qualunque
+        # candidato con snapshot fresco, indipendentemente da chi ha vinto il
+        # posto nel turno di revisione
+        if (entry["signal"].get("curve") or {}).get("phase") == 4:
+            _record_curve_crossing(record, entry["candidate"], run_at)
 
         # sonda di cambiamento di stato: solo sui candidati con un dossier
         # AI vero questo giro (stesso sottoinsieme stretto del funnel, mai
@@ -1213,6 +1437,7 @@ def refresh_radar(profile_key: str = "tactical_profile") -> dict:
                 cusum_state=cusum_state,
                 cfg=cfg,
                 buzz_detail=entry["signal"].get("buzz_detail"),
+                curve=entry["signal"].get("curve"),
             )
             # persistenza incrementale: il dossier AI e' la parte lenta e
             # costosa del turno (piu' chiamate LLM in catena per candidato).

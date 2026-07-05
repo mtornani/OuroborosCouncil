@@ -369,3 +369,42 @@ state_change:
   # sub-score "velocity" (0-1, gia' normalizzata: 1.0 = +5 menzioni sul
   # giro precedente) - 0.4 equivale a un salto di almeno 2 menzioni.
   early_velocity_threshold: 0.4
+
+# --- Layer E: LA CURVA - posizione sulla curva di adozione -------------------
+# Lo scopo dichiarato del radar: trovare il giocatore mentre e' ANCORA nella
+# fase early adopter ma sta per uscirne - il momento in cui piu' fattori
+# oggettivi convergono e indicano che visibilita' e concorrenza stanno per
+# salire. Base teorica consolidata, non inventata qui: curve di diffusione
+# a S (Rogers/Bass - la fase di massima accelerazione precede il punto di
+# flesso) e "two-step flow" (l'informazione scala da fonti di nicchia a
+# testate generaliste, un gradino per volta - la scalata dei tier E' il
+# segnale che il crossing si avvicina).
+#
+# Fasi (classificazione esplicita, regole ispezionabili, zero ML):
+#   0 invisibile        nessuna menzione
+#   1 nicchia           menzioni sporadiche, solo fonti tier-3
+#   2 fermento          presenza continua nelle fonti di nicchia
+#   3 decollo imminente >= takeoff_min_factors fattori attivi, ancora zero
+#                       tier-1 -> IL segnale per cui esiste il prodotto
+#   4 crossing          prima fonte tier-1 in assoluto (finestra chiusa ORA)
+#   5 mainstream        tier-1 gia' presente in run precedenti (troppo tardi)
+#
+# LIMITE ONESTO dichiarato: i run avvengono solo quando si preme "cerca
+# aggiornamenti", a intervalli irregolari - quindi "accelerazione" e'
+# misurata per-controllo, non per-giorno, e NESSUNA stima temporale ("croce
+# tra 2 settimane") sarebbe onesta. Inoltre mention_count satura a 8
+# (max_results della query news): oltre quella soglia la crescita non e'
+# piu' misurabile e il fattore accelerazione resta muto, non inventato.
+adoption_curve:
+  min_runs_for_assessment: 3   # sotto questa storia: "storico insufficiente", mai una fase stimata
+  takeoff_min_factors: 3       # quanti fattori (su 4) devono convergere per la fase 3
+  persistence_min_runs: 3      # menzioni presenti in N controlli consecutivi = presenza vera, non spike
+  tier_climb_recent_window: 2  # la prima fonte tier-2 conta come "scalata" se comparsa negli ultimi N run
+  # peso di ogni fattore nella "pressione di uscita" (0-100). La somma fa
+  # 100. Punto di partenza dichiarato, da correggere quando il registro di
+  # validazione retroattiva (curve_validation.json) avra' abbastanza casi.
+  factor_weights:
+    accelerazione: 30        # crescita delle menzioni che non rallenta (firma pre-flesso della curva a S)
+    scalata_tier: 30         # prima testata tier-2 dopo run di sola nicchia (two-step flow in azione)
+    allargamento_fonti: 20   # piu' testate DISTINTE di quante mai viste prima (adozione indipendente, non un blog che insiste)
+    persistenza: 20          # presente da N controlli consecutivi (gli spike decadono, l'adozione persiste)

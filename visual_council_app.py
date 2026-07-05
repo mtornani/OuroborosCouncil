@@ -232,6 +232,7 @@ def radar_feed():
                 "partial_data": last.get("partial_data"),
                 "profile_used": last.get("profile_used"),
                 "run_at": last.get("run_at"),
+                "curve": last.get("curve"),
                 "dossier": record.get("dossier"),
                 "bayesian": discovery_engine.bayesian_estimate(record["history"], cfg),
                 "watchlisted": candidate_id in watchlist,
@@ -280,6 +281,7 @@ def radar_turno():
                 "run_at": last.get("run_at"),
                 "bayesian": discovery_engine.bayesian_estimate(record["history"], cfg),
                 "change": change,
+                "curve": last.get("curve"),
                 "watchlisted": candidate_id in watchlist,
                 "verdict": {
                     "vale_la_pena": giudice.get("vale_la_pena"),
@@ -287,17 +289,21 @@ def radar_turno():
                     "motivazione": giudice.get("motivazione"),
                 },
             })
-        # priorita': fatti verificati e finestra precoce prima delle
-        # statistiche generiche, poi per punteggio - "mainstream"/"early"
-        # sono il cuore della missione (segnale prima che diventi notizia),
-        # a pari livello con un fatto verificato come il club
-        priority = {"club": 0, "mainstream": 0, "early": 1, "verdict": 2, "resolved": 3, "rising": 4, "falling": 4, "new": 5}
+        # priorita': il decollo imminente (Layer E) e' IL caso per cui il
+        # radar esiste e apre sempre il turno; poi i fatti verificati (club)
+        # e gli eventi di finestra (crossing/velocity), poi le statistiche
+        priority = {"takeoff": 0, "club": 1, "mainstream": 2, "early": 2, "verdict": 3, "resolved": 4, "rising": 5, "falling": 5, "new": 6}
         cases.sort(key=lambda c: (priority.get(c["change"]["type"], 9), -(c["signal_score"] or 0)))
         return jsonify({
             "status": "success",
             "cases": cases,
             "skipped_count": skipped,
             "total_count": len(feed),
+            # registro di validazione retroattiva: quanti passaggi al
+            # mainstream sono stati registrati finora, e quanti il radar
+            # aveva anticipato con un "decollo imminente" - l'onesta' del
+            # rilevatore misurata sui fatti, mostrata in home
+            "curve_validation": discovery_engine.curve_validation_summary(),
         })
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})

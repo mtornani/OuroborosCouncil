@@ -174,6 +174,25 @@
         .change-tag.club, .change-tag.falling { color: var(--doubt); }
         .change-tag.rising, .change-tag.new { color: var(--signal); }
         .change-tag.resolved, .change-tag.verdict { color: var(--verified); }
+        /* il decollo imminente e' l'unico tag PIENO: e' il caso per cui il
+           radar esiste, deve leggersi diverso da tutto il resto in mezzo
+           secondo, anche in pieno sole */
+        .change-tag.takeoff { color: var(--ink); background: var(--signal); border-color: var(--signal); }
+
+        /* ---------- LA CURVA (Layer E) ---------- */
+        .curve-strip { background: var(--panel); border: 1px solid var(--line); padding: 14px 16px 10px; margin: 0 0 14px; }
+        .curve-head { font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-faint); display: flex; justify-content: space-between; margin-bottom: 8px; }
+        .curve-head .phase-name { color: var(--signal); font-weight: 700; }
+        .curve-svg { width: 100%; height: 58px; display: block; }
+        .curve-svg .curve-path { fill: none; stroke: var(--line); stroke-width: 2; }
+        .curve-svg .curve-done { fill: none; stroke: var(--signal); stroke-width: 2; }
+        .curve-svg .curve-dot { fill: var(--signal); }
+        .curve-svg .curve-tick { font-size: 5.5px; fill: var(--text-faint); font-family: 'JetBrains Mono', monospace; }
+        .factor-list { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+        .factor-row { display: flex; gap: 8px; font-size: 0.72rem; line-height: 1.5; padding: 3px 0; color: var(--text-dim); }
+        .factor-row .mark { flex-shrink: 0; width: 14px; color: var(--text-faint); }
+        .factor-row.on { color: var(--text); }
+        .factor-row.on .mark { color: var(--signal); font-weight: 700; }
 
         .change-lead {
             font-family: 'Newsreader', serif; font-weight: 500; font-size: clamp(1.25rem, 5vw, 1.55rem);
@@ -238,6 +257,7 @@
                 <button class="link-archive" id="archiveBtn">vedi comunque l'archivio completo →</button>
                 <p class="status-line" id="statusLine"></p>
                 <p class="skip-note" id="skipNote"></p>
+                <p class="skip-note" id="validationNote"></p>
             </div>
         </div>
 
@@ -341,6 +361,7 @@
                     state.cases = data.cases;
                     state.skipped = data.skipped_count;
                     state.total = data.total_count;
+                    state.validation = data.curve_validation;
                     document.getElementById("statusLine").textContent = "";
                 } else {
                     document.getElementById("statusLine").textContent = `errore: ${data.message}`;
@@ -387,17 +408,63 @@
                 : "";
             document.getElementById("eyebrowDate").textContent =
                 `turno del ${new Date().toLocaleDateString("it-IT", { day: "numeric", month: "long" })}`;
+
+            // prova sui fatti del rilevatore di decollo: compare solo quando
+            // esiste almeno un crossing registrato, mai una promessa a vuoto
+            const val = state.validation;
+            document.getElementById("validationNote").textContent = (!state.scanning && val && val.crossings > 0)
+                ? `Prova sui fatti: finora ${val.crossings} candidat${val.crossings === 1 ? "o ha" : "i hanno"} attraversato verso il mainstream, e il radar ne aveva anticipat${val.anticipated === 1 ? "o" : "i"} ${val.anticipated} con un "decollo imminente" quando erano ancora in fase precoce.`
+                : "";
         }
 
         function tagClass(t) {
             // "mainstream" (finestra appena chiusa, urgenza) riusa lo stile
             // di "falling"; "early" (finestra ancora aperta, opportunita')
             // riusa lo stile di "rising" - stessa semantica di colore gia'
-            // in uso, nessuna classe CSS nuova da mantenere.
+            // in uso. "takeoff" ha una classe propria: e' l'unico tag pieno.
             if (t === "club") return "club";
             if (t === "mainstream") return "falling";
             if (t === "early") return "rising";
+            if (t === "takeoff") return "takeoff";
             return t;
+        }
+
+        // LA CURVA (Layer E): posizione sulla curva di adozione a S, disegnata
+        // come diagramma (non un grafico di dati: le 6 fasi sono posizioni
+        // concettuali, la logistica e' generata via JS cosi' il punto sta
+        // SEMPRE esattamente sulla linea).
+        function curveStrip(curve) {
+            if (!curve || curve.phase === null || curve.phase === undefined) return "";
+            const f = x => 27 - 24 / (1 + Math.exp(-(x - 55) / 10));
+            const xs = [];
+            for (let x = 4; x <= 96; x += 2) xs.push(x);
+            const full = xs.map(x => `${x},${f(x).toFixed(2)}`).join(" ");
+            const px = 4 + curve.phase * (92 / 5);
+            const done = xs.filter(x => x <= px).map(x => `${x},${f(x).toFixed(2)}`).join(" ")
+                + ` ${px.toFixed(1)},${f(px).toFixed(2)}`;
+            const ticks = [0, 1, 2, 3, 4, 5].map(p => {
+                const tx = 4 + p * (92 / 5);
+                return `<circle cx="${tx.toFixed(1)}" cy="${f(tx).toFixed(2)}" r="1.1" fill="var(--line)"/>`;
+            }).join("");
+            const pressure = (curve.exit_pressure !== null && curve.exit_pressure !== undefined)
+                ? `pressione di uscita ${curve.exit_pressure}/100` : `${curve.runs_seen} controlli`;
+            let factors = "";
+            if (curve.factors) {
+                factors = `<div class="factor-list">` + Object.entries(curve.factors).map(([name, fa]) =>
+                    `<div class="factor-row ${fa.active ? "on" : ""}"><span class="mark">${fa.active ? "✓" : "○"}</span><span>${escapeHTML(fa.detail)}</span></div>`
+                ).join("") + `</div>`;
+            }
+            return `
+                <div class="curve-strip">
+                    <div class="curve-head"><span>curva di adozione — <span class="phase-name">${escapeHTML(curve.phase_label)}</span></span><span>${escapeHTML(pressure)}</span></div>
+                    <svg class="curve-svg" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true">
+                        <polyline class="curve-path" points="${full}"/>
+                        <polyline class="curve-done" points="${done}"/>
+                        ${ticks}
+                        <circle class="curve-dot" cx="${px.toFixed(1)}" cy="${f(px).toFixed(2)}" r="2.4"/>
+                    </svg>
+                    ${factors}
+                </div>`;
         }
 
         function renderCase() {
@@ -448,6 +515,7 @@
                 </div>
                 <div class="breakdown-line">score = ${compLine}</div>
                 ${bayesHtml}
+                ${curveStrip(c.curve)}
                 <div class="verdict-box">
                     <div class="verdict-head"><span>verdetto swarm</span>${verdictLabel}</div>
                     <div class="verdict-text">${v.motivazione ? `"${escapeHTML(v.motivazione)}"` : "nessuna motivazione disponibile"}</div>
