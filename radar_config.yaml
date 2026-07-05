@@ -362,3 +362,10 @@ state_change:
   shock_z_threshold: 2.5   # |z| oltre questa soglia = salto statisticamente vero, non rumore
   cusum_k: 0.5             # allowance/slack: quanto puo' muoversi senza accumulare
   cusum_threshold: 4.0     # soglia di allarme sulla somma cumulativa
+  # "finestra precoce" (early adopter): buzz_score gia' calcola queste
+  # componenti (discovery_engine.buzz_score) ma le fondeva in un unico
+  # numero, perdendo il segnale piu' anticipatorio che il sistema ha - qui
+  # vengono estratte come stato a se'. early_velocity_threshold e' sulla
+  # sub-score "velocity" (0-1, gia' normalizzata: 1.0 = +5 menzioni sul
+  # giro precedente) - 0.4 equivale a un salto di almeno 2 menzioni.
+  early_velocity_threshold: 0.4
