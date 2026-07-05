@@ -288,7 +288,6 @@
 
         const state = { config: null, cases: [], skipped: 0, total: 0, scanning: false };
         let idx = 0;
-        let flagged = new Set();
         let startTime = null;
 
         const screenIntake = document.getElementById("screenIntake");
@@ -390,7 +389,16 @@
                 `turno del ${new Date().toLocaleDateString("it-IT", { day: "numeric", month: "long" })}`;
         }
 
-        function tagClass(t) { return t === "club" ? "club" : t; }
+        function tagClass(t) {
+            // "mainstream" (finestra appena chiusa, urgenza) riusa lo stile
+            // di "falling"; "early" (finestra ancora aperta, opportunita')
+            // riusa lo stile di "rising" - stessa semantica di colore gia'
+            // in uso, nessuna classe CSS nuova da mantenere.
+            if (t === "club") return "club";
+            if (t === "mainstream") return "falling";
+            if (t === "early") return "rising";
+            return t;
+        }
 
         function renderCase() {
             const c = state.cases[idx];
@@ -445,15 +453,15 @@
                     <div class="verdict-text">${v.motivazione ? `"${escapeHTML(v.motivazione)}"` : "nessuna motivazione disponibile"}</div>
                 </div>
             `;
-            document.getElementById("flagBtn").classList.toggle("active", flagged.has(idx));
-            document.getElementById("flagBtn").textContent = flagged.has(idx) ? "★ SEGNATO" : "☆ SEGNA";
+            const isWatchlisted = !!state.cases[idx].watchlisted;
+            document.getElementById("flagBtn").classList.toggle("active", isWatchlisted);
+            document.getElementById("flagBtn").textContent = isWatchlisted ? "★ SEGNATO" : "☆ SEGNA";
         }
 
         function startSession() {
             if (state.cases.length === 0) return;
             startTime = Date.now();
             idx = 0;
-            flagged = new Set();
             showScreen(screenCase);
             renderCase();
         }
@@ -463,8 +471,9 @@
             const elapsedMin = Math.max(1, Math.round((Date.now() - startTime) / 60000));
             document.getElementById("endTime").textContent = `(${elapsedMin} min)`;
             document.getElementById("endReviewed").textContent = state.cases.length;
-            document.getElementById("endFlagged").textContent = flagged.size;
-            const list = [...flagged].map(i => `<div>★ <b>${escapeHTML(state.cases[i].name)}</b> — ${escapeHTML((state.cases[i].change.tag || "").toLowerCase())}</div>`).join("");
+            const flaggedCases = state.cases.filter(c => c.watchlisted);
+            document.getElementById("endFlagged").textContent = flaggedCases.length;
+            const list = flaggedCases.map(c => `<div>★ <b>${escapeHTML(c.name)}</b> — ${escapeHTML((c.change.tag || "").toLowerCase())}</div>`).join("");
             document.getElementById("endList").innerHTML = list || '<div style="color:var(--text-faint)">Nessun caso segnato per approfondire questa volta.</div>';
             showScreen(screenEnd);
         }
@@ -473,9 +482,24 @@
         document.getElementById("restartBtn").addEventListener("click", () => { showScreen(screenIntake); loadTurno(); });
         document.getElementById("archiveBtn").addEventListener("click", () => { window.location.href = "/radar"; });
         document.getElementById("archiveBtn2").addEventListener("click", () => { window.location.href = "/radar"; });
+
+        // Persistito sul server, non piu' solo nella sessione del browser -
+        // "segnare" durante il turno E' l'azione che crea/toglie dalla
+        // watchlist, sulla scheda del singolo giocatore.
+        async function toggleWatchlist(candidateId, watchlisted) {
+            try {
+                await fetch("/api/radar/watchlist", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ candidate_id: candidateId, watchlisted }),
+                });
+            } catch (e) { /* il toggle locale resta comunque visibile in questa sessione */ }
+        }
         document.getElementById("flagBtn").addEventListener("click", () => {
-            if (flagged.has(idx)) flagged.delete(idx); else flagged.add(idx);
+            const c = state.cases[idx];
+            c.watchlisted = !c.watchlisted;
             renderCase();
+            toggleWatchlist(c.candidate_id, c.watchlisted);
         });
         document.getElementById("advanceBtn").addEventListener("click", () => {
             idx++;

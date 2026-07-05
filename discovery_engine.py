@@ -39,6 +39,7 @@ BASE_DIR = Path(__file__).resolve().parent
 CONFIG_FILE = BASE_DIR / "radar_config.yaml"
 FEED_FILE = BASE_DIR / "radar_feed.json"
 BUZZ_HISTORY_FILE = BASE_DIR / "buzz_history.json"
+WATCHLIST_FILE = BASE_DIR / "watchlist.json"
 
 # Se impostata (in produzione: Neon/Supabase, mai committata), lo storico
 # vive su Postgres invece che su disco locale - un host gratuito con
@@ -753,6 +754,7 @@ def detect_state_change(
     bayes: dict | None,
     cusum_state: dict,
     cfg: dict,
+    buzz_detail: dict | None = None,
 ) -> dict | None:
     scfg = cfg["state_change"]
     current_dossier = current_dossier or {}
@@ -775,6 +777,41 @@ def detect_state_change(
                 f"\"{club_aggiornato}\". Controlla di persona se e' un cambio di squadra vero (es. da prima "
                 f"squadra a squadra riserve/giovanile, o viceversa) prima di scartarlo o promuoverlo - "
                 f"i due nomi possono sembrare uguali a colpo d'occhio ma indicare un livello molto diverso."
+            ),
+        }
+
+    # 1b/1c. finestra "early adopter": buzz_score gia' calcola una
+    # sub_score "geographic_crossing" (1.0 solo quando una fonte mainstream
+    # ne parla per la PRIMA volta, dopo run precedenti di sola nicchia) e
+    # "velocity" (variazione di menzioni sul giro precedente) - oggi
+    # venivano fuse in un unico numero e perse. Sono il segnale piu'
+    # coerente con lo scopo dichiarato ("vede il segnale prima che diventi
+    # notizia"): non un dato gia' successo (come il cambio club), ma la
+    # finestra ANCORA APERTA prima che tutti se ne accorgano.
+    sub_scores = (buzz_detail or {}).get("sub_scores") or {}
+    if sub_scores.get("geographic_crossing") == 1.0:
+        return {
+            "type": "mainstream",
+            "tag": "DIVENTATO MAINSTREAM",
+            "lead": (
+                "Una fonte mainstream ne ha parlato per la prima volta proprio in questo giro, dopo run "
+                "precedenti con solo fonti di nicchia: la finestra \"prima che lo sappiano tutti\" si e' "
+                "appena chiusa - se ti interessa, e' il momento di muoversi, non di aspettare ancora."
+            ),
+        }
+    velocity = sub_scores.get("velocity")
+    if (
+        velocity is not None
+        and velocity >= scfg["early_velocity_threshold"]
+        and not (buzz_detail or {}).get("snapshot", {}).get("tier1_present")
+    ):
+        return {
+            "type": "early",
+            "tag": "FINESTRA PRECOCE",
+            "lead": (
+                "Il numero di menzioni sta salendo rispetto al giro precedente, ma finora solo da fonti di "
+                "nicchia - nessuna testata mainstream se n'e' ancora accorta. E' probabilmente il momento "
+                "migliore per guardarlo, prima che lo sappiano tutti."
             ),
         }
 
@@ -1156,6 +1193,7 @@ def refresh_radar(profile_key: str = "tactical_profile") -> dict:
                 bayes=bayes,
                 cusum_state=cusum_state,
                 cfg=cfg,
+                buzz_detail=entry["signal"].get("buzz_detail"),
             )
             # persistenza incrementale: il dossier AI e' la parte lenta e
             # costosa del turno (piu' chiamate LLM in catena per candidato).
@@ -1197,6 +1235,29 @@ def refresh_radar(profile_key: str = "tactical_profile") -> dict:
 
 def latest_feed() -> dict:
     return _load_json(FEED_FILE)
+
+
+# ============================================================
+# WATCHLIST - candidati segnati a mano da uno schermo (scheda giocatore),
+# non dal file di config statico. Distinta da candidate_sources.manual_
+# watchlist in radar_config.yaml (quella e' curata editando YAML, pensata
+# per Mirko; questa e' un tocco su una card, persistito, pensata per
+# chiunque usi il tool - stesso concetto, meccanismo diverso apposta).
+# ============================================================
+
+def get_watchlist() -> set:
+    return set(_load_json(WATCHLIST_FILE).get("candidate_ids", []))
+
+
+def set_watchlisted(candidate_id: str, watchlisted: bool) -> set:
+    data = _load_json(WATCHLIST_FILE)
+    ids = set(data.get("candidate_ids", []))
+    if watchlisted:
+        ids.add(candidate_id)
+    else:
+        ids.discard(candidate_id)
+    _save_json(WATCHLIST_FILE, {"candidate_ids": sorted(ids)})
+    return ids
 
 
 # ============================================================

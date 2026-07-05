@@ -310,6 +310,18 @@
             color: var(--text-dim);
         }
 
+        .wl-star {
+            background: none;
+            border: none;
+            font-size: 18px;
+            line-height: 1;
+            color: var(--text-dim);
+            cursor: pointer;
+            padding: 2px 0 6px;
+        }
+
+        .wl-star.active { color: var(--accent-mid); }
+
         .partial-flag {
             display: inline-block;
             font-family: var(--font-mono);
@@ -738,6 +750,7 @@
                                 ${renderBayesianLine(c)}
                             </div>
                             <div class="card-scores">
+                                <button class="wl-star ${c.watchlisted ? "active" : ""}" data-wl="${escapeHTML(c.candidate_id)}" title="Segna/togli dalla watchlist">${c.watchlisted ? "★" : "☆"}</button>
                                 <div class="fit-score" style="color:${escapeHTML(badge.color)}">${c._fit != null ? c._fit.toFixed(0) : "–"}</div>
                                 <div class="signal-score">signal ${c.signal_score != null ? c.signal_score : "–"}</div>
                             </div>
@@ -746,6 +759,18 @@
                     </div>
                 `;
             }).join("");
+
+            resultsEl.querySelectorAll(".wl-star").forEach(btn => {
+                btn.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    const id = btn.dataset.wl;
+                    const c = state.results.find(r => r.candidate_id === id);
+                    if (!c) return;
+                    c.watchlisted = !c.watchlisted;
+                    toggleWatchlist(id, c.watchlisted);
+                    render();
+                });
+            });
 
             resultsEl.querySelectorAll(".card").forEach(el => {
                 el.querySelector(".card-main").addEventListener("click", () => {
@@ -772,6 +797,20 @@
                 if (data.status === "success") state.results = data.results;
             } catch (e) { /* nessun dato ancora, va bene: empty state */ }
             render();
+        }
+
+        // Persistito sul server (radar_watchlist.json via l'API) - la
+        // stessa azione disponibile anche dentro IL TURNO, cosi' la
+        // watchlist si crea da qualunque schermata mostri una scheda
+        // giocatore, non da un file di config.
+        async function toggleWatchlist(candidateId, watchlisted) {
+            try {
+                await fetch("/api/radar/watchlist", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ candidate_id: candidateId, watchlisted }),
+                });
+            } catch (e) { /* il toggle locale resta comunque visibile in questa sessione */ }
         }
 
         async function pollRadarStatus(btn, elapsedSec) {
