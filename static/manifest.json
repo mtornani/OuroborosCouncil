@@ -1,0 +1,16 @@
+{
+  "name": "SENTINEL — OB1 Radar",
+  "short_name": "SENTINEL",
+  "description": "Trova giovani calciatori prima che diventino nomi noti.",
+  "start_url": "/turno",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0a0e13",
+  "theme_color": "#0a0e13",
+  "icons": [
+    { "src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/static/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -178,6 +178,18 @@ def processo_page():
     return render_template("processo.html")
 
 
+@app.route("/sw.js")
+def service_worker():
+    # servito dalla ROOT (non da /static) apposta: un service worker controlla
+    # solo il suo scope e quello di sotto - da /static/sw.js non governerebbe
+    # le pagine dell'app. Da qui lo scope e' "/", copre tutto.
+    resp = app.send_static_file("sw.js")
+    resp.headers["Content-Type"] = "application/javascript"
+    resp.headers["Service-Worker-Allowed"] = "/"
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
 # Una scansione completa (Wikidata + Wikipedia + buzz + fino a 15 dossier AI
 # a 4 chiamate sequenziali ciascuno) puo' richiedere diversi minuti - troppo
 # per stare dentro una singola request HTTP sincrona: il worker gunicorn
@@ -387,6 +399,17 @@ def radar_processo():
     statico nel template, non dati a runtime."""
     try:
         return jsonify({"status": "success", **discovery_engine.track_record_summary()})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+
+@app.route("/api/radar/health")
+def radar_health():
+    """Controllo di persistenza: dice se lo storico vive davvero su Postgres
+    (durevole) o su file effimero - vedi discovery_engine.persistence_status.
+    Aprilo una volta dopo il deploy per confermare che Neon riceve i dati."""
+    try:
+        return jsonify({"status": "success", "persistence": discovery_engine.persistence_status()})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
 

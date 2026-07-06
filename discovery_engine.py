@@ -143,6 +143,35 @@ def _save_json(path: Path, data: dict):
         json.dump(data, f, indent=2, ensure_ascii=False)
 
 
+def persistence_status() -> dict:
+    """Dice CHIARAMENTE dove vive lo stato: Postgres durevole, oppure file
+    effimero. Serve perche' _load_json/_save_json ricadono in silenzio sul
+    file locale se il DB non risponde - comodo per non bloccare un refresh,
+    ma pericoloso per un sistema che vive del suo storico: uno sbaglio nella
+    DATABASE_URL ti farebbe perdere tutto senza accorgertene. Questo rende il
+    fallback visibile: 'credo sia su Neon' diventa 'lo vedo'."""
+    if not DATABASE_URL:
+        return {"mode": "file", "durable": False,
+                "message": "Nessun DATABASE_URL impostata: lo stato e' su file locale, EFFIMERO su Cloud Run (si azzera a ogni deploy/riavvio)."}
+    if not psycopg2:
+        return {"mode": "file", "durable": False,
+                "message": "DATABASE_URL c'e' ma psycopg2 non e' installato: si sta scrivendo su file locale effimero."}
+    try:
+        with psycopg2.connect(DATABASE_URL, connect_timeout=8) as conn:
+            _db_ensure_table(conn)
+            with conn.cursor() as cur:
+                cur.execute("SELECT key, pg_column_size(data), updated_at FROM radar_state ORDER BY key")
+                rows = cur.fetchall()
+        keys = [{"key": r[0], "kb": round((r[1] or 0) / 1024, 1),
+                 "updated_at": r[2].isoformat() if r[2] else None} for r in rows]
+        return {"mode": "postgres", "durable": True,
+                "message": f"Stato durevole su Postgres: {len(keys)} tabelle di stato salvate. Lo storico sopravvive ai deploy.",
+                "keys": keys}
+    except Exception as e:
+        return {"mode": "file", "durable": False,
+                "message": f"DATABASE_URL impostata ma il DB NON risponde ({e}): si sta ricadendo su file locale effimero - lo storico NON e' al sicuro."}
+
+
 def slugify(name: str) -> str:
     normalized = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
     return re.sub(r"[^a-z0-9]+", "-", normalized.lower()).strip("-")
