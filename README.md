@@ -1,165 +1,247 @@
-# ⏰ MISS MINUTE
-## Sistema di Prioritizzazione Progetti per Mirko Tornani
+# 🛰️ SENTINEL — OB1 Radar
 
-> *"Il tempo è prezioso. Non sprecarlo sui progetti sbagliati."*
+> **Trova giovani calciatori prima che diventino nomi noti.**
+> Non è un Wyscout più economico: è il layer che sta *a monte*.
+
+SENTINEL non misura quanto è bravo un giocatore — per quello esistono già i
+fornitori di dati evento (Wyscout, Instat, StatsBomb) e l'occhio di uno scout.
+SENTINEL misura **quando l'attenzione su un giocatore inizia a muoversi**, dalla
+stampa di nicchia verso quella mainstream, e prova a segnalarlo *prima* che
+diventi notizia — nella finestra in cui costa ancora poco e la concorrenza è
+bassa. È lo stesso pattern con cui nomi come Gilberto Mora o Neiser Villarreal
+erano leggibili in anticipo: la stampa locale sapeva prima.
+
+In una frase: **un prioritizzatore di attenzione, non un motore di previsione.**
+Ti dice *su chi* puntare l'occhio umano questa settimana. La qualità la decidi tu.
 
 ---
 
-## 🚀 Quick Start
+## Cosa fa, in concreto
 
-### Opzione 1: Script Python standalone
+Interfaccia solo-mobile, pensata per essere letta in due secondi, con una sola
+mano, anche al sole. Quattro schermate:
+
+| Rotta | Nome | A cosa serve |
+|-------|------|--------------|
+| `/turno` | **IL TURNO** | Un caso alla volta: solo i giocatori su cui è cambiato qualcosa o che hanno una finestra ancora aperta. Finito l'ultimo, hai finito. |
+| `/mappa` | **LA MAPPA** | Colpo d'occhio d'insieme: ogni giocatore un pallino sulla curva "da sconosciuto a conosciuto", con la zona calda in evidenza. Tocca una tappa per la lista completa. |
+| `/processo` | **L'AVVOCATO DEL DIAVOLO** | Il sistema messo sotto processo dai suoi stessi numeri: precisione e richiamo (fallimenti compresi) + le obiezioni più dure con risposta onesta. |
+| `/radar` | **ARCHIVIO** | Tutti i candidati filtrabili per profilo/ruolo/età/paese, con la mini-curva e il dossier per scheda. |
+
+Ogni scheda giocatore porta con sé:
+- il suo **percorso** sulla curva di adozione (dove sta: *nessuno ne parla →
+  solo fonti locali → se ne parla → sta per esplodere → sui grandi giornali →
+  lo sanno tutti*);
+- il **verdetto** dello swarm di AI;
+- **il contraddittorio**: le ragioni oggettive per dubitare di *quel* segnale,
+  calcolate dai suoi dati (non dall'AI, così non si possono inventare).
+
+---
+
+## L'idea di fondo
+
+La scommessa è a favore fin dalla partenza, per due fatti (non per una legge
+della fisica):
+
+1. **L'universo misurato si espande di continuo.** Ogni anno più leghe coperte,
+   più giovani finiscono nei database. La frontiera della misurazione scende.
+2. **Nel segmento già misurato e condiviso, il vantaggio decade a zero** — tutti
+   vedono lo stesso dato nello stesso istante (arbitraggio dell'informazione).
+
+Quindi l'unico vantaggio durevole è **alla frontiera**, nel non-ancora-misurato.
+E chi allarga la frontiera (Wyscout & co.) non è un concorrente: è l'**orologio**
+che fa maturare le scommesse di SENTINEL. Ogni volta che un nome ignoto diventa
+misurato, è una segnalazione che si chiude.
+
+Base teorica consolidata, non inventata qui: **curva di diffusione a S**
+(Rogers/Bass — la massima accelerazione precede il punto di flesso) e
+**two-step flow** (la notizia scala dalla stampa di nicchia a quella generalista
+un gradino per volta — la scalata dei tier delle fonti è il preavviso).
+
+---
+
+## Come si costruisce il punteggio (i cinque layer)
+
+Backend deliberatamente leggibile ("alla Karpathy"): funzioni dirette, formule
+esplicite e ispezionabili in `discovery_engine.py`, zero ML/training, tutti i
+tunable in `radar_config.yaml`.
+
+- **Layer A — Signal Score (0–100), uguale per tutti.** Due sole componenti
+  calcolabili in modo onesto sui dati liberi:
+  - *età rispetto al livello* — data di nascita (Wikidata) vs età di riferimento
+    reale del tier di competizione;
+  - *buzz precoce* — su uno storico persistito (`buzz_history.json`): velocità
+    delle menzioni (accelerazione, non volume), tier delle fonti (bonus alla
+    nicchia, penalità a chi è già mainstream), diffusione geografica.
+- **Layer B — Fit Score contestuale.** Nessun modello: filtri + moltiplicatori
+  per profilo (rivendita / rosa Serie C / profilo tattico / oriundi FSGC).
+- **Layer C — Stima bayesiana.** Filtro alla Kalman 1D: *non prevede il futuro*,
+  stima quanto fidarsi del punteggio attuale viste le osservazioni ripetute nel
+  tempo. Banda stretta = segnale coerente; banda larga = poco da fidarsi.
+- **Layer D — Rilevamento cambiamenti di stato (IL TURNO).** Combina innovazione
+  di Kalman (shock 3-sigma), CUSUM a due code (deriva lenta), fatti verificati
+  (club aggiornato via ricerca web) e le finestre "early adopter".
+- **Layer E — LA CURVA.** Classifica la posizione sulla curva di adozione (6
+  fasi) e i 4 fattori oggettivi di decollo (accelerazione, scalata dei tier,
+  allargamento a testate distinte, persistenza). Quando ≥3 convergono e nessun
+  grande giornale ne parla ancora → **STA PER ESPLODERE**.
+
+---
+
+## Lo swarm di AI (il dossier)
+
+Su ogni candidato che supera il funnel, quattro ruoli in sequenza — un
+contraddittorio, non una singola opinione:
+
+1. **📰 Il Cronista** — raccoglie i fatti; con ricerca web reale (server tool
+   OpenRouter) verifica la squadra *attuale*.
+2. **🔍 Il Verificatore** — il segnale è corroborato da più fonti o da una sola?
+3. **😈 Lo Scettico** — cerca attivamente perché potrebbe essere un falso positivo.
+4. **⚖️ Il Giudice** — sintetizza: vale la pena seguirlo ora? sì/no, confidence,
+   una riga di motivazione, club aggiornato.
+
+Catena di fallback multi-provider genuina: **Gemini** (primario) → **OpenRouter**
+→ **NVIDIA NIM**. Ogni modello verificato dal vivo prima di fidarsene.
+
+---
+
+## Onestà, non hype (è nel DNA, non nel marketing)
+
+- **Zero dati inventati.** Se una fonte non risponde o un dato manca, si dice
+  "non disponibile"; mai uno zero fittizio o un club dedotto.
+- **Il tabellone.** Ogni "sta per esplodere" è una scommessa verificabile,
+  chiusa con l'esito reale — *esploso* o *sgonfiato*. Precisione e richiamo
+  (fallimenti compresi) sono in `/processo`. Su campione piccolo il sistema
+  dice "non lo so ancora", non inventa una percentuale.
+- **Niente sparisce in silenzio.** Una finestra aperta resta nel turno finché non
+  si risolve; quando si chiude viene spiegata una volta ("arrivato ai grandi
+  giornali" / "raffreddato"), mai un giocatore che svanisce senza motivo.
+- **Il contraddittorio per-giocatore** su ogni scheda.
+- **Limiti dichiarati** (vedi sotto), in-prodotto, non solo qui.
+
+---
+
+## Fonti dati (tutte pubbliche, zero budget, zero chiavi a pagamento)
+
+- **Wikidata (SPARQL)** — rose Serie C/D italiane (per lega) e pool per
+  nazionalità (per cittadinanza, con filtro genere obbligatorio).
+- **Wikipedia** — rose dei tornei CONMEBOL U-17/U-20 (parsing del wikitext).
+- **Google News (RSS)** — segnale di buzz, cercando sempre *nome + squadra* per
+  evitare le omonimie.
+- **Watchlist manuale** — nomi curati a mano in `radar_config.yaml`.
+
+Ogni candidato è identificato internamente dal suo **QID Wikidata** stabile, mai
+dal solo nome. FBref e Transfermarkt sono esclusi per rispetto di ToS/robots.
+
+---
+
+## Struttura del repo
+
+Il repo `OuroborosCouncil` ospita più strumenti; **SENTINEL / OB1 Radar è quello
+principale e più sviluppato**.
+
+```
+discovery_engine.py       # il motore: pool, scoring (Layer A–E), swarm, curva, tabellone
+visual_council_app.py     # app Flask: rotte SENTINEL + il vecchio "Council"
+radar_config.yaml         # UNICO posto per pesi/soglie/fonti/profili (no codice da toccare)
+openrouter_client.py      # client swarm (+ ricerca web nativa per il Cronista)
+gemini_client.py          # provider primario dello swarm
+nvidia_client.py          # provider di riserva
+monitor/web_monitor.py    # ricerca Google News / RSS (riusata dal buzz)
+templates/
+  turno.html              # IL TURNO
+  mappa.html              # LA MAPPA
+  processo.html           # L'AVVOCATO DEL DIAVOLO
+  radar.html              # ARCHIVIO
+  council.html            # tool "Council" (dibattito AI, indipendente)
+
+# File di stato (append-only, generati a runtime; su Postgres se DATABASE_URL è settato)
+radar_feed.json           # storico punteggi per candidato nel tempo
+buzz_history.json         # snapshot menzioni per candidato
+watchlist.json            # giocatori segnati a mano dalle schede
+curve_validation.json     # registro scommesse (esplosi/sgonfiati) + crossing
+
+# Legacy (non SENTINEL): Miss Minute — prioritizzazione progetti (miss_minute*.py, priorities.yaml)
+```
+
+---
+
+## Setup ed esecuzione
+
+### Variabili d'ambiente (`.env`)
+
+| Variabile | Obbligatoria | A cosa serve |
+|-----------|:---:|--------------|
+| `OPENROUTER_API_KEY` | ✅ | Swarm + ricerca web reale del Cronista |
+| `GEMINI_API_KEY` | ⬜ | Provider primario dello swarm (consigliato) |
+| `NVIDIA_API_KEY` | ⬜ | Provider di riserva |
+| `DATABASE_URL` | ⬜ | Postgres per persistere lo stato oltre il filesystem effimero |
+
+### In locale
+
 ```bash
-cd D:\AI\.miss_minute
-python miss_minute.py              # Status rapido
-python miss_minute.py --full       # Report completo
-python miss_minute.py --focus      # Solo priorità 1
-python miss_minute.py --daemon     # Sempre attivo (refresh 60s)
+pip install -r requirements.txt
+python visual_council_app.py     # dev server su http://localhost:8081
+# apri /turno, /mappa, /processo, /radar
 ```
 
-### Opzione 2: PowerShell Aliases
-```powershell
-# Carica gli alias (aggiungi al tuo $PROFILE per averli sempre)
-. D:\AI\.miss_minute\miss_minute_alias.ps1
+### Diagnostica copertura fonti
 
-mm          # Status rapido
-mm-focus    # Focus mode
-mm-full     # Report completo
-ob1         # Apre ob1-scout in VS Code
-rooting     # Apre rooting-future in VS Code
+```bash
+python discovery_engine.py diagnose
 ```
 
-### Opzione 3: Gemini CLI con contesto completo
-```powershell
-# Carica il launcher
-. D:\AI\.miss_minute\gemini_launcher.ps1
+### Deploy su Google Cloud Run
 
-# Usa Miss Minute + Gemini
-mmg "cosa devo fare oggi?"
-mmg "aiutami a finire ob1"
-mmg "sono bloccato su X"
-jarvis "status"
-
-# Modalità interattiva
-mmg
+```bash
+gcloud config set project <IL_TUO_PROJECT_ID>
+gcloud run deploy ob1-radar --source . --region europe-west1 \
+  --allow-unauthenticated --no-cpu-throttling
 ```
+
+> `--no-cpu-throttling` **non è opzionale**: la scansione gira in un thread di
+> sfondo (per non far scadere la richiesta HTTP), e senza quel flag Cloud Run
+> affama di CPU il thread tra un polling e l'altro, allungando una scansione da
+> ~60s a diversi minuti. Le pagine escono con `Cache-Control: no-store` così ogni
+> deploy si vede subito, senza refresh forzati.
 
 ---
 
-## 📁 Struttura File
+## Riferimento API
 
-```
-D:\AI\.miss_minute\
-├── miss_minute.py          # Script principale Python
-├── miss_minute.bat         # Launcher Windows
-├── miss_minute_alias.ps1   # Alias PowerShell per mm, ob1, etc
-├── priorities.yaml         # ⚡ CONFIGURAZIONE PRIORITÀ (modifica questo!)
-├── MIRKO_BRIEFING.md       # Briefing completo per AI assistants
-├── gemini_launcher.ps1     # Launcher Gemini CLI con contesto
-├── gemini_miss_minute.bat  # Launcher Gemini (batch)
-├── gemini_miss_minute.sh   # Launcher Gemini (bash)
-├── GEMINI_PROMPT.md        # Prompt system per Gemini
-├── gemini_context.py       # Context alternativo
-└── README.md               # Questo file
-```
+| Metodo | Endpoint | Descrizione |
+|--------|----------|-------------|
+| `POST` | `/api/radar/refresh` | Avvia una scansione in background |
+| `GET` | `/api/radar/refresh/status` | Polling dello stato della scansione |
+| `GET` | `/api/radar/feed` | Archivio (cap ai primi 300 per signal; `?limit=all` per tutti) |
+| `GET` | `/api/radar/turno` | Solo i casi con un cambiamento/finestra aperta |
+| `GET` | `/api/radar/mappa` | Posizione sulla curva di tutti i profilati |
+| `GET` | `/api/radar/processo` | Il tabellone (precisione/richiamo) |
+| `POST` | `/api/radar/watchlist` | Segna/togli un giocatore |
+| `GET` | `/api/radar/config` | Pesi/profili per il ricalcolo del Fit lato client |
 
 ---
 
-## ⚙️ Configurazione
+## Limiti onesti
 
-### priorities.yaml
-Questo è il file chiave. Modificalo quando:
-- Cambia una deadline
-- Cambia la priorità di un progetto
-- Aggiungi un nuovo progetto
-- Completi un progetto
-
-```yaml
-deadlines:
-  nome_deadline:
-    date: "2026-02-15"
-    description: "Descrizione"
-    requires: ["progetto1", "progetto2"]
-
-projects:
-  nome-progetto:
-    path: "D:\\AI\\nome-progetto"
-    priority: 1  # 1 = massima, 6 = minima
-    status: "in_progress"  # in_progress, ready, paused, blocked
-    next_action: "Cosa fare dopo"
-    blockers: []
-
-focus_mode:
-  enabled: true
-  current_focus: "ob1-scout"
-  message: "Messaggio motivazionale"
-```
+- Non esistono dati event-based gratuiti (xG, azioni progressive) a livello
+  Serie C/D o giovanili sudamericane: SENTINEL **non sostituisce** Wyscout, è a
+  monte. Il buzz è corroborazione, mai l'unica prova.
+- Il segnale di buzz (Google News RSS + tier dedotto dal nome della testata) è la
+  parte più fragile e potenzialmente aggirabile — per questo un solo segnale non
+  porta mai un candidato in cima, e tutto sta in un file di config correggibile.
+- Le scansioni sono su richiesta (nessun cron): la qualità del segnale di velocità
+  dipende da quanto spesso si scansiona.
+- La validità del metodo è **una tesi, non un fatto dimostrato**. La prova è il
+  tabellone del `/processo`, nel tempo: se batte il tasso base su un campione
+  ampio, il metodo funziona; se no, il sistema lo dirà da solo.
 
 ---
 
-## 🎯 Filosofia
+## Stato
 
-Miss Minute esiste per un motivo: **Mirko apre troppi progetti e non li chiude.**
-
-Il sistema:
-1. **Tiene traccia** di tutti i progetti in D:\AI
-2. **Prioritizza** in base a deadline e obiettivi
-3. **Blocca la dispersione** ricordando il focus
-4. **Integra con Gemini** per assistenza intelligente
-
-### Il briefing MIRKO_BRIEFING.md
-Contiene tutto quello che un AI assistant deve sapere:
-- Profilo psicologico (COMT met/met, Big Five)
-- Come lavorare con Mirko (essere diretto, dare struttura)
-- Contesto attuale (Chiellini, S2E, Rooting Future)
-- Priorità progetti
-
-Quando usi `mmg` o `jarvis`, Gemini riceve tutto questo contesto.
-
----
-
-## 📅 Stato Attuale (Gennaio 2026)
-
-### Deadline
-| Cosa | Quando | Priorità |
-|------|--------|----------|
-| Rooting Future meeting | Weekend | 🔥 |
-| Chiellini | Feb-Mar | ⚡ |
-| S2E | TBD | 📆 |
-
-### Focus
-```
-🔴 OB1-SCOUT - UNICA PRIORITÀ
-
-Versione definitiva idra/gemini per incontro Chiellini.
-Tutto il resto aspetta.
-```
-
----
-
-## 🔧 Setup Permanente
-
-### Aggiungi al tuo PowerShell $PROFILE:
-```powershell
-# Miss Minute
-. D:\AI\.miss_minute\miss_minute_alias.ps1
-. D:\AI\.miss_minute\gemini_launcher.ps1
-```
-
-### Per trovare il tuo $PROFILE:
-```powershell
-echo $PROFILE
-# Poi apri quel file e aggiungi le righe sopra
-```
-
----
-
-## 💡 Tips
-
-1. **Ogni mattina**: `mm` per vedere lo status
-2. **Quando sei dispersivo**: `mm-focus` per tornare sul binario
-3. **Quando sei bloccato**: `mmg "sono bloccato su X, aiutami"`
-4. **Quando completi qualcosa**: Aggiorna `priorities.yaml`
-
----
-
-*"Non sei qui per piacergli. Sei qui per farlo vincere."*
+In produzione su Cloud Run, in uso reale da mobile. Il grosso delle capacità
+(curva, mappa, tabellone, contraddittorio, persistenza delle finestre) emerge
+con l'accumulo delle scansioni — servono ≥3 controlli per collocare un giocatore
+sul percorso. Roadmap aperta: PWA (manifest/service worker), maggior peso ai
+"segnali costosi" (presenze reali, convocazioni) rispetto al buzz falsificabile.
