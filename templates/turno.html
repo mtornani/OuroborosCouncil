@@ -290,7 +290,8 @@
                     <div><div class="stat-num" id="endFlagged">—</div><div class="stat-label">segnati da approfondire</div></div>
                 </div>
                 <div class="end-list" id="endList"></div>
-                <button class="btn-primary" id="restartBtn">RIVEDI IL TURNO</button>
+                <button class="btn-primary" id="restartBtn">↺ TORNA ALLA HOME</button>
+                <button class="link-archive" id="mapBtn2">🛰 la mappa — dove sta ogni giocatore →</button>
                 <button class="link-archive" id="archiveBtn2">vai all'archivio completo →</button>
             </div>
         </div>
@@ -611,6 +612,7 @@
         document.getElementById("archiveBtn").addEventListener("click", () => { window.location.href = "/radar"; });
         document.getElementById("archiveBtn2").addEventListener("click", () => { window.location.href = "/radar"; });
         document.getElementById("mapBtn").addEventListener("click", () => { window.location.href = "/mappa"; });
+        document.getElementById("mapBtn2").addEventListener("click", () => { window.location.href = "/mappa"; });
         document.getElementById("processBtn").addEventListener("click", () => { window.location.href = "/processo"; });
 
         // Persistito sul server, non piu' solo nella sessione del browser -

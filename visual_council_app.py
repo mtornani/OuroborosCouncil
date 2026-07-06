@@ -247,8 +247,28 @@ def radar_feed():
                 "bayesian": discovery_engine.bayesian_estimate(record["history"], cfg),
                 "watchlisted": candidate_id in watchlist,
             })
-        results.sort(key=lambda r: r["fit_score"] if r["fit_score"] is not None else -1, reverse=True)
-        return jsonify({"status": "success", "results": results})
+        total = len(results)
+        # Cap del payload: la pool e' nell'ordine delle migliaia (3400+), ma
+        # spedire e disegnare tutte le schede su mobile blocca il telefono e
+        # fa fallire il fetch su connessioni ballerine. Si ordina per signal
+        # score (oggettivo, indipendente dal profilo, cosi' nessun profilo
+        # resta svantaggiato dal taglio) e si tengono i primi N - il resto e'
+        # coda lunga (spesso "dati parziali" senza dossier) non azionabile.
+        # ?limit=all per chi vuole tutto (uso da desktop, non da campo).
+        limit_arg = (request.args.get("limit") or "").strip()
+        results.sort(key=lambda r: r["signal_score"] if r["signal_score"] is not None else -1, reverse=True)
+        if limit_arg != "all":
+            try:
+                limit = int(limit_arg)
+            except ValueError:
+                limit = 300
+            results = results[:max(1, limit)]
+        return jsonify({
+            "status": "success",
+            "results": results,
+            "total_count": total,
+            "shown_count": len(results),
+        })
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
 

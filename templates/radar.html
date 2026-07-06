@@ -431,12 +431,26 @@
             color: var(--text-dim);
             margin-top: 6px;
         }
+        .mini-curve { margin-top: 8px; }
+        .mini-curve svg { width: 100%; height: 30px; display: block; }
+        .mini-curve .mc-path { fill: none; stroke: var(--panel-border); stroke-width: 2; }
+        .mini-curve .mc-done { fill: none; stroke: var(--accent-high); stroke-width: 2; }
+        .mini-curve .mc-tick { fill: var(--accent-low); }
+        .mini-curve .mc-dot { fill: var(--accent-high); }
+        .mini-curve .mc-label { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); margin-top: 3px; }
+        .mini-curve .mc-label b { color: var(--accent-high); }
+        .load-more {
+            display: block; width: 100%; margin: 14px 0 4px; padding: 13px;
+            background: var(--panel); border: 1px solid var(--panel-border); color: var(--text-main);
+            font-family: var(--font-mono); font-size: 13px; letter-spacing: 0.04em; cursor: pointer;
+        }
     </style>
 </head>
 
 <body>
     <button class="theme-toggle" id="themeToggle" aria-label="Cambia tema chiaro/scuro" title="Chiaro/scuro">☀</button>
     <header>
+        <button id="homeBtn" style="background:none;border:none;padding:0;margin:0 0 10px;font-family:var(--font-mono);font-size:12px;color:var(--accent-high);cursor:pointer;">← il turno (home)</button>
         <div class="brand">OB1 <span>RADAR</span></div>
         <div class="subtitle">discovery, non rassegna stampa</div>
         <div class="disclaimer">
@@ -509,6 +523,8 @@
             expanded: new Set(),
             filterPanelOpen: false,
             filters: { roles: new Set(), maxAge: "all", country: "all" },
+            renderLimit: 60,   // quante schede disegnare per volta (mobile)
+            totalCount: 0,     // totale reale, prima del cap del server
         };
 
         function tierLabel(candidate) {
@@ -605,6 +621,34 @@
                 `(banda ${b.confidence_band[0]}–${b.confidence_band[1]}, ${n})</div>`;
         }
 
+        // Mini-curva sulla scheda: dove sta il giocatore sul percorso da
+        // sconosciuto a conosciuto (Layer E). Compare solo se il candidato ha
+        // gia' una fase calcolata (serve un minimo di storico); i dati vecchi
+        // senza il campo curve semplicemente non la mostrano.
+        const PHASE_LABELS_R = ["nessuno ne parla", "solo la nicchia", "se ne parla", "sta per esplodere", "sui grandi giornali", "lo sanno tutti"];
+        function renderMiniCurve(candidate) {
+            const curve = candidate.curve;
+            if (!curve || curve.phase === null || curve.phase === undefined) return "";
+            const F = x => 24 - 20 / (1 + Math.exp(-(x - 55) / 10));
+            const PX = p => 4 + p * (92 / 5);
+            const xs = []; for (let x = 4; x <= 96; x += 3) xs.push(x);
+            const full = xs.map(x => `${x},${F(x).toFixed(2)}`).join(" ");
+            const px = PX(curve.phase);
+            const done = xs.filter(x => x <= px).map(x => `${x},${F(x).toFixed(2)}`).join(" ") + ` ${px.toFixed(1)},${F(px).toFixed(2)}`;
+            const ticks = [0, 1, 2, 3, 4, 5].map(p => `<circle cx="${PX(p).toFixed(1)}" cy="${F(PX(p)).toFixed(2)}" r="1" class="mc-tick"/>`).join("");
+            const label = PHASE_LABELS_R[curve.phase] || "";
+            const spinta = (curve.exit_pressure !== null && curve.exit_pressure !== undefined) ? ` · spinta ${curve.exit_pressure}` : "";
+            return `<div class="mini-curve">
+                <svg viewBox="0 0 100 26" preserveAspectRatio="none" aria-hidden="true">
+                    <polyline class="mc-path" points="${full}"/>
+                    <polyline class="mc-done" points="${done}"/>
+                    ${ticks}
+                    <circle class="mc-dot" cx="${px.toFixed(1)}" cy="${F(px).toFixed(2)}" r="2.2"/>
+                </svg>
+                <div class="mc-label">percorso: <b>${escapeHTML(label)}</b>${escapeHTML(spinta)}</div>
+            </div>`;
+        }
+
         function verdictBadge(candidate) {
             const dossier = candidate.dossier;
             if (!dossier) return { color: "var(--accent-low)", text: "IN CODA" };
@@ -656,6 +700,7 @@
                     const r = el.dataset.role;
                     if (state.filters.roles.has(r)) state.filters.roles.delete(r);
                     else state.filters.roles.add(r);
+                    state.renderLimit = 60;
                     render();
                 });
             });
@@ -667,6 +712,7 @@
             ageEl.querySelectorAll(".filter-chip").forEach(el => {
                 el.addEventListener("click", () => {
                     state.filters.maxAge = el.dataset.age;
+                    state.renderLimit = 60;
                     render();
                 });
             });
@@ -687,6 +733,7 @@
             countryEl.value = prevValue;
             countryEl.onchange = () => {
                 state.filters.country = countryEl.value;
+                state.renderLimit = 60;
                 render();
             };
         }
@@ -712,6 +759,7 @@
             chipsEl.querySelectorAll(".chip").forEach(el => {
                 el.addEventListener("click", () => {
                     state.activeProfile = el.dataset.profile;
+                    state.renderLimit = 60;
                     render();
                 });
             });
@@ -724,7 +772,13 @@
             scored = applyFilters(scored);
             scored.sort((a, b) => b._fit - a._fit);
 
-            document.getElementById("result-count").textContent = `${scored.length} candidati`;
+            // il totale mostrato dice sia quanti passano i filtri sia quanti
+            // ne esistono in tutto (il server manda solo i primi per non
+            // soffocare il telefono - vedi cap in /api/radar/feed)
+            const capNote = (state.totalCount > state.results.length)
+                ? ` · caricati i primi ${state.results.length} di ${state.totalCount}`
+                : "";
+            document.getElementById("result-count").textContent = `${scored.length} candidati${capNote}`;
 
             const resultsEl = document.getElementById("results");
             if (scored.length === 0) {
@@ -734,7 +788,13 @@
                 return;
             }
 
-            resultsEl.innerHTML = scored.map(c => {
+            // paginazione: si disegnano solo le prime renderLimit schede.
+            // Disegnarne 3000 insieme blocca il telefono - il "carica altri"
+            // ne aggiunge un blocco per volta senza perdere la posizione.
+            const shown = scored.slice(0, state.renderLimit);
+            const remaining = scored.length - shown.length;
+
+            resultsEl.innerHTML = shown.map(c => {
                 const badge = verdictBadge(c);
                 const expanded = state.expanded.has(c.candidate_id);
                 return `
@@ -748,6 +808,7 @@
                                 ${clubUpdate(c) ? `<div class="club-update-flag">CLUB AGGIORNATO: ${escapeHTML(clubUpdate(c))}</div>` : ""}
                                 ${renderBreakdownLine(c)}
                                 ${renderBayesianLine(c)}
+                                ${renderMiniCurve(c)}
                             </div>
                             <div class="card-scores">
                                 <button class="wl-star ${c.watchlisted ? "active" : ""}" data-wl="${escapeHTML(c.candidate_id)}" title="Segna/togli dalla watchlist">${c.watchlisted ? "★" : "☆"}</button>
@@ -758,7 +819,19 @@
                         <div class="card-dossier">${renderDossier(c)}</div>
                     </div>
                 `;
-            }).join("");
+            }).join("") + (remaining > 0
+                ? `<button class="load-more" id="load-more">carica altri ${Math.min(60, remaining)} (${remaining} rimasti)</button>`
+                : "");
+
+            const moreBtn = document.getElementById("load-more");
+            if (moreBtn) {
+                moreBtn.addEventListener("click", () => {
+                    const y = window.scrollY;
+                    state.renderLimit += 60;
+                    render();
+                    window.scrollTo(0, y);   // resta dov'eri, non risalire in cima
+                });
+            }
 
             resultsEl.querySelectorAll(".wl-star").forEach(btn => {
                 btn.addEventListener("click", (e) => {
@@ -768,7 +841,9 @@
                     if (!c) return;
                     c.watchlisted = !c.watchlisted;
                     toggleWatchlist(id, c.watchlisted);
+                    const y = window.scrollY;
                     render();
+                    window.scrollTo(0, y);
                 });
             });
 
@@ -777,7 +852,9 @@
                     const id = el.dataset.id;
                     if (state.expanded.has(id)) state.expanded.delete(id);
                     else state.expanded.add(id);
+                    const y = window.scrollY;
                     render();
+                    window.scrollTo(0, y);
                 });
             });
         }
@@ -794,7 +871,10 @@
             try {
                 const res = await fetch("/api/radar/feed");
                 const data = await res.json();
-                if (data.status === "success") state.results = data.results;
+                if (data.status === "success") {
+                    state.results = data.results;
+                    state.totalCount = data.total_count || data.results.length;
+                }
             } catch (e) { /* nessun dato ancora, va bene: empty state */ }
             render();
         }
@@ -835,10 +915,12 @@
             btn.textContent = "AGGIORNA";
 
             if (data.status === "success") {
-                state.results = data.results;
                 document.getElementById("last-run").textContent =
                     `ultimo aggiornamento: ${new Date(data.run_at).toLocaleTimeString("it-IT")} · ${data.candidates_ranked}/${data.candidates_evaluated} candidati`;
-                render();
+                // ricarico dal feed limitato invece di tenere in memoria tutte
+                // le migliaia di schede appena scansionate (payload + DOM)
+                state.renderLimit = 60;
+                loadFeed();
             } else {
                 document.getElementById("last-run").textContent = `errore: ${data.message}`;
             }
@@ -865,6 +947,7 @@
         }
 
         document.getElementById("refresh-btn").addEventListener("click", refresh);
+        document.getElementById("homeBtn").addEventListener("click", () => { window.location.href = "/turno"; });
         document.getElementById("filter-toggle").addEventListener("click", () => {
             state.filterPanelOpen = !state.filterPanelOpen;
             render();
