@@ -9,6 +9,20 @@ import discovery_engine
 
 app = Flask(__name__)
 
+
+@app.after_request
+def no_html_cache(resp):
+    """Le pagine (turno/radar/mappa/processo) non vanno tenute in cache dal
+    browser: da mobile Chrome serviva la copia vecchia del template anche
+    dopo un deploy nuovo, facendo "sparire" le modifiche appena messe online
+    (verificato dal vivo: il contraddittorio non compariva perche' il
+    turno.html era quello cachato di un round precedente). no-store forza il
+    browser a riscaricare l'HTML ogni volta - le pagine sono piccole, e le
+    risposte JSON delle API non sono toccate."""
+    if resp.mimetype == "text/html":
+        resp.headers["Cache-Control"] = "no-store, max-age=0"
+    return resp
+
 def inject_local_files_from_prompt(text):
     """
     Super-potere: come Claude Code, Python scansiona il prompt. 
