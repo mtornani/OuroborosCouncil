@@ -754,13 +754,18 @@ def _update_cusum(cusum_state: dict, z: float, cfg: dict) -> dict:
 # tra 2 settimane") perche' i run avvengono a intervalli irregolari (solo
 # quando si preme "cerca aggiornamenti") e sarebbe una precisione finta.
 
+# Etichette in italiano-calcistico nativo, non gergo da diffusion-theory:
+# "esplodere" e' esattamente il verbo che il calcio italiano usa per un
+# giovane che sfonda ("quest'anno e' esploso"). La fase e' l'intero (stabile),
+# l'etichetta e' cosmetica - il frontend la ri-deriva dall'intero cosi' un
+# cambio di parole non lascia etichette vecchie nei feed gia' salvati.
 _PHASE_LABELS = {
-    0: "invisibile",
-    1: "nicchia",
-    2: "fermento",
-    3: "decollo imminente",
-    4: "crossing",
-    5: "mainstream",
+    0: "nessuno ne parla",
+    1: "solo la nicchia",
+    2: "se ne parla",
+    3: "sta per esplodere",
+    4: "sui grandi giornali",
+    5: "lo sanno tutti",
 }
 
 # max_results della query Google News in buzz_score: oltre questo numero il
@@ -915,6 +920,75 @@ def curve_validation_summary() -> dict:
     }
 
 
+def phase_trail(record: dict) -> list:
+    """La sequenza reale delle fasi occupate dal candidato nel tempo (una per
+    run che aveva una curva calcolata). E' cio' che rende leggibile la salita:
+    non un pallino fermo, ma un percorso da mostrare. Solo dati gia' salvati,
+    nessun ricalcolo."""
+    return [
+        e["curve"]["phase"]
+        for e in record.get("history", [])
+        if isinstance(e.get("curve"), dict) and e["curve"].get("phase") is not None
+    ]
+
+
+def curve_map_snapshot() -> dict:
+    """LA MAPPA: la posizione sulla curva di TUTTI i giocatori con storico
+    sufficiente, in un colpo d'occhio. E' la vista che spiega l'intero
+    prodotto senza parole - dove sta ognuno nel percorso da sconosciuto a
+    conosciuto, e chi e' nella zona calda appena prima dell'esplosione.
+
+    Onesta' strutturale: chi non ha ancora abbastanza storico (< min_runs)
+    NON viene posizionato con una fase inventata, viene solo contato come
+    'ancora da profilare'. Zero previsione: sono posizioni attuali, non
+    frecce sul futuro."""
+    feed = _load_json(FEED_FILE)
+    watchlist = get_watchlist()
+    players = []
+    not_yet = 0
+    distribution = {p: 0 for p in _PHASE_LABELS}
+    for candidate_id, record in feed.items():
+        if not record or not record.get("history"):
+            continue
+        last = record["history"][-1]
+        curve = last.get("curve")
+        phase = curve.get("phase") if isinstance(curve, dict) else None
+        if phase is None:
+            not_yet += 1
+            continue
+        identity = record.get("identity") or {}
+        trail = phase_trail(record)
+        change = last.get("state_change") or {}
+        distribution[phase] += 1
+        players.append({
+            "candidate_id": candidate_id,
+            "name": identity.get("name"),
+            "club": identity.get("club"),
+            "role": identity.get("role"),
+            "signal_score": last.get("signal_score"),
+            "phase": phase,
+            "exit_pressure": curve.get("exit_pressure") if isinstance(curve, dict) else None,
+            # "salito da poco": l'ultima fase e' piu' avanti della precedente -
+            # anima la mappa senza inventare nulla, e' il confronto tra due
+            # posizioni reali
+            "climbing": len(trail) >= 2 and trail[-1] > trail[-2],
+            "is_takeoff": change.get("type") == "takeoff",
+            "watchlisted": candidate_id in watchlist,
+        })
+    # i piu' avanti + chi sta esplodendo in cima, cosi' l'occhio cade sulla
+    # zona calda per prima
+    players.sort(key=lambda p: (p["phase"], p["exit_pressure"] or 0, p["signal_score"] or 0), reverse=True)
+    return {
+        "players": players,
+        "assessed_count": len(players),
+        "not_yet_count": not_yet,
+        "total_count": len(feed),
+        "distribution": distribution,
+        "phase_labels": _PHASE_LABELS,
+        "validation": curve_validation_summary(),
+    }
+
+
 # ============================================================
 # LAYER D - sonda di cambiamento di stato (IL TURNO)
 # ============================================================
@@ -972,13 +1046,13 @@ def detect_state_change(
         active_details = [f["detail"] for f in curve["factors"].values() if f["active"]]
         return {
             "type": "takeoff",
-            "tag": "DECOLLO IMMINENTE",
+            "tag": "STA PER ESPLODERE",
             "lead": (
-                "Piu' segnali indipendenti stanno convergendo, e nessuna testata mainstream "
-                "se n'e' ancora accorta: " + "; ".join(active_details) + ". "
-                "Di solito e' l'ultimo tratto della fase in cui guardarlo costa poco - dopo, "
-                "visibilita' e concorrenza salgono. Se il profilo ti interessa, e' ora il "
-                "momento dell'occhio umano."
+                "Piu' segnali indipendenti stanno salendo insieme, e nessun grande giornale "
+                "ne ha ancora scritto: " + "; ".join(active_details) + ". "
+                "E' il tratto in cui guardarlo costa ancora poco - appena lo prendono le testate "
+                "grandi, salgono visibilita', concorrenza e prezzo. Se il profilo ti interessa, "
+                "questo e' il momento del tuo occhio, non fra un mese."
             ),
         }
 

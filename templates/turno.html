@@ -187,7 +187,10 @@
         .curve-svg .curve-path { fill: none; stroke: var(--line); stroke-width: 2; }
         .curve-svg .curve-done { fill: none; stroke: var(--signal); stroke-width: 2; }
         .curve-svg .curve-dot { fill: var(--signal); }
+        .curve-svg .curve-past { fill: var(--signal); opacity: 0.35; }
         .curve-svg .curve-tick { font-size: 5.5px; fill: var(--text-faint); font-family: 'JetBrains Mono', monospace; }
+        .curve-reading { font-size: 0.8rem; color: var(--text); line-height: 1.5; margin-top: 10px; }
+        .spinta-note { font-size: 0.68rem; color: var(--text-faint); line-height: 1.4; margin-top: 6px; }
         .factor-list { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
         .factor-row { display: flex; gap: 8px; font-size: 0.72rem; line-height: 1.5; padding: 3px 0; color: var(--text-dim); }
         .factor-row .mark { flex-shrink: 0; width: 14px; color: var(--text-faint); }
@@ -254,6 +257,7 @@
                 </div>
                 <button class="btn-primary" id="startBtn">INIZIA IL TURNO</button>
                 <button class="btn-secondary" id="scanBtn">CERCA AGGIORNAMENTI PRIMA</button>
+                <button class="link-archive" id="mapBtn">🛰 la mappa — dove sta ogni giocatore sul percorso →</button>
                 <button class="link-archive" id="archiveBtn">vedi comunque l'archivio completo →</button>
                 <p class="status-line" id="statusLine"></p>
                 <p class="skip-note" id="skipNote"></p>
@@ -413,7 +417,7 @@
             // esiste almeno un crossing registrato, mai una promessa a vuoto
             const val = state.validation;
             document.getElementById("validationNote").textContent = (!state.scanning && val && val.crossings > 0)
-                ? `Prova sui fatti: finora ${val.crossings} candidat${val.crossings === 1 ? "o ha" : "i hanno"} attraversato verso il mainstream, e il radar ne aveva anticipat${val.anticipated === 1 ? "o" : "i"} ${val.anticipated} con un "decollo imminente" quando erano ancora in fase precoce.`
+                ? `Prova sui fatti: finora ${val.crossings} giocator${val.crossings === 1 ? "e è finito" : "i sono finiti"} sui grandi giornali, e il radar ne aveva segnalat${val.anticipated === 1 ? "o" : "i"} ${val.anticipated} con un «sta per esplodere» quando ancora non li conosceva nessuno.`
                 : "";
         }
 
@@ -429,25 +433,54 @@
             return t;
         }
 
-        // LA CURVA (Layer E): posizione sulla curva di adozione a S, disegnata
-        // come diagramma (non un grafico di dati: le 6 fasi sono posizioni
-        // concettuali, la logistica e' generata via JS cosi' il punto sta
-        // SEMPRE esattamente sulla linea).
-        function curveStrip(curve) {
+        // LA CURVA (Layer E): il percorso da sconosciuto a conosciuto, disegnato
+        // come diagramma a S (non un grafico di dati: le 6 fasi sono posizioni
+        // sul percorso, la logistica e' generata cosi' il punto sta SEMPRE
+        // esattamente sulla linea). Etichette ri-derivate dall'intero fase qui
+        // nel frontend: un cambio di parole non lascia mai etichette vecchie
+        // nei feed gia' salvati.
+        const PHASE_LABELS = ["nessuno ne parla", "solo la nicchia", "se ne parla", "sta per esplodere", "sui grandi giornali", "lo sanno tutti"];
+        const CURVE_F = x => 27 - 24 / (1 + Math.exp(-(x - 55) / 10));
+        const PHASE_X = p => 4 + p * (92 / 5);
+
+        function climbReading(trail, phase) {
+            // Racconta la salita in una riga, confrontando due posizioni REALI
+            // nel tempo - e' cio' che rende il concetto ovvio senza spiegarlo.
+            if (!trail || trail.length < 2) return "Prima volta con abbastanza storico per collocarlo nel percorso.";
+            const recent = trail.slice(-6);
+            const first = recent[0], max = Math.max(...recent);
+            const L = p => PHASE_LABELS[p] || "?";
+            if (phase > first) return `Qualche controllo fa era «${L(first)}». Ora «${L(phase)}»: sta salendo.`;
+            if (phase < max) return `Era arrivato a «${L(max)}», ora è sceso a «${L(phase)}»: si sta raffreddando.`;
+            return `Fermo su «${L(phase)}» da ${recent.length} controlli.`;
+        }
+
+        function curveStrip(curve, trail) {
             if (!curve || curve.phase === null || curve.phase === undefined) return "";
-            const f = x => 27 - 24 / (1 + Math.exp(-(x - 55) / 10));
             const xs = [];
             for (let x = 4; x <= 96; x += 2) xs.push(x);
-            const full = xs.map(x => `${x},${f(x).toFixed(2)}`).join(" ");
-            const px = 4 + curve.phase * (92 / 5);
-            const done = xs.filter(x => x <= px).map(x => `${x},${f(x).toFixed(2)}`).join(" ")
-                + ` ${px.toFixed(1)},${f(px).toFixed(2)}`;
+            const full = xs.map(x => `${x},${CURVE_F(x).toFixed(2)}`).join(" ");
+            const px = PHASE_X(curve.phase);
+            const done = xs.filter(x => x <= px).map(x => `${x},${CURVE_F(x).toFixed(2)}`).join(" ")
+                + ` ${px.toFixed(1)},${CURVE_F(px).toFixed(2)}`;
             const ticks = [0, 1, 2, 3, 4, 5].map(p => {
-                const tx = 4 + p * (92 / 5);
-                return `<circle cx="${tx.toFixed(1)}" cy="${f(tx).toFixed(2)}" r="1.1" fill="var(--line)"/>`;
+                const tx = PHASE_X(p);
+                return `<circle cx="${tx.toFixed(1)}" cy="${CURVE_F(tx).toFixed(2)}" r="1.1" fill="var(--line)"/>`;
             }).join("");
+            // tappe reali gia' percorse: un pallino tenue per ogni posizione
+            // passata (le fasi distinte toccate finora), cosi' si VEDE il
+            // cammino, non solo il punto d'arrivo
+            const past = [...new Set((trail || []).slice(0, -1))].map(p =>
+                `<circle cx="${PHASE_X(p).toFixed(1)}" cy="${CURVE_F(PHASE_X(p)).toFixed(2)}" r="1.4" class="curve-past"/>`
+            ).join("");
+            // punto di partenza dell'animazione: la fase precedente reale (se
+            // c'e'), altrimenti parte fermo dov'e'
+            const fromPhase = (trail && trail.length >= 2) ? trail[trail.length - 2] : curve.phase;
+            const phaseName = PHASE_LABELS[curve.phase] || "";
             const pressure = (curve.exit_pressure !== null && curve.exit_pressure !== undefined)
-                ? `pressione di uscita ${curve.exit_pressure}/100` : `${curve.runs_seen} controlli`;
+                ? `spinta ${curve.exit_pressure}/100` : `${curve.runs_seen} controlli`;
+            const spintaNote = (curve.exit_pressure !== null && curve.exit_pressure !== undefined)
+                ? `<div class="spinta-note">la spinta misura quanti segnali oggettivi lo stanno portando verso l'esplosione (0–100)</div>` : "";
             let factors = "";
             if (curve.factors) {
                 factors = `<div class="factor-list">` + Object.entries(curve.factors).map(([name, fa]) =>
@@ -456,15 +489,40 @@
             }
             return `
                 <div class="curve-strip">
-                    <div class="curve-head"><span>curva di adozione — <span class="phase-name">${escapeHTML(curve.phase_label)}</span></span><span>${escapeHTML(pressure)}</span></div>
+                    <div class="curve-head"><span>il percorso verso la ribalta — <span class="phase-name">${escapeHTML(phaseName)}</span></span><span>${escapeHTML(pressure)}</span></div>
                     <svg class="curve-svg" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true">
                         <polyline class="curve-path" points="${full}"/>
                         <polyline class="curve-done" points="${done}"/>
                         ${ticks}
-                        <circle class="curve-dot" cx="${px.toFixed(1)}" cy="${f(px).toFixed(2)}" r="2.4"/>
+                        ${past}
+                        <circle id="curveDot" class="curve-dot" r="2.4"
+                            data-from="${fromPhase}" data-to="${curve.phase}"
+                            cx="${PHASE_X(fromPhase).toFixed(1)}" cy="${CURVE_F(PHASE_X(fromPhase)).toFixed(2)}"/>
                     </svg>
+                    <div class="curve-reading">${escapeHTML(climbReading(trail, curve.phase))}</div>
+                    ${spintaNote}
                     ${factors}
                 </div>`;
+        }
+
+        // Anima il pallino lungo la salita reale (fase precedente -> attuale),
+        // restando sempre sulla linea perche' interpola la fase, non i pixel.
+        // Rispetta prefers-reduced-motion: in quel caso lo piazza e basta.
+        function animateCurveDot() {
+            const dot = document.getElementById("curveDot");
+            if (!dot) return;
+            const from = parseFloat(dot.getAttribute("data-from"));
+            const to = parseFloat(dot.getAttribute("data-to"));
+            const place = p => { const x = PHASE_X(p); dot.setAttribute("cx", x.toFixed(2)); dot.setAttribute("cy", CURVE_F(x).toFixed(2)); };
+            if (from === to || window.matchMedia("(prefers-reduced-motion: reduce)").matches) { place(to); return; }
+            const dur = 700, t0 = performance.now();
+            function frame(t) {
+                const k = Math.min(1, (t - t0) / dur);
+                const eased = 1 - Math.pow(1 - k, 3);
+                place(from + (to - from) * eased);
+                if (k < 1) requestAnimationFrame(frame);
+            }
+            requestAnimationFrame(frame);
         }
 
         function renderCase() {
@@ -515,7 +573,7 @@
                 </div>
                 <div class="breakdown-line">score = ${compLine}</div>
                 ${bayesHtml}
-                ${curveStrip(c.curve)}
+                ${curveStrip(c.curve, c.curve_trail)}
                 <div class="verdict-box">
                     <div class="verdict-head"><span>verdetto swarm</span>${verdictLabel}</div>
                     <div class="verdict-text">${v.motivazione ? `"${escapeHTML(v.motivazione)}"` : "nessuna motivazione disponibile"}</div>
@@ -524,6 +582,7 @@
             const isWatchlisted = !!state.cases[idx].watchlisted;
             document.getElementById("flagBtn").classList.toggle("active", isWatchlisted);
             document.getElementById("flagBtn").textContent = isWatchlisted ? "★ SEGNATO" : "☆ SEGNA";
+            animateCurveDot();
         }
 
         function startSession() {
@@ -550,6 +609,7 @@
         document.getElementById("restartBtn").addEventListener("click", () => { showScreen(screenIntake); loadTurno(); });
         document.getElementById("archiveBtn").addEventListener("click", () => { window.location.href = "/radar"; });
         document.getElementById("archiveBtn2").addEventListener("click", () => { window.location.href = "/radar"; });
+        document.getElementById("mapBtn").addEventListener("click", () => { window.location.href = "/mappa"; });
 
         // Persistito sul server, non piu' solo nella sessione del browser -
         // "segnare" durante il turno E' l'azione che crea/toglie dalla

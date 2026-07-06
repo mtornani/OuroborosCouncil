@@ -154,6 +154,11 @@ def turno_page():
     return render_template("turno.html")
 
 
+@app.route("/mappa")
+def mappa_page():
+    return render_template("mappa.html")
+
+
 # Una scansione completa (Wikidata + Wikipedia + buzz + fino a 15 dossier AI
 # a 4 chiamate sequenziali ciascuno) puo' richiedere diversi minuti - troppo
 # per stare dentro una singola request HTTP sincrona: il worker gunicorn
@@ -282,6 +287,9 @@ def radar_turno():
                 "bayesian": discovery_engine.bayesian_estimate(record["history"], cfg),
                 "change": change,
                 "curve": last.get("curve"),
+                # il percorso reale delle fasi nel tempo: rende la salita
+                # leggibile e animabile, invece di un pallino fermo
+                "curve_trail": discovery_engine.phase_trail(record),
                 "watchlisted": candidate_id in watchlist,
                 "verdict": {
                     "vale_la_pena": giudice.get("vale_la_pena"),
@@ -305,6 +313,18 @@ def radar_turno():
             # rilevatore misurata sui fatti, mostrata in home
             "curve_validation": discovery_engine.curve_validation_summary(),
         })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+
+@app.route("/api/radar/mappa")
+def radar_mappa():
+    """LA MAPPA: posizione sulla curva di adozione di tutti i giocatori con
+    storico sufficiente, per la vista d'insieme del portale. Chi non ha
+    ancora abbastanza scansioni non viene posizionato (solo contato) - vedi
+    discovery_engine.curve_map_snapshot."""
+    try:
+        return jsonify({"status": "success", **discovery_engine.curve_map_snapshot()})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
 
