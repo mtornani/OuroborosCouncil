@@ -909,7 +909,45 @@ def _record_curve_crossing(record: dict, candidate: dict, run_at: str) -> None:
         "anticipato": 3 in prior_phases,
         "fasi_precedenti": [p for p in prior_phases if p is not None][-5:],
     })
-    _save_json(CURVE_VALIDATION_FILE, {"events": events})
+    ledger["events"] = events  # preserva "flags", non sovrascrivere l'intero file
+    _save_json(CURVE_VALIDATION_FILE, ledger)
+
+
+# --- Il tabellone: precisione, non solo richiamo -----------------------------
+# La mossa con cui si smonta un sistema come questo e' sempre la stessa:
+# "citate solo i successi (Mora, Villarreal), e i fallimenti?". Il registro
+# dei crossing sopra misura il RICHIAMO (dei giocatori esplosi, quanti
+# avevamo segnalato). Ma da solo si presta all'accusa di survivorship bias,
+# perche' non conta i falsi positivi. Qui si traccia la PRECISIONE: ogni
+# volta che scatta "sta per esplodere" (fase 3) si apre una scommessa
+# verificabile, e la si chiude con l'esito reale - esploso (ha attraversato)
+# o sgonfiato (e' ricaduto senza attraversare). Un sistema che nasconde i
+# suoi errori e' marketing; questo li conta, davanti a chi lo vuole debunkare.
+
+def _update_flag_ledger(candidate: dict, phase, run_at: str) -> None:
+    if phase is None:
+        return
+    ledger = _load_json(CURVE_VALIDATION_FILE)
+    flags = ledger.get("flags", [])
+    cid = candidate["candidate_id"]
+    open_flag = next((f for f in flags if f["candidate_id"] == cid and f["outcome"] == "pending"), None)
+    changed = False
+    if phase == 3 and open_flag is None:
+        # nuova segnalazione: scommessa aperta, esito ancora ignoto
+        flags.append({
+            "candidate_id": cid, "name": candidate.get("name"),
+            "flagged_at": run_at, "outcome": "pending", "resolved_at": None,
+        })
+        changed = True
+    elif phase != 3 and open_flag is not None:
+        # la scommessa si chiude: attraversato (>=4) = esploso, altrimenti
+        # ricaduto senza sfondare = sgonfiato (falso positivo, contato)
+        open_flag["outcome"] = "esploso" if phase >= 4 else "sgonfiato"
+        open_flag["resolved_at"] = run_at
+        changed = True
+    if changed:
+        ledger["flags"] = flags
+        _save_json(CURVE_VALIDATION_FILE, ledger)
 
 
 def curve_validation_summary() -> dict:
@@ -917,6 +955,34 @@ def curve_validation_summary() -> dict:
     return {
         "crossings": len(events),
         "anticipated": sum(1 for e in events if e.get("anticipato")),
+    }
+
+
+def track_record_summary() -> dict:
+    """Il tabellone completo per l'avvocato del diavolo: precisione (dei
+    segnalati, quanti sono davvero esplosi vs sgonfiati) E richiamo (degli
+    esplosi, quanti avevamo segnalato). Nessun numero gonfiato: precision e
+    recall restano None finche' non c'e' un caso risolto, cosi' su campione
+    minuscolo il sistema dice 'non lo so ancora' invece di inventare una
+    percentuale."""
+    ledger = _load_json(CURVE_VALIDATION_FILE)
+    flags = ledger.get("flags", [])
+    events = ledger.get("events", [])
+    esplosi = sum(1 for f in flags if f["outcome"] == "esploso")
+    sgonfiati = sum(1 for f in flags if f["outcome"] == "sgonfiato")
+    pending = sum(1 for f in flags if f["outcome"] == "pending")
+    resolved = esplosi + sgonfiati
+    crossings = len(events)
+    anticipati = sum(1 for e in events if e.get("anticipato"))
+    return {
+        "flagged": len(flags),
+        "esplosi": esplosi,
+        "sgonfiati": sgonfiati,
+        "pending": pending,
+        "precision": round(100 * esplosi / resolved) if resolved else None,
+        "crossings": crossings,
+        "anticipati": anticipati,
+        "recall": round(100 * anticipati / crossings) if crossings else None,
     }
 
 
@@ -1485,8 +1551,14 @@ def refresh_radar(profile_key: str = "tactical_profile") -> dict:
         # verita' - si registra SEMPRE quando la fase 4 scatta, per qualunque
         # candidato con snapshot fresco, indipendentemente da chi ha vinto il
         # posto nel turno di revisione
-        if (entry["signal"].get("curve") or {}).get("phase") == 4:
+        curve_phase = (entry["signal"].get("curve") or {}).get("phase")
+        if curve_phase == 4:
             _record_curve_crossing(record, entry["candidate"], run_at)
+        # tabellone precisione: apre/chiude la scommessa "sta per esplodere"
+        # per ogni candidato con una fase fresca questo run (esploso vs
+        # sgonfiato) - e' cio' che rende il rilevatore falsificabile sui fatti
+        if curve_phase is not None:
+            _update_flag_ledger(entry["candidate"], curve_phase, run_at)
 
         # sonda di cambiamento di stato: solo sui candidati con un dossier
         # AI vero questo giro (stesso sottoinsieme stretto del funnel, mai

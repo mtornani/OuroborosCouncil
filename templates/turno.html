@@ -258,6 +258,7 @@
                 <button class="btn-primary" id="startBtn">INIZIA IL TURNO</button>
                 <button class="btn-secondary" id="scanBtn">CERCA AGGIORNAMENTI PRIMA</button>
                 <button class="link-archive" id="mapBtn">🛰 la mappa — dove sta ogni giocatore sul percorso →</button>
+                <button class="link-archive" id="processBtn">⚖ l'avvocato del diavolo — il tabellone e le obiezioni →</button>
                 <button class="link-archive" id="archiveBtn">vedi comunque l'archivio completo →</button>
                 <p class="status-line" id="statusLine"></p>
                 <p class="skip-note" id="skipNote"></p>
@@ -610,6 +611,7 @@
         document.getElementById("archiveBtn").addEventListener("click", () => { window.location.href = "/radar"; });
         document.getElementById("archiveBtn2").addEventListener("click", () => { window.location.href = "/radar"; });
         document.getElementById("mapBtn").addEventListener("click", () => { window.location.href = "/mappa"; });
+        document.getElementById("processBtn").addEventListener("click", () => { window.location.href = "/processo"; });
 
         // Persistito sul server, non piu' solo nella sessione del browser -
         // "segnare" durante il turno E' l'azione che crea/toglie dalla

@@ -138,6 +138,7 @@
     <button class="theme-toggle" id="themeToggle" aria-label="Chiaro/scuro">☀</button>
     <div class="wrap">
         <button class="back" id="backBtn">← torna al turno</button>
+        <button class="back" id="procBtn" style="float:right;color:var(--doubt)">⚖ l'avvocato del diavolo →</button>
         <p class="eyebrow">la mappa</p>
         <h1>Dove sta ogni giocatore sul percorso.</h1>
         <p class="sub">Ogni pallino è un giocatore. Più è a destra, più il mondo lo conosce. Il tuo vantaggio sta a sinistra della zona calda — chi è lì costa ancora poco, ma sta per esplodere.</p>
@@ -332,6 +333,7 @@
         }
 
         document.getElementById("backBtn").addEventListener("click", () => { window.location.href = "/turno"; });
+        document.getElementById("procBtn").addEventListener("click", () => { window.location.href = "/processo"; });
         document.getElementById("detailClose").addEventListener("click", closeDetail);
         document.getElementById("detailScrim").addEventListener("click", closeDetail);
         document.getElementById("detailFlag").addEventListener("click", () => {

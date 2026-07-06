@@ -159,6 +159,11 @@ def mappa_page():
     return render_template("mappa.html")
 
 
+@app.route("/processo")
+def processo_page():
+    return render_template("processo.html")
+
+
 # Una scansione completa (Wikidata + Wikipedia + buzz + fino a 15 dossier AI
 # a 4 chiamate sequenziali ciascuno) puo' richiedere diversi minuti - troppo
 # per stare dentro una singola request HTTP sincrona: il worker gunicorn
@@ -325,6 +330,18 @@ def radar_mappa():
     discovery_engine.curve_map_snapshot."""
     try:
         return jsonify({"status": "success", **discovery_engine.curve_map_snapshot()})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+
+@app.route("/api/radar/processo")
+def radar_processo():
+    """IL PROCESSO / l'avvocato del diavolo: il tabellone onesto del
+    rilevatore (precisione e richiamo, fallimenti compresi) - vedi
+    discovery_engine.track_record_summary. Le obiezioni sono contenuto
+    statico nel template, non dati a runtime."""
+    try:
+        return jsonify({"status": "success", **discovery_engine.track_record_summary()})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
 
