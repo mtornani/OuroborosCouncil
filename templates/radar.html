@@ -444,6 +444,10 @@
             background: var(--panel); border: 1px solid var(--panel-border); color: var(--text-main);
             font-family: var(--font-mono); font-size: 13px; letter-spacing: 0.04em; cursor: pointer;
         }
+        .dossier-contra { border-left: 2px solid var(--accent-doubt); padding: 4px 0 4px 10px; margin: 10px 0; }
+        .dossier-contra-head { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--accent-doubt); margin-bottom: 5px; }
+        .dossier-contra .contra-item { font-size: 12px; line-height: 1.5; color: var(--text-dim); padding: 2px 0; }
+        .dossier-contra .contra-item .x { color: var(--accent-doubt); font-weight: 700; }
     </style>
 </head>
 
@@ -625,7 +629,7 @@
         // sconosciuto a conosciuto (Layer E). Compare solo se il candidato ha
         // gia' una fase calcolata (serve un minimo di storico); i dati vecchi
         // senza il campo curve semplicemente non la mostrano.
-        const PHASE_LABELS_R = ["nessuno ne parla", "solo la nicchia", "se ne parla", "sta per esplodere", "sui grandi giornali", "lo sanno tutti"];
+        const PHASE_LABELS_R = ["nessuno ne parla", "solo fonti locali", "se ne parla", "sta per esplodere", "sui grandi giornali", "lo sanno tutti"];
         function renderMiniCurve(candidate) {
             const curve = candidate.curve;
             if (!curve || curve.phase === null || curve.phase === undefined) return "";
@@ -662,9 +666,12 @@
 
         function renderDossier(candidate) {
             const d = candidate.dossier;
-            if (!d) return '<div class="dossier-error">Ancora nessun dossier per questo candidato (fuori dal top N di questo giro, o in attesa del prossimo Aggiorna).</div>';
-            if (d.skipped) return `<div class="dossier-error">${escapeHTML(d.skipped)}</div>`;
-            if (d.error) return `<div class="dossier-error">${escapeHTML(d.error)}</div>`;
+            // il contraddittorio (motivi di dubbio dai dati) si mostra SEMPRE,
+            // anche quando manca il dossier AI - e' calcolato a parte
+            const contra = contraddittorioBlock(candidate);
+            if (!d) return contra + '<div class="dossier-error">Ancora nessun dossier AI per questo candidato (fuori dal top N di questo giro, o in attesa del prossimo Aggiorna).</div>';
+            if (d.skipped) return contra + `<div class="dossier-error">${escapeHTML(d.skipped)}</div>`;
+            if (d.error) return contra + `<div class="dossier-error">${escapeHTML(d.error)}</div>`;
             const g = d.giudice || {};
             const verdictText = g.vale_la_pena === true ? "Vale la pena seguirlo ora"
                 : g.vale_la_pena === false ? "Non prioritario ora" : "Verdetto non disponibile";
@@ -676,10 +683,20 @@
             return `
                 <div class="verdict-line">⚖️ ${escapeHTML(verdictText)}${g.confidence != null ? ` · confidence ${escapeHTML(g.confidence)}` : ""}<br>${escapeHTML(g.motivazione || "")}</div>
                 ${clubLine}
+                ${contraddittorioBlock(candidate)}
                 <div class="dossier-role"><div class="dossier-role-label">📰 Cronista</div>${escapeHTML(d.cronista || "N/D")}</div>
                 <div class="dossier-role"><div class="dossier-role-label">🔍 Verificatore</div>${escapeHTML(d.verificatore || "N/D")}</div>
                 <div class="dossier-role"><div class="dossier-role-label">😈 Scettico</div>${escapeHTML(d.scettico || "N/D")}</div>
             `;
+        }
+
+        // Il contraddittorio (motivi oggettivi di dubbio dai dati del
+        // giocatore) - disponibile anche senza dossier AI, vedi feed API.
+        function contraddittorioBlock(candidate) {
+            const cav = candidate.caveats || [];
+            if (cav.length === 0) return "";
+            const items = cav.map(t => `<div class="contra-item"><span class="x">✕</span> ${escapeHTML(t)}</div>`).join("");
+            return `<div class="dossier-contra"><div class="dossier-contra-head">il contraddittorio — cosa gioca contro</div>${items}</div>`;
         }
 
         function renderFilterPanel() {

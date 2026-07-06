@@ -224,6 +224,16 @@
         .verdict-head .no { color: var(--doubt); }
         .verdict-text { font-family: 'Newsreader', serif; font-style: italic; font-size: 0.95rem; line-height: 1.5; color: var(--text-dim); }
 
+        /* IL CONTRADDITTORIO: le ragioni oggettive per dubitare, per giocatore */
+        .contra { border: 1px solid var(--doubt); padding: 13px 16px 14px; margin-bottom: 18px; }
+        .contra-head { font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--doubt); margin-bottom: 4px; }
+        .contra-sub { font-size: 0.72rem; color: var(--text-faint); margin-bottom: 10px; line-height: 1.4; }
+        .contra-item { display: flex; gap: 9px; font-size: 0.8rem; line-height: 1.5; padding: 4px 0; color: var(--text-dim); }
+        .contra-item .x { color: var(--doubt); flex-shrink: 0; font-weight: 700; }
+        .contra-scettico { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); font-family: 'Newsreader', serif; font-style: italic; font-size: 0.85rem; line-height: 1.5; color: var(--text-dim); }
+        .contra-scettico .lbl { font-family: 'JetBrains Mono', monospace; font-style: normal; font-size: 0.6rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-faint); display: block; margin-bottom: 4px; }
+        .contra-none { font-size: 0.8rem; color: var(--text-dim); line-height: 1.5; }
+
         .case-spacer { flex: 1; min-height: 12px; }
         .case-actions { position: sticky; bottom: 0; background: var(--ink); padding: 14px 0 22px; display: flex; gap: 10px; border-top: 1px solid var(--line); margin-top: 12px; }
         .btn-flag { flex-shrink: 0; background: none; border: 1px solid var(--line); color: var(--text-dim); padding: 0 16px; font-size: 0.78rem; cursor: pointer; }
@@ -441,7 +451,7 @@
         // esattamente sulla linea). Etichette ri-derivate dall'intero fase qui
         // nel frontend: un cambio di parole non lascia mai etichette vecchie
         // nei feed gia' salvati.
-        const PHASE_LABELS = ["nessuno ne parla", "solo la nicchia", "se ne parla", "sta per esplodere", "sui grandi giornali", "lo sanno tutti"];
+        const PHASE_LABELS = ["nessuno ne parla", "solo fonti locali", "se ne parla", "sta per esplodere", "sui grandi giornali", "lo sanno tutti"];
         const CURVE_F = x => 27 - 24 / (1 + Math.exp(-(x - 55) / 10));
         const PHASE_X = p => 4 + p * (92 / 5);
 
@@ -527,6 +537,28 @@
             requestAnimationFrame(frame);
         }
 
+        // IL CONTRADDITTORIO per-giocatore: le ragioni oggettive per dubitare
+        // di QUESTO segnale, calcolate dai suoi dati (dal server, non
+        // dall'AI). Se non ce n'e' nessuna, lo si dice: e' di per se' un
+        // segnale (raro) di robustezza, non un silenzio.
+        function contraddittorio(c) {
+            const cav = c.caveats || [];
+            const items = cav.map(t => `<div class="contra-item"><span class="x">✕</span><span>${escapeHTML(t)}</span></div>`).join("");
+            const scettico = c.scettico
+                ? `<div class="contra-scettico"><span class="lbl">la voce scettica dello swarm</span>"${escapeHTML(c.scettico)}"</div>`
+                : "";
+            const body = cav.length
+                ? items
+                : `<div class="contra-none">Nessun difetto strutturale evidente nei dati di questo segnale — raro. Resta comunque da validare con l'occhio: il contraddittorio pulito non è una promessa, è un'assenza di allarmi.</div>`;
+            return `
+                <div class="contra">
+                    <div class="contra-head">il contraddittorio</div>
+                    <div class="contra-sub">prima di fidarti, ecco cosa gioca contro questo segnale</div>
+                    ${body}
+                    ${scettico}
+                </div>`;
+        }
+
         function renderCase() {
             const c = state.cases[idx];
             document.getElementById("caseIndex").textContent = idx + 1;
@@ -580,6 +612,7 @@
                     <div class="verdict-head"><span>verdetto swarm</span>${verdictLabel}</div>
                     <div class="verdict-text">${v.motivazione ? `"${escapeHTML(v.motivazione)}"` : "nessuna motivazione disponibile"}</div>
                 </div>
+                ${contraddittorio(c)}
             `;
             const isWatchlisted = !!state.cases[idx].watchlisted;
             document.getElementById("flagBtn").classList.toggle("active", isWatchlisted);

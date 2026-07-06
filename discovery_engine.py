@@ -761,7 +761,7 @@ def _update_cusum(cusum_state: dict, z: float, cfg: dict) -> dict:
 # cambio di parole non lascia etichette vecchie nei feed gia' salvati.
 _PHASE_LABELS = {
     0: "nessuno ne parla",
-    1: "solo la nicchia",
+    1: "solo fonti locali",
     2: "se ne parla",
     3: "sta per esplodere",
     4: "sui grandi giornali",
@@ -996,6 +996,44 @@ def phase_trail(record: dict) -> list:
         for e in record.get("history", [])
         if isinstance(e.get("curve"), dict) and e["curve"].get("phase") is not None
     ]
+
+
+def player_caveats(last_entry: dict, bayes: dict | None, identity: dict, cfg: dict) -> list:
+    """IL CONTRADDITTORIO per-giocatore: i motivi OGGETTIVI per dubitare di
+    questo specifico segnale, calcolati dai suoi stessi dati - non
+    dall'AI, cosi' non si possono inventare. E' la versione granulare, sulla
+    singola scheda, delle obiezioni del /processo: ogni giocatore si porta
+    dietro le sue ragioni di dubbio, sempre, anche quando non c'e' un dossier
+    AI. Onesto per costruzione: ogni voce compare solo se davvero vera per
+    questo candidato."""
+    caveats = []
+    comps = last_entry.get("components") or {}
+    av = comps.get("age_vs_level")
+
+    if len(comps) == 1 and "age_vs_level" in comps:
+        caveats.append("Si regge su un solo indicatore (eta' rispetto al livello): nessun segnale di attenzione esterna lo conferma ancora.")
+    if av is not None and av >= 0.9:
+        caveats.append("Il punteggio eta' e' al tetto: puo' essere un effetto anagrafico (molto giovane dove l'eta' bassa e' comune), non per forza qualita'.")
+    if last_entry.get("partial_data"):
+        caveats.append("Dati incompleti: manca almeno un'informazione, il punteggio pieno e' meno affidabile.")
+
+    if bayes:
+        n = bayes.get("n_observations")
+        band = bayes.get("confidence_band")
+        if n is not None and n <= 2:
+            caveats.append(f"Visto poche volte ({n} osservazion{'e' if n == 1 else 'i'}): il punteggio puo' cambiare parecchio al prossimo controllo.")
+        elif band and len(band) == 2 and (band[1] - band[0]) >= 20:
+            caveats.append("Il margine d'incertezza e' ancora ampio: fidati del numero solo dopo qualche altro controllo.")
+
+    curve = last_entry.get("curve") or {}
+    runs_seen = curve.get("runs_seen")
+    if curve.get("phase") is not None and runs_seen is not None and runs_seen < 4:
+        caveats.append(f"La posizione sul percorso e' provvisoria (solo {runs_seen} controlli finora).")
+
+    if identity.get("tier") == "nationality_pool":
+        caveats.append("Contesto non d'elite e livello di lega spesso ignoto: mancano riscontri prestazionali sul campo.")
+
+    return caveats
 
 
 def curve_map_snapshot() -> dict:

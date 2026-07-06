@@ -243,6 +243,8 @@ def radar_feed():
                 "profile_used": last.get("profile_used"),
                 "run_at": last.get("run_at"),
                 "curve": last.get("curve"),
+                "caveats": discovery_engine.player_caveats(
+                    last, discovery_engine.bayesian_estimate(record["history"], cfg), identity, cfg),
                 "dossier": record.get("dossier"),
                 "bayesian": discovery_engine.bayesian_estimate(record["history"], cfg),
                 "watchlisted": candidate_id in watchlist,
@@ -315,6 +317,12 @@ def radar_turno():
                 # il percorso reale delle fasi nel tempo: rende la salita
                 # leggibile e animabile, invece di un pallino fermo
                 "curve_trail": discovery_engine.phase_trail(record),
+                # IL CONTRADDITTORIO: motivi oggettivi per dubitare di questo
+                # segnale, calcolati dai dati del giocatore (non dall'AI)
+                "caveats": discovery_engine.player_caveats(
+                    last, discovery_engine.bayesian_estimate(record["history"], cfg), identity, cfg),
+                # la voce scettica dello swarm su questo giocatore, se c'e'
+                "scettico": (record.get("dossier") or {}).get("scettico"),
                 "watchlisted": candidate_id in watchlist,
                 "verdict": {
                     "vale_la_pena": giudice.get("vale_la_pena"),
