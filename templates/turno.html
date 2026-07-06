@@ -11,7 +11,24 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="SENTINEL">
-    <script>if("serviceWorker" in navigator){window.addEventListener("load",function(){navigator.serviceWorker.register("/sw.js").catch(function(){});});}</script>
+    <script>
+        if ("serviceWorker" in navigator) { window.addEventListener("load", function () { navigator.serviceWorker.register("/sw.js").catch(function () { }); }); }
+        // catturo l'evento di installabilita' PRESTO (puo' scattare prima che
+        // parta lo script principale): Chrome su Android non mostra piu' il
+        // pop-up automatico, serve un pulsante nostro che lo richiami.
+        window.__deferredInstall = null;
+        window.addEventListener("beforeinstallprompt", function (e) {
+            e.preventDefault();
+            window.__deferredInstall = e;
+            var b = document.getElementById("installBtn");
+            if (b) b.style.display = "";
+        });
+        window.addEventListener("appinstalled", function () {
+            window.__deferredInstall = null;
+            var b = document.getElementById("installBtn");
+            if (b) b.style.display = "none";
+        });
+    </script>
     <link
         href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;1,400&family=JetBrains+Mono:wght@400;500;700;800&display=swap"
         rel="stylesheet">
@@ -277,6 +294,8 @@
                 <button class="link-archive" id="mapBtn">🛰 la mappa — dove sta ogni giocatore sul percorso →</button>
                 <button class="link-archive" id="processBtn">⚖ l'avvocato del diavolo — il tabellone e le obiezioni →</button>
                 <button class="link-archive" id="archiveBtn">vedi comunque l'archivio completo →</button>
+                <button class="btn-secondary" id="installBtn" style="display:none;margin-top:14px;">⬇ INSTALLA SENTINEL SUL TELEFONO</button>
+                <p class="skip-note" id="iosInstallHint" style="display:none;"></p>
                 <p class="status-line" id="statusLine"></p>
                 <p class="skip-note" id="skipNote"></p>
                 <p class="skip-note" id="validationNote"></p>
@@ -656,6 +675,34 @@
         document.getElementById("mapBtn").addEventListener("click", () => { window.location.href = "/mappa"; });
         document.getElementById("mapBtn2").addEventListener("click", () => { window.location.href = "/mappa"; });
         document.getElementById("processBtn").addEventListener("click", () => { window.location.href = "/processo"; });
+
+        // Installazione PWA. Su Android: se Chrome ha gia' segnalato che e'
+        // installabile (window.__deferredInstall), mostro il pulsante e al
+        // tap lancio il prompt nativo. Su iPhone non esiste quell'evento:
+        // mostro le istruzioni (Condividi -> Aggiungi a Home). Se e' gia'
+        // installata (aperta come app), non mostro niente.
+        (function () {
+            const installBtn = document.getElementById("installBtn");
+            const iosHint = document.getElementById("iosInstallHint");
+            const standalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+            if (standalone) return; // gia' installata: nulla da mostrare
+
+            if (window.__deferredInstall) installBtn.style.display = "";
+            installBtn.addEventListener("click", async () => {
+                const ev = window.__deferredInstall;
+                if (!ev) return;
+                ev.prompt();
+                await ev.userChoice;
+                window.__deferredInstall = null;
+                installBtn.style.display = "none";
+            });
+
+            const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+            if (isIOS) {
+                iosHint.textContent = "Su iPhone: tocca Condividi ⬆ in basso, poi «Aggiungi a Home» per installarla come app.";
+                iosHint.style.display = "";
+            }
+        })();
 
         // Persistito sul server, non piu' solo nella sessione del browser -
         // "segnare" durante il turno E' l'azione che crea/toglie dalla
