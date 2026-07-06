@@ -346,8 +346,11 @@ def radar_turno():
             })
         # priorita': il decollo imminente (Layer E) e' IL caso per cui il
         # radar esiste e apre sempre il turno; poi i fatti verificati (club)
-        # e gli eventi di finestra (crossing/velocity), poi le statistiche
-        priority = {"takeoff": 0, "club": 1, "mainstream": 2, "early": 2, "verdict": 3, "resolved": 4, "rising": 5, "falling": 5, "new": 6}
+        # e gli eventi di finestra (crossing/velocity), le chiusure spiegate,
+        # poi le statistiche
+        priority = {"takeoff": 0, "club": 1, "mainstream": 2, "early": 2,
+                    "closed_crossed": 3, "closed_faded": 3, "closed_stale": 3,
+                    "verdict": 4, "resolved": 5, "rising": 6, "falling": 6, "new": 7}
         cases.sort(key=lambda c: (priority.get(c["change"]["type"], 9), -(c["signal_score"] or 0)))
         return jsonify({
             "status": "success",

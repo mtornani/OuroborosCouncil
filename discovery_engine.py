@@ -1249,6 +1249,60 @@ def detect_state_change(
     return None
 
 
+# Le finestre "aperte" (opportunita' che durano nel tempo) non devono
+# sparire dal turno solo perche' un giro non le ha ri-analizzate: sarebbe
+# una perdita silenziosa, che l'utente medio legge come un bug. Restano
+# finche' non si risolvono davvero. Gli altri tipi (club da correggere,
+# verdetto ribaltato, salti) sono eventi puntuali: si mostrano una volta.
+_OPEN_WINDOW_TYPES = {"takeoff", "early"}
+_CARRY_MAX_RUNS = 6  # oltre N giri senza aggiornamento la finestra "scade"
+
+
+def _carry_or_close(previous_last_entry: dict | None, fresh_change: dict | None, current_curve: dict | None) -> dict | None:
+    """Decide cosa mostrare nel turno per questo giro, senza far sparire
+    niente in silenzio. Regole:
+    - se c'e' un cambiamento nuovo calcolato ORA, vince (e' l'ultima verita');
+    - se il giro precedente aveva una finestra APERTA non risolta, la si
+      porta avanti ("gia' visto · finestra aperta") invece di lasciarla
+      cadere - a meno che la curva fresca di oggi mostri che si e' risolta
+      (arrivato ai grandi giornali, o raffreddato): in quel caso si mostra
+      la CHIUSURA una volta, spiegata, e poi sparisce;
+    - dopo troppi giri senza ri-analisi la finestra "scade" con una nota,
+      mai un silenzio."""
+    if fresh_change:
+        return fresh_change
+
+    prev = (previous_last_entry or {}).get("state_change") or {}
+    if prev.get("type") not in _OPEN_WINDOW_TYPES:
+        return None  # evento puntuale gia' mostrato, oppure niente: nulla da portare
+
+    phase = (current_curve or {}).get("phase")
+    if phase is not None:  # oggi la curva e' stata ricalcolata: possiamo verificare l'esito
+        if phase >= 4:
+            return {"type": "closed_crossed", "tag": "FINESTRA CHIUSA — ARRIVATO",
+                    "lead": "La finestra si e' chiusa: ora ne parlano anche i grandi giornali. "
+                            "Se non ti sei mosso prima, da qui in poi costa di piu' e c'e' piu' concorrenza.",
+                    "closing": True}
+        if phase <= 2:
+            return {"type": "closed_faded", "tag": "FINESTRA CHIUSA — RAFFREDDATO",
+                    "lead": "La finestra si e' chiusa senza sfondare: l'attenzione si e' raffreddata, "
+                            "il segnale e' rientrato. Puo' sempre ripartire, ma per ora non e' piu' caldo.",
+                    "closing": True}
+        # phase == 3: ancora aperta, ma nessun dossier nuovo -> si porta avanti
+
+    carried_runs = prev.get("carried_runs", 0) + 1
+    if carried_runs > _CARRY_MAX_RUNS:
+        return {"type": "closed_stale", "tag": "FINESTRA SCADUTA",
+                "lead": "Questa finestra era aperta da diversi giri ma non e' stata piu' aggiornata: "
+                        "meglio non fidarsi di un segnale vecchio. Se ti interessa ancora, ricontrollalo a mano.",
+                "closing": True}
+
+    carried = dict(prev)
+    carried["carried"] = True
+    carried["carried_runs"] = carried_runs
+    return carried
+
+
 # ============================================================
 # SWARM - dossier sulle candidature (Cronista/Verificatore/Scettico/Giudice)
 # ============================================================
@@ -1604,6 +1658,7 @@ def refresh_radar(profile_key: str = "tactical_profile") -> dict:
         # giudice da confrontare, quindi non genera un caso da rivedere
         current_dossier = entry.get("dossier") or {}
         has_real_dossier = "giudice" in current_dossier
+        fresh_change = None
         if has_real_dossier:
             bayes = bayesian_estimate(record["history"], cfg)
             z = (bayes or {}).get("last_innovation_z")
@@ -1611,7 +1666,7 @@ def refresh_radar(profile_key: str = "tactical_profile") -> dict:
             if z is not None:
                 cusum_state = _update_cusum(cusum_state, z, cfg)
             record["cusum"] = cusum_state
-            record["history"][-1]["state_change"] = detect_state_change(
+            fresh_change = detect_state_change(
                 candidate=entry["candidate"],
                 previous_last_entry=previous_last_entry,
                 previous_dossier=previous_dossier,
@@ -1623,12 +1678,20 @@ def refresh_radar(profile_key: str = "tactical_profile") -> dict:
                 buzz_detail=entry["signal"].get("buzz_detail"),
                 curve=entry["signal"].get("curve"),
             )
-            # persistenza incrementale: il dossier AI e' la parte lenta e
-            # costosa del turno (piu' chiamate LLM in catena per candidato).
-            # Salvare subito dopo ognuno, non solo a fine ciclo, protegge
-            # quel lavoro da un crash/timeout a meta' turno - altrimenti un
-            # riavvio del container a turno quasi finito butterebbe via
-            # anche i dossier gia' generati insieme al resto.
+
+        # niente sparisce in silenzio: una finestra aperta (sta per esplodere)
+        # resta finche' non si risolve, e quando si risolve si mostra la
+        # chiusura una volta, spiegata - non un giocatore che svanisce senza
+        # motivo (che l'utente medio legge come un bug). Gira SEMPRE, anche
+        # senza dossier fresco questo giro.
+        final_change = _carry_or_close(previous_last_entry, fresh_change, entry["signal"].get("curve"))
+        record["history"][-1]["state_change"] = final_change
+
+        # salvataggio incrementale dopo ogni dossier AI (la parte lenta e
+        # costosa): protegge il lavoro gia' fatto da un crash/timeout a meta'
+        # turno - un riavvio del container non deve buttare via i dossier
+        # gia' generati.
+        if has_real_dossier:
             _save_json(FEED_FILE, feed)
 
     _save_json(FEED_FILE, feed)

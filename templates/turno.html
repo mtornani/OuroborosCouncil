@@ -174,6 +174,7 @@
         .change-tag.club, .change-tag.falling { color: var(--doubt); }
         .change-tag.rising, .change-tag.new { color: var(--signal); }
         .change-tag.resolved, .change-tag.verdict { color: var(--verified); }
+        .carried-note { display: inline-block; font-size: 0.62rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-faint); margin: 0 0 14px 8px; vertical-align: middle; }
         /* il decollo imminente e' l'unico tag PIENO: e' il caso per cui il
            radar esiste, deve leggersi diverso da tutto il resto in mezzo
            secondo, anche in pieno sole */
@@ -259,7 +260,7 @@
             <div class="intake">
                 <p class="eyebrow" id="eyebrowDate">turno</p>
                 <h1 id="intakeHeadline">Non c'è una lista da scorrere. C'è un turno da fare.</h1>
-                <p class="intake-sub">SENTINEL non ti rimostra tutti i candidati ogni volta — solo quelli per cui è cambiato qualcosa da quando li hai visti l'ultima volta. Il resto resta in archivio, silenzioso, finché non si muove davvero.</p>
+                <p class="intake-sub">Qui trovi chi ha una novità o una <b>finestra ancora aperta</b> (un "sta per esplodere" resta finché non si chiude davvero). Quando una finestra si chiude — arrivato ai grandi giornali, o raffreddato — te lo mostra una volta, spiegato: <b>niente sparisce in silenzio</b>. Il resto è in archivio, fermo, finché non si muove.</p>
                 <div class="intake-stats">
                     <div><div class="stat-num" id="statCount">—</div><div class="stat-label">casi da rivedere</div></div>
                     <div><div class="stat-num" id="statMinutes">—</div><div class="stat-label">min. di lettura</div></div>
@@ -442,6 +443,8 @@
             if (t === "mainstream") return "falling";
             if (t === "early") return "rising";
             if (t === "takeoff") return "takeoff";
+            if (t === "closed_crossed") return "resolved";       // arrivato: chiusura "positiva" (teal)
+            if (t === "closed_faded" || t === "closed_stale") return "falling";  // raffreddata/scaduta (rosso)
             return t;
         }
 
@@ -592,7 +595,7 @@
             const age = computeAge(c.dob);
 
             document.getElementById("caseBody").innerHTML = `
-                <div class="change-tag ${tagClass(c.change.type)}">${escapeHTML(c.change.tag)}</div>
+                <div class="change-tag ${tagClass(c.change.type)}">${escapeHTML(c.change.tag)}</div>${c.change.carried ? '<span class="carried-note">già visto · finestra ancora aperta</span>' : ''}
                 <p class="change-lead">${escapeHTML(c.change.lead)}</p>
                 <div class="identity-row">
                     <div>
