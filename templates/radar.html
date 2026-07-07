@@ -535,6 +535,8 @@
             filters: { roles: new Set(), maxAge: "all", country: "all" },
             renderLimit: 60,   // quante schede disegnare per volta (mobile)
             totalCount: 0,     // totale reale, prima del cap del server
+            scanning: false,   // c'e' una scansione in corso lanciata da qui?
+            pollGen: 0,        // un solo giro di polling attivo alla volta
         };
 
         function tierLabel(candidate) {
@@ -916,26 +918,54 @@
             } catch (e) { /* il toggle locale resta comunque visibile in questa sessione */ }
         }
 
-        async function pollRadarStatus(btn, elapsedSec) {
+        function refreshBtn() { return document.getElementById("refresh-btn"); }
+
+        function resetRefreshBtn() {
+            const btn = refreshBtn();
+            btn.disabled = false;
+            btn.textContent = "AGGIORNA";
+            state.scanning = false;
+        }
+
+        // Un solo giro di polling alla volta: la generazione cresce a ogni
+        // (ri)avvio e un loop vecchio - es. quello congelato mentre l'app era
+        // in sottofondo - si spegne da solo quando non e' piu' il corrente.
+        function startPolling(elapsedSec) {
+            state.pollGen += 1;
+            pollRadarStatus(state.pollGen, elapsedSec);
+        }
+
+        async function pollRadarStatus(gen, elapsedSec, failures = 0) {
+            if (gen !== state.pollGen) return; // un giro piu' recente ha preso il posto
+            const btn = refreshBtn();
             let data;
             try {
                 const res = await fetch("/api/radar/refresh/status");
                 data = await res.json();
             } catch (e) {
-                document.getElementById("last-run").textContent = `errore di rete: ${e}`;
-                btn.disabled = false;
-                btn.textContent = "AGGIORNA";
+                // La scansione gira sul SERVER: un errore di rete qui (tipico
+                // quando il telefono manda l'app in sottofondo) NON la ferma.
+                // Si riprova invece di arrendersi; appena l'app torna davanti
+                // il polling riprende e raccoglie il risultato.
+                if (failures < 40) {
+                    document.getElementById("last-run").textContent =
+                        "scansione in corso sul server... (riprovo la connessione)";
+                    setTimeout(() => pollRadarStatus(gen, elapsedSec + 3, failures + 1), 3000);
+                    return;
+                }
+                document.getElementById("last-run").textContent =
+                    "connessione persa, ma la scansione continua sul server: riapri tra un minuto.";
+                resetRefreshBtn();
                 return;
             }
 
             if (data.status === "running" || data.status === "started") {
                 btn.textContent = `SCANSIONE IN CORSO... (${elapsedSec}s)`;
-                setTimeout(() => pollRadarStatus(btn, elapsedSec + 3), 3000);
+                setTimeout(() => pollRadarStatus(gen, elapsedSec + 3), 3000);
                 return;
             }
 
-            btn.disabled = false;
-            btn.textContent = "AGGIORNA";
+            resetRefreshBtn();
 
             if (data.status === "success") {
                 document.getElementById("last-run").textContent =
@@ -950,9 +980,10 @@
         }
 
         async function refresh() {
-            const btn = document.getElementById("refresh-btn");
+            const btn = refreshBtn();
             btn.disabled = true;
             btn.textContent = "SCANSIONE IN CORSO...";
+            state.scanning = true;
             try {
                 const res = await fetch("/api/radar/refresh", {
                     method: "POST",
@@ -961,13 +992,42 @@
                 });
                 await res.json();
             } catch (e) {
-                document.getElementById("last-run").textContent = `errore di rete: ${e}`;
-                btn.disabled = false;
-                btn.textContent = "AGGIORNA";
+                // Puo' darsi che la scansione sia comunque partita sul server:
+                // invece di un errore tecnico si prova subito il polling.
+                document.getElementById("last-run").textContent =
+                    "connessione instabile, controllo lo stato...";
+                startPolling(3);
                 return;
             }
-            pollRadarStatus(btn, 3);
+            startPolling(3);
         }
+
+        // Se una scansione lanciata da qui e' ancora in corso quando l'app
+        // torna in primo piano (sei uscito a scrivere un messaggio e sei
+        // rientrato), il polling puo' essersi interrotto: si ricontrolla lo
+        // stato reale del job e, se serve, si riprende - niente "failed to
+        // fetch" con la scansione che in realta' sta finendo sul server.
+        async function checkOngoingScan() {
+            try {
+                const res = await fetch("/api/radar/refresh/status");
+                const data = await res.json();
+                if (data.status === "running" || data.status === "started") {
+                    const btn = refreshBtn();
+                    btn.disabled = true;
+                    state.scanning = true;
+                    startPolling(3);
+                } else if (state.scanning) {
+                    resetRefreshBtn();
+                    if (data.status === "success") { state.renderLimit = 60; loadFeed(); }
+                }
+            } catch (e) { /* non blocca il resto della pagina */ }
+        }
+        document.addEventListener("visibilitychange", () => {
+            if (!document.hidden && state.scanning) checkOngoingScan();
+        });
+        window.addEventListener("focus", () => {
+            if (state.scanning) checkOngoingScan();
+        });
 
         document.getElementById("refresh-btn").addEventListener("click", refresh);
         document.getElementById("homeBtn").addEventListener("click", () => { window.location.href = "/turno"; });

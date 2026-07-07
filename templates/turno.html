@@ -348,7 +348,7 @@
             return TIER_LABELS[c.tier] || c.tier || "N/D";
         }
 
-        const state = { config: null, cases: [], skipped: 0, total: 0, scanning: false };
+        const state = { config: null, cases: [], skipped: 0, total: 0, scanning: false, pollGen: 0 };
         let idx = 0;
         let startTime = null;
 
@@ -409,7 +409,8 @@
                     document.getElementById("statusLine").textContent = `errore: ${data.message}`;
                 }
             } catch (e) {
-                document.getElementById("statusLine").textContent = `errore di rete: ${e}`;
+                document.getElementById("statusLine").textContent =
+                    "connessione lenta, riprova a tirare giu' per aggiornare.";
             }
             renderIntake();
         }
@@ -736,19 +737,43 @@
         // "cerca aggiornamenti prima": riusa lo stesso job di sfondo +
         // polling gia' costruito per /radar, cosi' una scansione lunga non
         // deve mai tenere aperta una singola richiesta HTTP
-        async function pollScanStatus(elapsedSec) {
+        // Un solo giro di polling alla volta: ogni volta che (ri)parte si
+        // incrementa la generazione, e un loop vecchio (es. quello rimasto
+        // congelato mentre l'app era in sottofondo) si spegne da solo quando
+        // vede di non essere piu' quello corrente. Evita due loop paralleli
+        // quando si rientra nell'app.
+        function startPolling(elapsedSec) {
+            state.pollGen += 1;
+            pollScanStatus(elapsedSec, state.pollGen);
+        }
+
+        async function pollScanStatus(elapsedSec, gen, failures = 0) {
+            if (gen !== state.pollGen) return; // un giro piu' recente ha preso il posto
             let data;
             try {
                 const res = await fetch("/api/radar/refresh/status");
                 data = await res.json();
             } catch (e) {
-                document.getElementById("statusLine").textContent = `errore di rete: ${e}`;
+                // La scansione gira sul SERVER: un errore di rete qui (tipico
+                // quando il telefono manda l'app in sottofondo mentre scrivi
+                // altrove) NON la ferma. Invece di arrendersi si riprova -
+                // appena l'app torna in primo piano il polling riprende e
+                // raccoglie il risultato. Si molla solo dopo una raffica lunga
+                // di errori di fila (connessione davvero giu'), mai al primo.
+                if (failures < 40) {
+                    document.getElementById("statusLine").textContent =
+                        "scansione in corso sul server... (riprovo la connessione)";
+                    setTimeout(() => pollScanStatus(elapsedSec + 3, gen, failures + 1), 3000);
+                    return;
+                }
+                document.getElementById("statusLine").textContent =
+                    "connessione persa, ma la scansione continua sul server: riapri tra un minuto.";
                 resetScanBtn();
                 return;
             }
             if (data.status === "running" || data.status === "started") {
                 document.getElementById("statusLine").textContent = `scansione in corso... (${elapsedSec}s)`;
-                setTimeout(() => pollScanStatus(elapsedSec + 3), 3000);
+                setTimeout(() => pollScanStatus(elapsedSec + 3, gen), 3000);
                 return;
             }
             resetScanBtn();
@@ -786,11 +811,16 @@
                 });
                 await res.json();
             } catch (e) {
-                document.getElementById("statusLine").textContent = `errore di rete: ${e}`;
-                resetScanBtn();
+                // Il POST puo' fallire se la connessione balla proprio nell'
+                // istante dell'avvio. Puo' darsi che la scansione sia comunque
+                // partita sul server: invece di un errore tecnico si prova a
+                // riprendere il polling, che capira' da solo com'e' andata.
+                document.getElementById("statusLine").textContent =
+                    "connessione instabile, controllo lo stato...";
+                startPolling(3);
                 return;
             }
-            pollScanStatus(3);
+            startPolling(3);
         });
 
         // Se la pagina viene ricaricata mentre una scansione lanciata prima
@@ -803,10 +833,27 @@
                 const data = await res.json();
                 if (data.status === "running" || data.status === "started") {
                     startScan();
-                    pollScanStatus(3);
+                    startPolling(3);
+                } else if (state.scanning) {
+                    // eravamo in scansione e nel frattempo e' finita (mentre
+                    // l'app era in sottofondo): chiudi lo stato e mostra i dati
+                    resetScanBtn();
+                    if (data.status === "success") loadTurno();
                 }
             } catch (e) { /* non blocca il resto della pagina */ }
         }
+
+        // Quando l'app torna in primo piano (sei uscito per scrivere un
+        // messaggio e sei rientrato), il polling puo' essersi interrotto
+        // mentre il telefono aveva congelato la scheda. Si ricontrolla lo
+        // stato reale del job e, se serve, si riprende: cosi' non resti su un
+        // "failed to fetch" con la scansione che invece sta finendo sul server.
+        document.addEventListener("visibilitychange", () => {
+            if (!document.hidden && state.scanning) checkOngoingScan();
+        });
+        window.addEventListener("focus", () => {
+            if (state.scanning) checkOngoingScan();
+        });
 
         // Tema: ricorda la scelta manuale (localStorage) - se l'utente non
         // ha mai forzato nulla, segue il sistema/prefers-color-scheme senza
