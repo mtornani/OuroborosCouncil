@@ -772,7 +772,11 @@
                 return;
             }
             if (data.status === "running" || data.status === "started") {
-                document.getElementById("statusLine").textContent = `scansione in corso... (${elapsedSec}s)`;
+                // fase reale al posto del contatore muto: "dossier 3/8" dice
+                // che sta lavorando E quanto manca
+                document.getElementById("statusLine").textContent = data.progress
+                    ? `${data.progress}... (${elapsedSec}s)`
+                    : `scansione in corso... (${elapsedSec}s)`;
                 setTimeout(() => pollScanStatus(elapsedSec + 3, gen), 3000);
                 return;
             }

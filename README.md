@@ -216,14 +216,39 @@ gcloud run deploy ob1-radar --source . --region europe-west1 \
 > impostata, apri `/api/radar/health` una volta per confermare che lo storico
 > sta davvero su Postgres (Neon) e non sul filesystem effimero.
 
+### Scansione automatica al mattino (consigliata)
+
+La scansione da telefono resta possibile, ma il modo giusto di usare SENTINEL
+è **non aspettarla mai**: un Cloud Scheduler che scansiona ogni mattina, così
+apri l'app e i dati sono già freschi. Bonus non banale: run a cadenza regolare
+rendono finalmente onesto il segnale di *velocità* delle menzioni, che con run
+a intervalli casuali è dichiaratamente fragile.
+
+```bash
+gcloud scheduler jobs create http radar-scan-mattina \
+  --location europe-west1 \
+  --schedule "0 7 * * *" --time-zone "Europe/Rome" \
+  --uri "https://<IL_TUO_SERVIZIO>.run.app/api/radar/refresh" \
+  --http-method POST \
+  --headers "Content-Type=application/json,X-Radar-Key=<LA_TUA_RADAR_ACCESS_KEY>" \
+  --message-body '{"profile":"tactical_profile","wait":true}' \
+  --attempt-deadline 600s
+```
+
+> `"wait": true` **è importante**: tiene la richiesta HTTP aperta fino a fine
+> scansione, obbligando Cloud Run a tenere viva l'istanza (e la CPU) per tutta
+> la durata. Un fire-and-forget senza nessuno che fa polling lascerebbe il
+> thread di sfondo in balia del reclaim dell'istanza. L'header `X-Radar-Key`
+> serve solo se hai impostato `RADAR_ACCESS_KEY`; senza gate, togli l'header.
+
 ---
 
 ## Riferimento API
 
 | Metodo | Endpoint | Descrizione |
 |--------|----------|-------------|
-| `POST` | `/api/radar/refresh` | Avvia una scansione in background |
-| `GET` | `/api/radar/refresh/status` | Polling dello stato della scansione |
+| `POST` | `/api/radar/refresh` | Avvia una scansione in background; con `{"wait":true}` risponde a scansione finita (per Cloud Scheduler) |
+| `GET` | `/api/radar/refresh/status` | Polling dello stato: include `progress` (es. "dossier AI 3/8") e `feed_ready` (punteggi già salvati e consultabili mentre i dossier arrivano) |
 | `GET` | `/api/radar/feed` | Archivio (cap ai primi 300 per signal; `?limit=all` per tutti) |
 | `GET` | `/api/radar/turno` | Solo i casi con un cambiamento/finestra aperta |
 | `GET` | `/api/radar/mappa` | Posizione sulla curva di tutti i profilati |
@@ -241,8 +266,9 @@ gcloud run deploy ob1-radar --source . --region europe-west1 \
 - Il segnale di buzz (Google News RSS + tier dedotto dal nome della testata) è la
   parte più fragile e potenzialmente aggirabile — per questo un solo segnale non
   porta mai un candidato in cima, e tutto sta in un file di config correggibile.
-- Le scansioni sono su richiesta (nessun cron): la qualità del segnale di velocità
-  dipende da quanto spesso si scansiona.
+- La qualità del segnale di velocità dipende dalla regolarità delle scansioni:
+  con la scansione programmata (Cloud Scheduler, vedi deploy) la cadenza è
+  regolare; a mano, dipende da quanto spesso premi "Aggiorna".
 - La validità del metodo è **una tesi, non un fatto dimostrato**. La prova è il
   tabellone del `/processo`, nel tempo: se batte il tasso base su un campione
   ampio, il metodo funziona; se no, il sistema lo dirà da solo.

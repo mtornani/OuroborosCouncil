@@ -537,6 +537,7 @@
             totalCount: 0,     // totale reale, prima del cap del server
             scanning: false,   // c'e' una scansione in corso lanciata da qui?
             pollGen: 0,        // un solo giro di polling attivo alla volta
+            partialShown: false, // feed gia' ricaricato a meta' scansione (fase punteggi)
         };
 
         function tierLabel(candidate) {
@@ -960,7 +961,19 @@
             }
 
             if (data.status === "running" || data.status === "started") {
-                btn.textContent = `SCANSIONE IN CORSO... (${elapsedSec}s)`;
+                // fase reale al posto del contatore muto: "dossier 3/8" dice
+                // che sta lavorando E quanto manca
+                btn.textContent = data.progress
+                    ? `${data.progress.toUpperCase()} (${elapsedSec}s)`
+                    : `SCANSIONE IN CORSO... (${elapsedSec}s)`;
+                // i punteggi sono gia' salvati (fase 1 del server): mostrali
+                // subito una volta, i dossier arriveranno col reload finale
+                if (data.feed_ready && !state.partialShown) {
+                    state.partialShown = true;
+                    document.getElementById("last-run").textContent =
+                        "punteggi aggiornati - i dossier AI stanno ancora arrivando";
+                    loadFeed();
+                }
                 setTimeout(() => pollRadarStatus(gen, elapsedSec + 3), 3000);
                 return;
             }
@@ -984,6 +997,7 @@
             btn.disabled = true;
             btn.textContent = "SCANSIONE IN CORSO...";
             state.scanning = true;
+            state.partialShown = false;
             try {
                 const res = await fetch("/api/radar/refresh", {
                     method: "POST",

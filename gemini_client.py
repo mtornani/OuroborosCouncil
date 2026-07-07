@@ -42,11 +42,13 @@ def call_gemini(model, system_prompt, user_message, chat_history=None):
         {"role": "user", "content": user_message}
     ]
     data = {"model": model, "messages": messages, "temperature": 0.5}
+    # 45s: vedi commento gemello in openrouter_client - nel fallback un
+    # modello morto costa un timeout intero prima di passare al prossimo
     res = requests.post(
         f"{GEMINI_BASE_URL}/chat/completions",
         headers=HEADERS,
         data=json.dumps(data),
-        timeout=60,
+        timeout=45,
     )
     if res.status_code == 200:
         return res.json()["choices"][0]["message"]["content"]

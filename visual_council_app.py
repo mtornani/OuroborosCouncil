@@ -30,7 +30,12 @@ def _access_gate():
     # indovina misurando i tempi di risposta
     if hmac.compare_digest(request.cookies.get(_ACCESS_COOKIE, ""), RADAR_ACCESS_KEY):
         return
-    if hmac.compare_digest(request.args.get("key", ""), RADAR_ACCESS_KEY):
+    # header per i client programmatici (Cloud Scheduler, curl), query param
+    # per il primo accesso dal browser
+    supplied = request.headers.get("X-Radar-Key", "") or request.args.get("key", "")
+    if hmac.compare_digest(supplied, RADAR_ACCESS_KEY):
+        if request.path.startswith("/api/"):
+            return  # chiamata API autenticata: niente redirect ne' cookie
         resp = redirect(request.path)  # togli la chiave dalla URL visibile
         resp.set_cookie(
             _ACCESS_COOKIE, RADAR_ACCESS_KEY,
@@ -106,7 +111,8 @@ def service_worker():
 # senza risposta oltre i 150s). Girare il refresh in un thread di sfondo e
 # far fare polling al client elimina il limite di tempo della request.
 _radar_job_lock = threading.Lock()
-_radar_job = {"status": "idle", "result": None, "message": None, "started_at": None}
+_radar_job = {"status": "idle", "result": None, "message": None, "started_at": None,
+              "progress": None, "feed_ready": False}
 
 # Una scansione sana finisce in minuti, non in ore. Se il flag "running"
 # resta appeso oltre questo limite la scansione va considerata morta -
@@ -127,9 +133,20 @@ def _radar_job_is_stale(job):
     )
 
 
+def _radar_progress(stage, done=None, total=None, feed_ready=None):
+    """Callback passato al motore: aggiorna lo stato leggibile del job cosi'
+    il polling mostra 'dossier 3/8' invece di un contatore muto di secondi.
+    feed_ready segnala al client che i punteggi sono gia' salvati e puo'
+    ricaricare il feed senza aspettare i dossier."""
+    with _radar_job_lock:
+        _radar_job["progress"] = {"stage": stage, "done": done, "total": total}
+        if feed_ready:
+            _radar_job["feed_ready"] = True
+
+
 def _run_radar_job(profile):
     try:
-        result = discovery_engine.refresh_radar(profile)
+        result = discovery_engine.refresh_radar(profile, progress_cb=_radar_progress)
         # niente lista "results" nello stato del job: il client a fine
         # scansione ricarica comunque /api/radar/feed (gia' cappato a 300),
         # mentre qui la lista completa - migliaia di schede coi dossier -
@@ -149,19 +166,57 @@ def _run_radar_job(profile):
             _radar_job["message"] = str(e)
 
 
+# Tetto della modalita' sincrona (?wait): sotto il --timeout 570 di gunicorn,
+# cosi' e' sempre l'app a rispondere con uno stato leggibile, mai il worker
+# ucciso a meta' risposta.
+_WAIT_MAX_SECONDS = 540
+
+
 @app.route("/api/radar/refresh", methods=["POST"])
 def radar_refresh():
     data = request.json or {}
     profile = data.get("profile", "tactical_profile")
+    # wait=true: la risposta arriva a scansione FINITA. Serve a Cloud
+    # Scheduler (la scansione mattutina automatica): tenere la richiesta
+    # aperta obbliga Cloud Run a tenere viva l'istanza (e la CPU) per tutta
+    # la durata - un fire-and-forget senza polling successivo lascerebbe il
+    # thread di sfondo in balia del reclaim dell'istanza. Dal browser non si
+    # usa: li' il polling dello status fa lo stesso lavoro senza bloccare.
+    wait = bool(data.get("wait"))
+    started = False
     with _radar_job_lock:
         if _radar_job["status"] == "running" and not _radar_job_is_stale(_radar_job):
-            return jsonify({"status": "already_running"})
-        _radar_job["status"] = "running"
-        _radar_job["result"] = None
-        _radar_job["message"] = None
-        _radar_job["started_at"] = time.time()
-    threading.Thread(target=_run_radar_job, args=(profile,), daemon=True).start()
-    return jsonify({"status": "started"})
+            if not wait:
+                return jsonify({"status": "already_running"})
+            # in wait mode ci si accoda alla scansione gia' in corso: per lo
+            # Scheduler l'esito conta piu' di chi l'ha lanciata
+        else:
+            _radar_job["status"] = "running"
+            _radar_job["result"] = None
+            _radar_job["message"] = None
+            _radar_job["started_at"] = time.time()
+            _radar_job["progress"] = None
+            _radar_job["feed_ready"] = False
+            started = True
+    if started:
+        threading.Thread(target=_run_radar_job, args=(profile,), daemon=True).start()
+    if not wait:
+        return jsonify({"status": "started"})
+
+    deadline = time.time() + _WAIT_MAX_SECONDS
+    while time.time() < deadline:
+        time.sleep(2)
+        with _radar_job_lock:
+            if _radar_job["status"] in ("done", "error"):
+                break
+    with _radar_job_lock:
+        job = dict(_radar_job)
+    if job["status"] == "done":
+        return jsonify({"status": "success", **(job["result"] or {})})
+    if job["status"] == "error":
+        return jsonify({"status": "error", "message": job["message"]})
+    # oltre il tetto: il job continua in background, lo dice chiaramente
+    return jsonify({"status": "running", "message": "scansione ancora in corso oltre il tetto di attesa"})
 
 
 @app.route("/api/radar/refresh/status")
@@ -180,6 +235,16 @@ def radar_refresh_status():
         return jsonify({"status": "success", **job["result"]})
     if job["status"] == "error":
         return jsonify({"status": "error", "message": job["message"]})
+    if job["status"] == "running":
+        # progresso leggibile ("dossier 3/8") + feed_ready: i punteggi sono
+        # gia' salvati (fase 1 del refresh), il client puo' mostrarli senza
+        # aspettare i dossier
+        prog = job.get("progress") or {}
+        label = prog.get("stage")
+        if label and prog.get("total"):
+            label = f"{label} {prog.get('done') or 0}/{prog['total']}"
+        return jsonify({"status": "running", "progress": label,
+                        "feed_ready": bool(job.get("feed_ready"))})
     return jsonify({"status": job["status"]})
 
 

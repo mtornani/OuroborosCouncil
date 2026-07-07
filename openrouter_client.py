@@ -64,11 +64,14 @@ def call_openrouter(model, system_prompt, user_message, chat_history=None, web_s
             "type": "openrouter:web_search",
             "parameters": {"engine": "auto", "max_results": 3, "search_context_size": "low"},
         }]
+    # 45s e non 60: nella catena di fallback ogni modello morto costa un
+    # timeout INTERO prima di passare al prossimo - e' il timeout, non la
+    # generazione, a dominare il caso peggiore di una scansione lenta
     res = requests.post(
         "https://openrouter.ai/api/v1/chat/completions",
         headers=HEADERS,
         data=json.dumps(data),
-        timeout=60,
+        timeout=45,
     )
     if res.status_code == 200:
         return res.json()["choices"][0]["message"]["content"]

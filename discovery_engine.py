@@ -1463,6 +1463,35 @@ def _grounded_cronista_pool() -> list[tuple]:
     ]
 
 
+# Circuit breaker per-modello, valido per la durata di UNA scansione (reset a
+# inizio refresh_radar). Il problema misurato: un modello in rate-limit tiene
+# occupata la chiamata fino al timeout PER OGNI tentativo, e la catena di
+# fallback lo riprovava daccapo per ogni ruolo di ogni dossier - con 8 dossier
+# x 4 ruoli un modello morto veniva riprovato fino a 32 volte, ed era LUI a
+# fare la differenza tra una scansione da 2 minuti e una da 8+. Dopo
+# _MODEL_FAILURE_LIMIT fallimenti consecutivi il modello si salta per il resto
+# del run; un successo azzera il contatore. Dietro lock: i dossier girano in
+# parallelo (swarm_workers).
+_MODEL_FAILURE_LIMIT = 2
+_model_failures: dict[str, int] = {}
+_model_failures_lock = threading.Lock()
+
+
+def _reset_model_failures():
+    with _model_failures_lock:
+        _model_failures.clear()
+
+
+def _model_blocked(model: str) -> bool:
+    with _model_failures_lock:
+        return _model_failures.get(model, 0) >= _MODEL_FAILURE_LIMIT
+
+
+def _record_model_result(model: str, ok: bool):
+    with _model_failures_lock:
+        _model_failures[model] = 0 if ok else _model_failures.get(model, 0) + 1
+
+
 def _call_with_fallback(model_pool: list[tuple], system_prompt: str, user_message: str):
     """I modelli gratuiti possono essere rate-limited in modo imprevedibile
     (verificato live: sia su OpenRouter con 429 per-modello e per-account,
@@ -1477,12 +1506,23 @@ def _call_with_fallback(model_pool: list[tuple], system_prompt: str, user_messag
             "Nessun modello AI disponibile: nessuna chiave API configurata "
             "(OPENROUTER_API_KEY/GEMINI_API_KEY/NVIDIA_API_KEY) o cataloghi irraggiungibili."
         )
+    usable = [(fn, m) for fn, m in model_pool if not _model_blocked(m)]
+    if not usable:
+        raise RuntimeError(
+            "Tutti i modelli disponibili hanno superato il limite di fallimenti "
+            "consecutivi in questa scansione (rate limit dei provider free): "
+            "dossier saltato invece di riprovare a vuoto fino al timeout."
+        )
     last_error = None
-    for call_fn, model in model_pool:
+    for call_fn, model in usable:
         try:
-            return call_fn(model, system_prompt, user_message), call_fn, model
+            result = call_fn(model, system_prompt, user_message), call_fn, model
         except Exception as e:
+            _record_model_result(model, ok=False)
             last_error = e
+            continue
+        _record_model_result(model, ok=True)
+        return result
     raise last_error
 
 
@@ -1574,11 +1614,28 @@ def run_swarm_dossier(candidate: dict, score_result: dict) -> dict:
 # ORCHESTRATORE
 # ============================================================
 
-def refresh_radar(profile_key: str = "tactical_profile") -> dict:
+def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> dict:
+    """progress_cb(stage, done=None, total=None, feed_ready=None) e' opzionale:
+    riceve lo stato leggibile della scansione man mano che avanza, cosi' chi
+    aspetta da telefono vede 'dossier 3/8' e non un contatore muto di secondi
+    (verificato dal vivo che a 4 minuti di contatore nudo l'attesa si legge
+    come 'si e' rotto'). feed_ready=True segnala che i punteggi sono GIA'
+    salvati e consultabili anche se i dossier AI stanno ancora arrivando."""
+    def _progress(stage, **extra):
+        if progress_cb is None:
+            return
+        try:
+            progress_cb(stage, **extra)
+        except Exception:
+            pass  # il progresso e' cosmetico: mai far fallire la scansione per lui
+
     cfg = load_config()
+    _reset_model_failures()  # il circuit breaker sui modelli vale per UNA scansione
+    _progress("leggo lo storico")
     history = _load_json(BUZZ_HISTORY_FILE)
     feed = _load_json(FEED_FILE)
 
+    _progress("raccolgo i candidati dalle fonti (Wikidata/Wikipedia)")
     candidates = fetch_candidate_pool(cfg)
 
     # Stage 1: eta'-relativa-al-livello, locale, zero chiamate di rete su
@@ -1599,11 +1656,13 @@ def refresh_radar(profile_key: str = "tactical_profile") -> dict:
     buzz_pool = watchlist + rest_sorted[: perf["buzz_check_pool_size"]]
 
     # Stage 2: buzz score in parallelo, solo sul sottoinsieme selezionato
+    _progress(f"controllo l'attenzione stampa su {len(buzz_pool)} candidati (pool: {len(candidates)})")
     buzz_results = {}
     with ThreadPoolExecutor(max_workers=perf["buzz_check_workers"]) as executor:
         futures = {executor.submit(buzz_score, c, history, cfg): c for c in buzz_pool}
         for future in as_completed(futures):
             c = futures[future]
+            _progress("controllo attenzione stampa", done=len(buzz_results) + 1, total=len(buzz_pool))
             try:
                 buzz_results[c["candidate_id"]] = future.result()
             except Exception as e:
@@ -1641,6 +1700,83 @@ def refresh_radar(profile_key: str = "tactical_profile") -> dict:
 
     ranked.sort(key=lambda r: r["fit"]["fit_score"], reverse=True)
 
+    # ============================================================
+    # FASE 1 - punteggi subito nel feed (persistenza append-only)
+    # ============================================================
+    # Lo storico punteggi/curva/ledger si scrive e si salva PRIMA di generare
+    # i dossier AI: i dossier sono di gran lunga la parte piu' lenta della
+    # scansione (minuti, con fallback multi-provider), e non c'e' motivo di
+    # tenere in ostaggio punteggi gia' pronti dietro di loro. Da telefono
+    # significa: feed consultabile dopo ~1 minuto, dossier che arrivano
+    # dopo, ognuno gia' protetto dal salvataggio incrementale.
+    run_at = _now_iso()
+    # il ledger di validazione si carica UNA volta qui e si salva UNA volta
+    # (vedi commento su _record_curve_crossing): con Postgres ogni load/save
+    # e' un round-trip di rete, farne due per candidato non scala
+    ledger = _load_json(CURVE_VALIDATION_FILE)
+    ledger_changed = False
+    for entry in ranked:
+        cid = entry["candidate"]["candidate_id"]
+        record = feed.setdefault(cid, {"identity": entry["candidate"], "history": []})
+
+        # stato PRIMA di questo run - serve alla sonda di cambiamento per
+        # sapere cosa confrontare, va catturato prima di sovrascrivere nulla;
+        # appeso all'entry perche' la sonda gira in fase 2, a dossier pronto
+        entry["_record"] = record
+        entry["_previous_last_entry"] = record["history"][-1] if record["history"] else None
+        entry["_previous_dossier"] = record.get("dossier")
+
+        record["identity"] = entry["candidate"]
+        record["history"].append(
+            {
+                "run_at": run_at,
+                "signal_score": entry["signal"]["signal_score"],
+                "components": entry["signal"]["components"],
+                "partial_data": entry["signal"]["partial_data"],
+                "fit_score": entry["fit"]["fit_score"],
+                "profile_used": profile_key,
+                "curve": entry["signal"].get("curve"),
+            }
+        )
+        # bound alla crescita, come gia' per buzz_history (runs[-20:]): la
+        # history serve a Kalman/CUSUM/trail, che convergono ben prima di 30
+        # osservazioni - senza tetto il feed cresce di ~un'entry a candidato
+        # PER OGNI scansione (pool in migliaia) e il JSONB monolitico su
+        # Postgres viene riscritto per intero a ogni salvataggio incrementale.
+        # Gli esiti di lungo periodo NON si perdono: vivono nel ledger di
+        # validazione (curve_validation), che e' append-only per davvero.
+        record["history"] = record["history"][-30:]
+
+        # validazione retroattiva (Layer E): il crossing e' il momento della
+        # verita' - si registra SEMPRE quando la fase 4 scatta, per qualunque
+        # candidato con snapshot fresco, indipendentemente da chi ha vinto il
+        # posto nel turno di revisione
+        curve_phase = (entry["signal"].get("curve") or {}).get("phase")
+        if curve_phase == 4:
+            ledger_changed = _record_curve_crossing(ledger, record, entry["candidate"], run_at) or ledger_changed
+        # tabellone precisione: apre/chiude la scommessa "sta per esplodere"
+        # per ogni candidato con una fase fresca questo run (esploso vs
+        # sgonfiato) - e' cio' che rende il rilevatore falsificabile sui fatti
+        if curve_phase is not None:
+            ledger_changed = _update_flag_ledger(ledger, entry["candidate"], curve_phase, run_at) or ledger_changed
+
+        # stato provvisorio SENZA dossier: le finestre aperte si portano
+        # avanti o si chiudono gia' ora (niente sparisce in silenzio nel
+        # frattempo); per chi ricevera' un dossier fresco in fase 2 lo stato
+        # viene ricalcolato con il giudice alla mano, come sempre
+        record["history"][-1]["state_change"] = _carry_or_close(
+            entry["_previous_last_entry"], None, entry["signal"].get("curve"))
+
+    _progress("salvo i punteggi (gia' consultabili)")
+    _save_json(FEED_FILE, feed)
+    _save_json(BUZZ_HISTORY_FILE, history)
+    if ledger_changed:
+        _save_json(CURVE_VALIDATION_FILE, ledger)
+    _progress("punteggi pronti; genero i dossier AI", feed_ready=True)
+
+    # ============================================================
+    # FASE 2 - dossier AI (la parte lenta), con finalizzazione incrementale
+    # ============================================================
     top_n = cfg["swarm"]["top_n_candidates_for_swarm"]
     threshold = cfg["swarm"]["rerun_threshold_points"]
 
@@ -1685,6 +1821,67 @@ def refresh_radar(profile_key: str = "tactical_profile") -> dict:
         else:
             entry["dossier"] = last_dossier
 
+    for entry in ranked:
+        if "dossier" not in entry and _needs_more_signal(entry["signal"]):
+            entry["dossier"] = {
+                "skipped": "Segnale singolo e gia' al tetto (es. solo eta'-relativa, senza buzz a corroborare): "
+                           "serve un altro segnale prima di spendere un dossier AI, non solo un numero alto."
+            }
+
+    def _finalize_dossier(entry):
+        """Attacca il dossier al record e ricalcola lo stato del turno con il
+        giudice fresco alla mano. La sonda di cambiamento gira solo sui
+        candidati con un dossier AI vero (stesso sottoinsieme stretto del
+        funnel, mai sull'intera pool): un dossier "skipped"/"error" non ha un
+        giudice da confrontare, quindi non genera un caso da rivedere."""
+        record = entry["_record"]
+        dossier = entry["dossier"]
+        has_real_dossier = "giudice" in dossier
+        if not has_real_dossier:
+            # errore o skip in QUESTO giro: se il record ha gia' un dossier
+            # vero di un giro precedente, non lo si distrugge sostituendolo
+            # con una nota d'errore - il verdetto vecchio (datato, il
+            # generated_at lo dice) informa piu' di un "non disponibile"
+            if isinstance(record.get("dossier"), dict) and "giudice" in record["dossier"]:
+                return
+            record["dossier"] = dossier
+            return
+        record["dossier"] = dossier
+        bayes = bayesian_estimate(record["history"], cfg)
+        z = (bayes or {}).get("last_innovation_z")
+        cusum_state = record.get("cusum", {"pos": 0.0, "neg": 0.0})
+        if z is not None:
+            cusum_state = _update_cusum(cusum_state, z, cfg)
+        record["cusum"] = cusum_state
+        fresh_change = detect_state_change(
+            candidate=entry["candidate"],
+            previous_last_entry=entry["_previous_last_entry"],
+            previous_dossier=entry["_previous_dossier"],
+            current_dossier=dossier,
+            current_partial_data=entry["signal"]["partial_data"],
+            bayes=bayes,
+            cusum_state=cusum_state,
+            cfg=cfg,
+            buzz_detail=entry["signal"].get("buzz_detail"),
+            curve=entry["signal"].get("curve"),
+        )
+        # niente sparisce in silenzio: una finestra aperta (sta per
+        # esplodere) resta finche' non si risolve, e quando si risolve si
+        # mostra la chiusura una volta, spiegata - non un giocatore che
+        # svanisce senza motivo (che l'utente medio legge come un bug)
+        record["history"][-1]["state_change"] = _carry_or_close(
+            entry["_previous_last_entry"], fresh_change, entry["signal"].get("curve"))
+
+    # dossier riusati e note di skip: zero rete, si finalizzano in blocco
+    # (per i riusati la sonda gira comunque - takeoff/finestre/shock non
+    # dipendono dal dossier nuovo)
+    for entry in ranked:
+        if "dossier" in entry:
+            _finalize_dossier(entry)
+
+    generated = 0
+    if to_generate:
+        _progress("dossier AI", done=0, total=len(to_generate))
     with ThreadPoolExecutor(max_workers=cfg["swarm"]["swarm_workers"]) as executor:
         futures = {
             executor.submit(run_swarm_dossier, entry["candidate"], entry["signal"]): entry
@@ -1698,114 +1895,18 @@ def refresh_radar(profile_key: str = "tactical_profile") -> dict:
                 # mai un crash silenzioso: il candidato resta in classifica,
                 # solo il dossier AI risulta esplicitamente non disponibile
                 entry["dossier"] = {"error": f"Dossier AI non disponibile: {e}"}
-
-    for entry in ranked:
-        if "dossier" not in entry and _needs_more_signal(entry["signal"]):
-            entry["dossier"] = {
-                "skipped": "Segnale singolo e gia' al tetto (es. solo eta'-relativa, senza buzz a corroborare): "
-                           "serve un altro segnale prima di spendere un dossier AI, non solo un numero alto."
-            }
-
-    # persistenza append-only: uno storico di punteggi per candidato, mai
-    # sovrascritto - e' l'unico modo per verificare nel tempo se il segnale
-    # ha davvero anticipato qualcosa
-    run_at = _now_iso()
-    # il ledger di validazione si carica UNA volta qui e si salva UNA volta a
-    # fine giro (vedi commento su _record_curve_crossing): con Postgres ogni
-    # load/save e' un round-trip di rete, farne due per candidato non scala
-    ledger = _load_json(CURVE_VALIDATION_FILE)
-    ledger_changed = False
-    for entry in ranked:
-        cid = entry["candidate"]["candidate_id"]
-        record = feed.setdefault(cid, {"identity": entry["candidate"], "history": []})
-
-        # stato PRIMA di questo run - serve alla sonda di cambiamento per
-        # sapere cosa confrontare, va catturato prima di sovrascrivere nulla
-        previous_last_entry = record["history"][-1] if record["history"] else None
-        previous_dossier = record.get("dossier")
-
-        record["identity"] = entry["candidate"]
-        record["history"].append(
-            {
-                "run_at": run_at,
-                "signal_score": entry["signal"]["signal_score"],
-                "components": entry["signal"]["components"],
-                "partial_data": entry["signal"]["partial_data"],
-                "fit_score": entry["fit"]["fit_score"],
-                "profile_used": profile_key,
-                "curve": entry["signal"].get("curve"),
-            }
-        )
-        # bound alla crescita, come gia' per buzz_history (runs[-20:]): la
-        # history serve a Kalman/CUSUM/trail, che convergono ben prima di 30
-        # osservazioni - senza tetto il feed cresce di ~un'entry a candidato
-        # PER OGNI scansione (pool in migliaia) e il JSONB monolitico su
-        # Postgres viene riscritto per intero a ogni salvataggio incrementale.
-        # Gli esiti di lungo periodo NON si perdono: vivono nel ledger di
-        # validazione (curve_validation), che e' append-only per davvero.
-        record["history"] = record["history"][-30:]
-        if "dossier" in entry:
-            record["dossier"] = entry["dossier"]
-
-        # validazione retroattiva (Layer E): il crossing e' il momento della
-        # verita' - si registra SEMPRE quando la fase 4 scatta, per qualunque
-        # candidato con snapshot fresco, indipendentemente da chi ha vinto il
-        # posto nel turno di revisione
-        curve_phase = (entry["signal"].get("curve") or {}).get("phase")
-        if curve_phase == 4:
-            ledger_changed = _record_curve_crossing(ledger, record, entry["candidate"], run_at) or ledger_changed
-        # tabellone precisione: apre/chiude la scommessa "sta per esplodere"
-        # per ogni candidato con una fase fresca questo run (esploso vs
-        # sgonfiato) - e' cio' che rende il rilevatore falsificabile sui fatti
-        if curve_phase is not None:
-            ledger_changed = _update_flag_ledger(ledger, entry["candidate"], curve_phase, run_at) or ledger_changed
-
-        # sonda di cambiamento di stato: solo sui candidati con un dossier
-        # AI vero questo giro (stesso sottoinsieme stretto del funnel, mai
-        # sull'intera pool) - un dossier "skipped"/"error" non ha un
-        # giudice da confrontare, quindi non genera un caso da rivedere
-        current_dossier = entry.get("dossier") or {}
-        has_real_dossier = "giudice" in current_dossier
-        fresh_change = None
-        if has_real_dossier:
-            bayes = bayesian_estimate(record["history"], cfg)
-            z = (bayes or {}).get("last_innovation_z")
-            cusum_state = record.get("cusum", {"pos": 0.0, "neg": 0.0})
-            if z is not None:
-                cusum_state = _update_cusum(cusum_state, z, cfg)
-            record["cusum"] = cusum_state
-            fresh_change = detect_state_change(
-                candidate=entry["candidate"],
-                previous_last_entry=previous_last_entry,
-                previous_dossier=previous_dossier,
-                current_dossier=current_dossier,
-                current_partial_data=entry["signal"]["partial_data"],
-                bayes=bayes,
-                cusum_state=cusum_state,
-                cfg=cfg,
-                buzz_detail=entry["signal"].get("buzz_detail"),
-                curve=entry["signal"].get("curve"),
-            )
-
-        # niente sparisce in silenzio: una finestra aperta (sta per esplodere)
-        # resta finche' non si risolve, e quando si risolve si mostra la
-        # chiusura una volta, spiegata - non un giocatore che svanisce senza
-        # motivo (che l'utente medio legge come un bug). Gira SEMPRE, anche
-        # senza dossier fresco questo giro.
-        final_change = _carry_or_close(previous_last_entry, fresh_change, entry["signal"].get("curve"))
-        record["history"][-1]["state_change"] = final_change
-
-        # salvataggio incrementale dopo ogni dossier AI (la parte lenta e
-        # costosa): protegge il lavoro gia' fatto da un crash/timeout a meta'
-        # turno - un riavvio del container non deve buttare via i dossier
-        # gia' generati.
-        if has_real_dossier:
+            _finalize_dossier(entry)
+            generated += 1
+            _progress("dossier AI", done=generated, total=len(to_generate))
+            # salvataggio incrementale dopo ogni dossier AI (la parte lenta e
+            # costosa): protegge il lavoro gia' fatto da un crash/timeout a
+            # meta' turno - un riavvio del container non deve buttare via i
+            # dossier gia' generati. Solo qui, non per i dossier riusati:
+            # quelli sono gia' su disco/DB dal giro che li ha generati.
             _save_json(FEED_FILE, feed)
 
+    _progress("salvataggio finale")
     _save_json(FEED_FILE, feed)
-    _save_json(BUZZ_HISTORY_FILE, history)
-    if ledger_changed:
-        _save_json(CURVE_VALIDATION_FILE, ledger)
 
     return {
         "run_at": run_at,
