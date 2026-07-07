@@ -1,0 +1,410 @@
+# OB1 RADAR - Configurazione algoritmo di discovery
+# Unico posto dove si toccano i pesi/soglie/fonti senza toccare codice.
+# Aggiornato: 2026-07-01
+
+# --- Universo dei candidati ---------------------------------------------
+# Ogni "biblioteca" ha un'indicizzazione diversa - usare la stessa strategia
+# di ricerca ovunque produce falsi negativi sistematici, non perche' i dati
+# non ci siano ma perche' si cerca con l'approccio sbagliato per quel
+# contesto. Tre meccanismi diversi, ciascuno verificato live prima di essere
+# scritto (non per ipotesi):
+# - Serie C/D: ricerca PER LEGA - Wikidata ha rose strutturate interrogabili
+#   via SPARQL (club "in lega" P118 + membership P54 corrente).
+# - Giovanili sudamericane: Wikidata NON ha dati strutturati per le rose dei
+#   tornei CONMEBOL (verificato: la pagina Wikidata e' solo un placeholder
+#   senza claim utili). I dati veri stanno nel testo della pagina Wikipedia
+#   corrispondente, in un formato a template regex-estraibile.
+# - Pool per cittadinanza: ricerca PER NAZIONALITA', indipendente da dove il
+#   giocatore gioca ora (query completamente diversa dalla ricerca per lega -
+#   serve quando la domanda e' "chi e' portoghese/eleggibile", non "chi gioca
+#   nel campionato portoghese"). ATTENZIONE verificata live: senza il filtro
+#   di genere (P21) la query restituisce quasi solo calciatrici donne per
+#   questo taglio d'eta' - il filtro genere e' obbligatorio, non opzionale.
+#   Molti risultati non hanno un club corrente risolvibile su Wikidata
+#   (verificato: 23 su 30 nel test Portogallo) - normale per questa
+#   "biblioteca", non un errore: restano candidati validi con dati parziali.
+candidate_sources:
+  wikidata_leagues:
+    # QID Wikidata delle leghe (stabili, non serve aggiornarli a stagione)
+    serie_c:
+      qid: "Q607965"
+      tier: serie_c
+    serie_d:
+      qid: "Q1141778"
+      tier: serie_d
+
+  wikipedia_youth_squads:
+    # Titoli pagina Wikipedia esatti da aggiornare quando esce una nuova
+    # edizione del torneo (pattern verificato: "{anno} South American
+    # U-XX Championship squads"). Tenerne 1-2 per volta, non serve storico.
+    - title: "2025 South American U-20 Championship squads"
+      tier: conmebol_u20
+    - title: "2025 South American U-17 Championship squads"
+      tier: conmebol_u17
+
+  wikidata_nationalities:
+    # Aggiungere un paese = una voce qui, zero codice da toccare. QID paese
+    # + QID genere (Q6581097 maschile, Q6581072 femminile) da wikidata.org.
+    # tier "nationality_pool" condivide un'unica eta' di riferimento generica
+    # (vedi age_reference) perche' qui non si conosce il livello di lega per
+    # la maggior parte dei candidati.
+    #
+    # % club = quota di candidati con un club corrente risolvibile su
+    # Wikidata (diagnostica live, python3 discovery_engine.py diagnose) -
+    # bassa % non vuol dire pochi giocatori, vuol dire "molti dati parziali,
+    # aspettati piu' flag DATI PARZIALI in UI per questo paese". Nessun
+    # pattern per continente/lingua: il Giappone copre meglio del Messico.
+    portugal:
+      label: "Portogallo"
+      country_qid: "Q45"
+      gender_qid: "Q6581097"  # 500 candidati, 40% con club
+
+    usa:
+      label: "USA"
+      country_qid: "Q30"
+      gender_qid: "Q6581097"  # 278 candidati, 93% con club (ma spesso mostra
+      # la squadra universitaria NCAA invece del club pro - verificato live,
+      # e' come Wikidata registra le carriere USA, non un bug qui)
+
+    messico:
+      label: "Messico"
+      country_qid: "Q96"
+      gender_qid: "Q6581097"  # 435 candidati, 41% con club
+
+    nigeria:
+      label: "Nigeria"
+      country_qid: "Q1033"
+      gender_qid: "Q6581097"  # 354 candidati, 45% con club
+
+    senegal:
+      label: "Senegal"
+      country_qid: "Q1041"
+      gender_qid: "Q6581097"  # 209 candidati, 37% con club
+
+    ghana:
+      label: "Ghana"
+      country_qid: "Q117"
+      gender_qid: "Q6581097"  # 321 candidati, 34% con club
+
+    costa_avorio:
+      label: "Costa d'Avorio"
+      country_qid: "Q1008"
+      gender_qid: "Q6581097"  # 219 candidati, 40% con club
+
+    camerun:
+      label: "Camerun"
+      country_qid: "Q1009"
+      gender_qid: "Q6581097"  # 156 candidati, 46% con club
+
+    mali:
+      label: "Mali"
+      country_qid: "Q912"
+      gender_qid: "Q6581097"  # 114 candidati, 50% con club
+
+    marocco:
+      label: "Marocco"
+      country_qid: "Q1028"
+      gender_qid: "Q6581097"  # 264 candidati, 41% con club
+
+    egitto:
+      label: "Egitto"
+      country_qid: "Q79"
+      gender_qid: "Q6581097"  # 89 candidati, 25% con club (pool piu' piccola)
+
+    giappone:
+      label: "Giappone"
+      country_qid: "Q17"
+      gender_qid: "Q6581097"  # 446 candidati (di ~1450 reali), 76% con club
+
+    corea_del_sud:
+      label: "Corea del Sud"
+      country_qid: "Q884"
+      gender_qid: "Q6581097"  # 479 candidati (di ~776 reali), 23% con club
+
+    iran:
+      label: "Iran"
+      country_qid: "Q794"
+      gender_qid: "Q6581097"  # 187 candidati, 50% con club
+
+    australia:
+      label: "Australia"
+      country_qid: "Q408"
+      gender_qid: "Q6581097"  # 217 candidati, 39% con club
+
+    arabia_saudita:
+      label: "Arabia Saudita"
+      country_qid: "Q851"
+      gender_qid: "Q6581097"  # 417 candidati, 22% con club
+
+  # Watchlist manuale: nomi che Mirko vuole SEMPRE nella pool, a prescindere
+  # da cosa trovano le query automatiche (riuso di TRACKED_PLAYERS esistente
+  # in monitor/web_monitor.py, unito qui).
+  manual_watchlist:
+    - "Ryan Evaristo"
+    - "Andre Maia"
+    - "Noah Saviolo"
+    - "Bruno Baldini"
+    - "Kauan Toledo"
+    - "Pietro Saio"
+    - "Louis Buffon"
+
+  # Watchlist oriundi FSGC: l'eleggibilita' per discendenza sammarinese non
+  # e' deducibile in automatico in modo affidabile (serve l'albero genealogico
+  # del giocatore, dato che nessuna fonte libera fornisce). Mirko la cura a
+  # mano qui - vuota finche' non la popola lui.
+  fsgc_oriundi_watchlist: []
+
+# --- Layer A: eta' di riferimento per tier di competizione ---------------
+# Non "il piu' giovane", ma "giovane rispetto al livello che sta gia' reggendo".
+# reference_age = eta' MEDIA REALE dei candidati attualmente in pool per quel
+# tier (calcolata dal vivo il 2026-07-01, non stimata a sensazione - i valori
+# precedenti erano un punto di partenza dichiarato non validato, si e' visto
+# che erano sbagliati anche di 5-6 anni). spread_years = deviazione standard
+# reale della stessa popolazione: satura il punteggio a 1.0 per chi e' circa
+# 1 deviazione standard sotto la media, non premia all'infinito un'eta'
+# improbabile. Da ricalcolare periodicamente (le rose cambiano stagione per
+# stagione) rifacendo il calcolo su fetch_serie_players()/fetch_conmebol_squads()
+# /fetch_nationality_players() - non serve un tool nuovo, sono dati che gia'
+# arriviamo a scaricare ogni "Aggiorna".
+#
+# ATTENZIONE CAMPIONI PICCOLI: serie_d (n=5) e serie_c_riserve (n=7) sono
+# calcolati su pochissimi candidati - trattarli come provvisori, non come
+# verita' assodata, finche' il pool non cresce con altri run.
+age_reference:
+  serie_c:
+    # n=19, media 23.0, std 1.27
+    reference_age: 23.0
+    spread_years: 1.3
+  serie_d:
+    # n=5 - CAMPIONE MOLTO PICCOLO, provvisorio
+    reference_age: 23.3
+    spread_years: 1.2
+  # Squadre riserve/Next Gen (rilevate live via Wikidata: classe "reserve
+  # team" Q2412834, non solo per nome - verificato che "Juventus Next Gen"
+  # e' l'unica in Serie C al momento, ma il meccanismo regge se ne arrivano
+  # altre, es. Atalanta U23). La correzione principale per questo tier e'
+  # nel peso (vedi signal_score_weights sotto): in queste squadre "giovane"
+  # e' un requisito di regolamento (obbligo U21), non un segnale raro.
+  serie_c_riserve:
+    # n=7 - CAMPIONE PICCOLO, provvisorio
+    reference_age: 22.0
+    spread_years: 2.5
+  serie_d_riserve:
+    # n=0: nessuna squadra riserve gioca in Serie D al momento (verificato
+    # dal vivo) - valori ereditati da serie_d come placeholder, da ricalcolare
+    # se/quando una squadra riserve compare li'.
+    reference_age: 23.3
+    spread_years: 1.2
+  conmebol_u20:
+    # n=227, media 20.6, std 0.78 - campione solido
+    reference_age: 20.6
+    spread_years: 0.8
+  conmebol_u17:
+    # n=228, media 18.0, std 0.44 - campione solido, finestra stretta perche'
+    # il regolamento del torneo vincola gia' l'eta' entro un intervallo piccolo
+    reference_age: 18.0
+    spread_years: 0.5
+  nationality_pool:
+    # n=3398, media 22.3, std 1.70 - campione solido
+    reference_age: 22.3
+    spread_years: 1.7
+
+# --- Layer A: pesi del Signal Score, per tier -----------------------------
+# "default" vale per tutti i tier non elencati esplicitamente. 50/50 e' un
+# punto di partenza dichiarato, NON un valore validato: con solo due
+# componenti liberamente disponibili non c'e' ancora evidenza per pesarle
+# diversamente in generale. Vanno corrette quando radar_feed.json avra'
+# abbastanza storico per un riscontro reale (vedi "verifica nel tempo").
+#
+# Eccezione gia' motivata da un caso reale (prima run swarm, verdetto del
+# Giudice su Esad Deniz/Juventus Next Gen): nelle squadre riserve l'eta'
+# bassa e' un requisito di regolamento (obbligo U21), quindi da sola non
+# distingue nessuno - il buzz esterno (qualcuno ne parla anche se "tutti
+# sono giovani per obbligo") resta l'unico segnale che dice qualcosa.
+signal_score_weights:
+  default:
+    age_vs_level: 0.5
+    buzz: 0.5
+  serie_c_riserve:
+    age_vs_level: 0.15
+    buzz: 0.85
+  serie_d_riserve:
+    age_vs_level: 0.15
+    buzz: 0.85
+
+# --- Layer A: sotto-pesi del Buzz Score -----------------------------------
+buzz_weights:
+  velocity: 0.4
+  niche_source_tier: 0.35
+  geographic_crossing: 0.25
+  # oltre questo numero di menzioni totali, il giocatore e' considerato
+  # "gia' mainstream" e il buzz viene penalizzato invece che premiato
+  mainstream_mention_threshold: 30
+
+# Tier delle fonti per il segnale "niche_source_tier".
+# NOTA: Google News RSS restituisce link di redirect (news.google.com/...),
+# non l'URL reale della testata (verificato live) - quindi la classificazione
+# si fa sul NOME della testata, che Google News mette in coda al titolo
+# ("Headline - Nome Testata"), non sul dominio dell'URL.
+# Tier 3 = stampa locale/di nicchia (bonus alto), Tier 1 = testate big
+# (una volta che parlano loro, il vantaggio e' gia' sfumato).
+source_tiers:
+  tier_1:
+    - "Gazzetta dello Sport"
+    - "Corriere dello Sport"
+    - "Sky Sport"
+    - "ESPN"
+    - "BBC"
+    - "Goal.com"
+    - "Tuttosport"
+  tier_2:
+    - "TuttoMercatoWeb"
+    - "Calciomercato.com"
+    - "Tuttocalciatori"
+    - "Transfermarkt"
+  # tutto il resto (stampa locale/regionale, siti di club, testate estere
+  # minori) e' trattato come tier 3 di default: e' li' che nasce il segnale.
+
+# --- Layer B: profili contestuali (Fit Score) -----------------------------
+# Nessun modello: solo filtri booleani + moltiplicatori applicati al
+# Signal Score. Selezionabili come chip rapidi in UI.
+purpose_profiles:
+  resale_value:
+    label: "Rivendita"
+    description: "Punta sull'upside: eta' relativa e velocita' del buzz contano di piu'."
+    weight_multipliers:
+      age_vs_level: 1.3
+      buzz: 1.2
+    max_tier: [serie_c, serie_d, serie_c_riserve, serie_d_riserve, conmebol_u20, conmebol_u17, nationality_pool]
+
+  first_team_need:
+    label: "Rosa Serie C"
+    description: "Punta su conferme piu' solide, sconta l'hype puro del buzz."
+    weight_multipliers:
+      age_vs_level: 1.0
+      buzz: 0.7
+    # esclude nationality_pool: qui serve chi puo' giocare in Serie C ORA,
+    # non un pool sparso ovunque nel mondo senza club noto
+    max_tier: [serie_c, serie_d, serie_c_riserve, serie_d_riserve]
+
+  tactical_profile:
+    label: "Profilo tattico"
+    description: "Nessun bonus/malus di score, solo filtro per ruolo."
+    weight_multipliers:
+      age_vs_level: 1.0
+      buzz: 1.0
+    max_tier: [serie_c, serie_d, serie_c_riserve, serie_d_riserve, conmebol_u20, conmebol_u17, nationality_pool]
+
+  fsgc_oriundi:
+    label: "Oriundi FSGC"
+    description: "Bacino piccolo apposta: filtra solo la watchlist oriundi, non l'intera pool."
+    weight_multipliers:
+      age_vs_level: 0.8
+      buzz: 0.8
+    max_tier: [serie_c, serie_d, serie_c_riserve, serie_d_riserve, conmebol_u20, conmebol_u17, nationality_pool]
+    restrict_to_watchlist: fsgc_oriundi_watchlist
+
+# --- Swarm dossier ----------------------------------------------------------
+swarm:
+  # misurato dal vivo in produzione: 15 candidati sequenziali x 4 chiamate
+  # AI ciascuno hanno superato i 9 minuti senza finire (503 da Cloud Run).
+  # Abbassato a 8 e parallelizzato (swarm_workers) per stare comodi entro
+  # il timeout del servizio.
+  top_n_candidates_for_swarm: 8
+  # dossier in parallelo per candidato (ogni dossier resta 4 chiamate
+  # sequenziali al suo interno, serve coerenza tra i 4 ruoli - solo i
+  # candidati diversi tra loro corrono in parallelo). Tenuto basso per non
+  # sommare troppe richieste/minuto sullo stesso provider (soprattutto
+  # Gemini free tier, quota per-minuto piu' stretta di quanto sembri dal
+  # limite giornaliero).
+  swarm_workers: 3
+  # rigira il dossier solo se il Signal Score e' cambiato di almeno questa
+  # soglia dall'ultimo dossier salvato, per non sprecare quota OpenRouter
+  # ripremendo "Aggiorna" piu' volte al giorno sugli stessi candidati.
+  rerun_threshold_points: 8
+
+# --- Performance ------------------------------------------------------------
+# La pool candidati e' nell'ordine delle centinaia (Serie C/D + CONMEBOL).
+# Il controllo buzz fa una chiamata di rete per candidato: farlo su tutti a
+# ogni "Aggiorna" significherebbe minuti di attesa da telefono. Si pre-filtra
+# per eta'-relativa-al-livello (gratis, zero rete) e si controlla il buzz
+# solo sul sottoinsieme piu' promettente, in parallelo.
+performance:
+  buzz_check_pool_size: 60
+  buzz_check_workers: 8
+
+# --- Stima bayesiana (Layer C) -----------------------------------------------
+# Il Signal Score di un singolo run e' un punto, rumoroso: dipende da quali
+# fonti hanno risposto quella volta (buzz specialmente). Qui NON si prevede
+# il futuro (servirebbero esiti reali verificati, che non abbiamo ancora,
+# vedi radar_feed history) - si stima solo il "livello vero" attuale del
+# segnale filtrando il rumore tra le osservazioni ripetute nel tempo
+# (filtro alla Kalman, 1 dimensione). Converge verso il punteggio quando le
+# run sono ripetute e coerenti; resta incerto (banda larga) su un candidato
+# visto una volta sola o con dati parziali.
+bayesian:
+  prior_variance: 400          # incertezza iniziale, prima osservazione (std=20 punti)
+  process_variance: 25         # quanto puo' "muoversi" il livello vero tra due run (std=5 punti)
+  observation_variance_full: 25      # rumore atteso di un'osservazione con dati completi (std=5)
+  observation_variance_partial: 100  # rumore atteso con dati parziali (std=10) - meno fidata
+
+# --- Sonda di cambiamento di stato (IL TURNO) --------------------------------
+# Decide chi entra nel turno di revisione e chi resta silenzioso in archivio.
+# Due tecniche consolidate (non inventate qui, solo combinate per questo
+# dominio - vedi ricerca): l'innovazione del filtro di Kalman gia' sopra
+# (quanto la nuova osservazione ha sorpreso il modello, in deviazioni
+# standard - regola dei 3-sigma standard in anomaly detection) per gli shock
+# singoli, e un CUSUM a due code per la deriva lenta ma sostenuta che nessun
+# singolo salto giustificherebbe da solo (stesso principio delle carte di
+# controllo industriali). Applicata solo ai candidati che arrivano al
+# dossier (lo stesso sottoinsieme stretto del funnel, mai sull'intera pool).
+state_change:
+  shock_z_threshold: 2.5   # |z| oltre questa soglia = salto statisticamente vero, non rumore
+  cusum_k: 0.5             # allowance/slack: quanto puo' muoversi senza accumulare
+  cusum_threshold: 4.0     # soglia di allarme sulla somma cumulativa
+  # "finestra precoce" (early adopter): buzz_score gia' calcola queste
+  # componenti (discovery_engine.buzz_score) ma le fondeva in un unico
+  # numero, perdendo il segnale piu' anticipatorio che il sistema ha - qui
+  # vengono estratte come stato a se'. early_velocity_threshold e' sulla
+  # sub-score "velocity" (0-1, gia' normalizzata: 1.0 = +5 menzioni sul
+  # giro precedente) - 0.4 equivale a un salto di almeno 2 menzioni.
+  early_velocity_threshold: 0.4
+
+# --- Layer E: LA CURVA - posizione sulla curva di adozione -------------------
+# Lo scopo dichiarato del radar: trovare il giocatore mentre e' ANCORA nella
+# fase early adopter ma sta per uscirne - il momento in cui piu' fattori
+# oggettivi convergono e indicano che visibilita' e concorrenza stanno per
+# salire. Base teorica consolidata, non inventata qui: curve di diffusione
+# a S (Rogers/Bass - la fase di massima accelerazione precede il punto di
+# flesso) e "two-step flow" (l'informazione scala da fonti di nicchia a
+# testate generaliste, un gradino per volta - la scalata dei tier E' il
+# segnale che il crossing si avvicina).
+#
+# Fasi (classificazione esplicita, regole ispezionabili, zero ML):
+#   0 invisibile        nessuna menzione
+#   1 nicchia           menzioni sporadiche, solo fonti tier-3
+#   2 fermento          presenza continua nelle fonti di nicchia
+#   3 decollo imminente >= takeoff_min_factors fattori attivi, ancora zero
+#                       tier-1 -> IL segnale per cui esiste il prodotto
+#   4 crossing          prima fonte tier-1 in assoluto (finestra chiusa ORA)
+#   5 mainstream        tier-1 gia' presente in run precedenti (troppo tardi)
+#
+# LIMITE ONESTO dichiarato: i run avvengono solo quando si preme "cerca
+# aggiornamenti", a intervalli irregolari - quindi "accelerazione" e'
+# misurata per-controllo, non per-giorno, e NESSUNA stima temporale ("croce
+# tra 2 settimane") sarebbe onesta. Inoltre mention_count satura a 8
+# (max_results della query news): oltre quella soglia la crescita non e'
+# piu' misurabile e il fattore accelerazione resta muto, non inventato.
+adoption_curve:
+  min_runs_for_assessment: 3   # sotto questa storia: "storico insufficiente", mai una fase stimata
+  takeoff_min_factors: 3       # quanti fattori (su 4) devono convergere per la fase 3
+  persistence_min_runs: 3      # menzioni presenti in N controlli consecutivi = presenza vera, non spike
+  tier_climb_recent_window: 2  # la prima fonte tier-2 conta come "scalata" se comparsa negli ultimi N run
+  # peso di ogni fattore nella "pressione di uscita" (0-100). La somma fa
+  # 100. Punto di partenza dichiarato, da correggere quando il registro di
+  # validazione retroattiva (curve_validation.json) avra' abbastanza casi.
+  factor_weights:
+    accelerazione: 30        # crescita delle menzioni che non rallenta (firma pre-flesso della curva a S)
+    scalata_tier: 30         # prima testata tier-2 dopo run di sola nicchia (two-step flow in azione)
+    allargamento_fonti: 20   # piu' testate DISTINTE di quante mai viste prima (adozione indipendente, non un blog che insiste)
+    persistenza: 20          # presente da N controlli consecutivi (gli spike decadono, l'adozione persiste)

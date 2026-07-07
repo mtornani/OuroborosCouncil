@@ -1,0 +1,1078 @@
+<!DOCTYPE html>
+<html lang="it">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#0b0c10">
+    <title>OB1 RADAR</title>
+    <link rel="manifest" href="/static/manifest.json">
+    <link rel="apple-touch-icon" href="/static/icon-192.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="SENTINEL">
+    <script>if("serviceWorker" in navigator){window.addEventListener("load",function(){navigator.serviceWorker.register("/sw.js").catch(function(){});});}</script>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap"
+        rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+        :root {
+            --bg: #0b0c10;
+            --panel: #14161b;
+            --panel-border: rgba(255, 255, 255, 0.08);
+            --text-main: rgba(255, 255, 255, 0.92);
+            --text-dim: rgba(255, 255, 255, 0.5);
+            --accent-high: #3ddc84;
+            /* segnale forte / vale la pena */
+            --accent-mid: #fca311;
+            /* segnale medio / dati parziali */
+            --accent-low: rgba(255, 255, 255, 0.25);
+            /* segnale debole / N/D */
+            --accent-doubt: #ff5c5c;
+            /* scettico / dubbio */
+            --font-main: 'Inter', -apple-system, sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+            color-scheme: dark;
+        }
+
+        /* Tema chiaro: solo scuro era illeggibile al sole diretto (troppo
+           riflesso). Segue prefers-color-scheme di sistema; l'interruttore
+           in alto lo forza indipendentemente via data-theme. */
+        @media (prefers-color-scheme: light) {
+            :root {
+                --bg: #f2f4f3;
+                --panel: #ffffff;
+                --panel-border: rgba(16, 21, 27, 0.12);
+                --text-main: rgba(16, 21, 27, 0.92);
+                --text-dim: rgba(16, 21, 27, 0.55);
+                --accent-high: #1f8a53;
+                --accent-mid: #b36a0e;
+                --accent-low: rgba(16, 21, 27, 0.25);
+                --accent-doubt: #c23b3b;
+                color-scheme: light;
+            }
+        }
+        :root[data-theme="dark"] {
+            --bg: #0b0c10; --panel: #14161b; --panel-border: rgba(255, 255, 255, 0.08);
+            --text-main: rgba(255, 255, 255, 0.92); --text-dim: rgba(255, 255, 255, 0.5);
+            --accent-high: #3ddc84; --accent-mid: #fca311; --accent-low: rgba(255, 255, 255, 0.25); --accent-doubt: #ff5c5c;
+            color-scheme: dark;
+        }
+        :root[data-theme="light"] {
+            --bg: #f2f4f3; --panel: #ffffff; --panel-border: rgba(16, 21, 27, 0.12);
+            --text-main: rgba(16, 21, 27, 0.92); --text-dim: rgba(16, 21, 27, 0.55);
+            --accent-high: #1f8a53; --accent-mid: #b36a0e; --accent-low: rgba(16, 21, 27, 0.25); --accent-doubt: #c23b3b;
+            color-scheme: light;
+        }
+
+        .theme-toggle {
+            position: fixed;
+            top: calc(10px + env(safe-area-inset-top));
+            right: 14px;
+            z-index: 50;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border: 1px solid var(--panel-border);
+            background: var(--panel);
+            color: var(--text-dim);
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+
+        html, body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text-main);
+            font-family: var(--font-main);
+            width: 100%;
+            overscroll-behavior-y: contain;
+        }
+
+        body {
+            max-width: 480px;
+            margin: 0 auto;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            padding-bottom: calc(84px + env(safe-area-inset-bottom));
+        }
+
+        /* HEADER */
+        header {
+            padding: 18px 16px 10px;
+            flex-shrink: 0;
+        }
+
+        .brand {
+            font-size: 22px;
+            font-weight: 900;
+            letter-spacing: 1px;
+        }
+
+        .brand span { color: var(--accent-high); }
+
+        .subtitle {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-dim);
+            margin-top: 4px;
+        }
+
+        .disclaimer {
+            font-size: 11px;
+            color: var(--text-dim);
+            border-left: 2px solid var(--accent-mid);
+            padding: 6px 10px;
+            margin-top: 10px;
+            line-height: 1.4;
+        }
+
+        /* PROFILE CHIPS */
+        .chip-row {
+            display: flex;
+            gap: 8px;
+            overflow-x: auto;
+            padding: 12px 16px;
+            flex-shrink: 0;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .chip-row::-webkit-scrollbar { display: none; }
+
+        .chip {
+            flex-shrink: 0;
+            font-family: var(--font-mono);
+            font-size: 12px;
+            padding: 8px 14px;
+            border-radius: 20px;
+            border: 1px solid var(--panel-border);
+            background: var(--panel);
+            color: var(--text-dim);
+            white-space: nowrap;
+        }
+
+        .chip.active {
+            border-color: var(--accent-high);
+            color: var(--accent-high);
+            background: rgba(61, 220, 132, 0.08);
+        }
+
+        /* FILTER PANEL */
+        .filter-toggle-row {
+            padding: 0 16px 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .filter-toggle {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-dim);
+            border: 1px solid var(--panel-border);
+            border-radius: 8px;
+            padding: 6px 10px;
+        }
+
+        .filter-toggle.active {
+            color: var(--accent-high);
+            border-color: var(--accent-high);
+        }
+
+        .result-count {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-dim);
+        }
+
+        .filter-panel {
+            display: none;
+            padding: 4px 16px 14px;
+            border-bottom: 1px solid var(--panel-border);
+            margin-bottom: 6px;
+        }
+
+        .filter-panel.open { display: block; }
+
+        .filter-label {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-dim);
+            margin: 10px 0 6px;
+        }
+
+        .filter-label:first-child { margin-top: 0; }
+
+        .filter-chip-row {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        .filter-chip {
+            font-family: var(--font-mono);
+            font-size: 11.5px;
+            padding: 6px 12px;
+            border-radius: 16px;
+            border: 1px solid var(--panel-border);
+            background: var(--panel);
+            color: var(--text-dim);
+        }
+
+        .filter-chip.active {
+            border-color: var(--accent-high);
+            color: var(--accent-high);
+            background: rgba(61, 220, 132, 0.08);
+        }
+
+        .filter-select {
+            width: 100%;
+            font-family: var(--font-mono);
+            font-size: 12.5px;
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid var(--panel-border);
+            background: var(--panel);
+            color: var(--text-main);
+        }
+
+        /* LIST */
+        main {
+            flex: 1;
+            padding: 4px 16px 16px;
+        }
+
+        .empty-state {
+            text-align: center;
+            color: var(--text-dim);
+            font-size: 13px;
+            padding: 60px 20px;
+            line-height: 1.6;
+        }
+
+        .card {
+            background: var(--panel);
+            border: 1px solid var(--panel-border);
+            border-radius: 10px;
+            margin-bottom: 10px;
+            overflow: hidden;
+        }
+
+        .card-main {
+            padding: 12px 14px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .card-badge {
+            width: 4px;
+            align-self: stretch;
+            border-radius: 3px;
+            flex-shrink: 0;
+        }
+
+        .card-info { flex: 1; min-width: 0; }
+
+        .card-name {
+            font-weight: 800;
+            font-size: 15px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .card-meta {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-dim);
+            margin-top: 2px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .card-scores {
+            text-align: right;
+            flex-shrink: 0;
+            font-family: var(--font-mono);
+        }
+
+        .fit-score {
+            font-size: 18px;
+            font-weight: 700;
+        }
+
+        .signal-score {
+            font-size: 10px;
+            color: var(--text-dim);
+        }
+
+        .wl-star {
+            background: none;
+            border: none;
+            font-size: 18px;
+            line-height: 1;
+            color: var(--text-dim);
+            cursor: pointer;
+            padding: 2px 0 6px;
+        }
+
+        .wl-star.active { color: var(--accent-mid); }
+
+        .partial-flag {
+            display: inline-block;
+            font-family: var(--font-mono);
+            font-size: 9px;
+            color: var(--accent-mid);
+            border: 1px solid var(--accent-mid);
+            border-radius: 4px;
+            padding: 1px 4px;
+            margin-top: 3px;
+        }
+
+        .club-update-flag {
+            display: inline-block;
+            font-family: var(--font-mono);
+            font-size: 9px;
+            color: var(--accent-doubt);
+            border: 1px solid var(--accent-doubt);
+            border-radius: 4px;
+            padding: 1px 4px;
+            margin-top: 3px;
+            margin-left: 4px;
+        }
+
+        .score-breakdown {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            color: var(--text-dim);
+            margin-top: 3px;
+        }
+
+        .score-breakdown b { color: var(--text-main); font-weight: 600; }
+
+        .card-dossier {
+            display: none;
+            border-top: 1px solid var(--panel-border);
+            padding: 12px 14px 14px;
+            font-size: 12.5px;
+            line-height: 1.55;
+        }
+
+        .card.expanded .card-dossier { display: block; }
+
+        .dossier-role {
+            margin-bottom: 10px;
+        }
+
+        .dossier-role-label {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-dim);
+            margin-bottom: 3px;
+        }
+
+        .verdict-line {
+            font-family: var(--font-mono);
+            font-size: 12px;
+            padding: 8px 10px;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.04);
+            margin-bottom: 10px;
+        }
+
+        .dossier-error {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-dim);
+            font-style: italic;
+        }
+
+        /* BOTTOM BAR (thumb zone) */
+        .bottom-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            max-width: 480px;
+            margin: 0 auto;
+            background: linear-gradient(0deg, var(--bg) 60%, rgba(11,12,16,0));
+            padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+        }
+
+        #refresh-btn {
+            width: 100%;
+            padding: 15px;
+            border-radius: 12px;
+            border: none;
+            background: var(--accent-high);
+            color: #06120a;
+            font-family: var(--font-mono);
+            font-weight: 700;
+            font-size: 14px;
+            letter-spacing: 0.5px;
+        }
+
+        #refresh-btn:disabled {
+            background: var(--panel);
+            color: var(--text-dim);
+            border: 1px solid var(--panel-border);
+        }
+
+        .last-run {
+            text-align: center;
+            font-family: var(--font-mono);
+            font-size: 10px;
+            color: var(--text-dim);
+            margin-top: 6px;
+        }
+        .mini-curve { margin-top: 8px; }
+        .mini-curve svg { width: 100%; height: 30px; display: block; }
+        .mini-curve .mc-path { fill: none; stroke: var(--panel-border); stroke-width: 2; }
+        .mini-curve .mc-done { fill: none; stroke: var(--accent-high); stroke-width: 2; }
+        .mini-curve .mc-tick { fill: var(--accent-low); }
+        .mini-curve .mc-dot { fill: var(--accent-high); }
+        .mini-curve .mc-label { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); margin-top: 3px; }
+        .mini-curve .mc-label b { color: var(--accent-high); }
+        .load-more {
+            display: block; width: 100%; margin: 14px 0 4px; padding: 13px;
+            background: var(--panel); border: 1px solid var(--panel-border); color: var(--text-main);
+            font-family: var(--font-mono); font-size: 13px; letter-spacing: 0.04em; cursor: pointer;
+        }
+        .dossier-contra { border-left: 2px solid var(--accent-doubt); padding: 4px 0 4px 10px; margin: 10px 0; }
+        .dossier-contra-head { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--accent-doubt); margin-bottom: 5px; }
+        .dossier-contra .contra-item { font-size: 12px; line-height: 1.5; color: var(--text-dim); padding: 2px 0; }
+        .dossier-contra .contra-item .x { color: var(--accent-doubt); font-weight: 700; }
+    </style>
+</head>
+
+<body>
+    <button class="theme-toggle" id="themeToggle" aria-label="Cambia tema chiaro/scuro" title="Chiaro/scuro">☀</button>
+    <header>
+        <button id="homeBtn" style="background:none;border:none;padding:0;margin:0 0 10px;font-family:var(--font-mono);font-size:12px;color:var(--accent-high);cursor:pointer;">← il turno (home)</button>
+        <div class="brand">OB1 <span>RADAR</span></div>
+        <div class="subtitle">discovery, non rassegna stampa</div>
+        <div class="disclaimer">
+            Prioritizzatore di attenzione, non motore di previsione: segnala chi merita
+            20 minuti del tuo occhio umano questa settimana. Il buzz e' un segnale di
+            corroborazione, mai l'unica prova.
+        </div>
+    </header>
+
+    <div class="chip-row" id="profile-chips"></div>
+
+    <div class="filter-toggle-row">
+        <div class="filter-toggle" id="filter-toggle">FILTRI ▾</div>
+        <div class="result-count" id="result-count"></div>
+    </div>
+
+    <div class="filter-panel" id="filter-panel">
+        <div class="filter-label">Ruolo</div>
+        <div class="filter-chip-row" id="role-filters"></div>
+
+        <div class="filter-label">Eta' massima</div>
+        <div class="filter-chip-row" id="age-filters"></div>
+
+        <div class="filter-label">Paese / competizione</div>
+        <select class="filter-select" id="country-filter"></select>
+    </div>
+
+    <main id="results"></main>
+
+    <div class="bottom-bar">
+        <button id="refresh-btn">AGGIORNA</button>
+        <div class="last-run" id="last-run">mai aggiornato</div>
+    </div>
+
+    <script>
+        function escapeHTML(str) {
+            if (str === null || str === undefined) return "";
+            return String(str).replace(/[&<>'"]/g,
+                tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag)
+            );
+        }
+
+        function clubUpdate(candidate) {
+            // giudice.club_aggiornato e' valorizzato solo quando il Cronista
+            // ha davvero cercato sul web (server tool OpenRouter) e trovato
+            // una squadra diversa da quella su Wikidata - vedi discovery_engine.py
+            const g = candidate.dossier && candidate.dossier.giudice;
+            return (g && g.club_aggiornato) || null;
+        }
+
+        const PROFILES = [
+            { key: "tactical_profile", label: "Profilo tattico" },
+            { key: "resale_value", label: "Rivendita" },
+            { key: "first_team_need", label: "Rosa Serie C" },
+            { key: "fsgc_oriundi", label: "Oriundi FSGC" },
+        ];
+
+        const ROLES = ["Portiere", "Difensore", "Centrocampista", "Attaccante"];
+        const AGE_PRESETS = [
+            { key: "17", label: "U17", max: 17 },
+            { key: "20", label: "U20", max: 20 },
+            { key: "23", label: "U23", max: 23 },
+            { key: "all", label: "Tutte", max: null },
+        ];
+
+        const state = {
+            activeProfile: "tactical_profile",
+            results: [],
+            config: null,
+            expanded: new Set(),
+            filterPanelOpen: false,
+            filters: { roles: new Set(), maxAge: "all", country: "all" },
+            renderLimit: 60,   // quante schede disegnare per volta (mobile)
+            totalCount: 0,     // totale reale, prima del cap del server
+            scanning: false,   // c'e' una scansione in corso lanciata da qui?
+            pollGen: 0,        // un solo giro di polling attivo alla volta
+            partialShown: false, // feed gia' ricaricato a meta' scansione (fase punteggi)
+        };
+
+        function tierLabel(candidate) {
+            if (candidate.tier === "nationality_pool") return candidate.nationality_label || "Pool nazionalita'";
+            return { serie_c: "Serie C", serie_d: "Serie D",
+                      serie_c_riserve: "Serie C (riserve)", serie_d_riserve: "Serie D (riserve)",
+                      conmebol_u20: "CONMEBOL U20",
+                      conmebol_u17: "CONMEBOL U17", watchlist: "Watchlist" }[candidate.tier] || candidate.tier || "N/D";
+        }
+
+        // chiave stabile per il filtro paese/competizione - stesso criterio
+        // di tierLabel ma senza dipendere dalla label (usata come value del <select>)
+        function groupKey(candidate) {
+            return candidate.tier === "nationality_pool" ? `nat:${candidate.nationality_label}` : `tier:${candidate.tier}`;
+        }
+
+        function computeAge(dob) {
+            if (!dob) return null;
+            const birth = new Date(dob);
+            if (isNaN(birth)) return null;
+            const diffMs = Date.now() - birth.getTime();
+            return diffMs / (1000 * 60 * 60 * 24 * 365.25);
+        }
+
+        function computeFitScore(candidate, profileKey) {
+            if (!candidate.components || Object.keys(candidate.components).length === 0) return null;
+            if (!state.config) return candidate.fit_score;
+            const profile = state.config.purpose_profiles[profileKey];
+            // pesi per tier con fallback su "default" - stessa logica di
+            // discovery_engine._weights_for_tier (squadre riserve pesano
+            // l'eta' molto meno: e' un requisito di regolamento li', non
+            // un segnale raro)
+            const weights = (state.config.signal_score_weights && state.config.signal_score_weights[candidate.tier])
+                || (state.config.signal_score_weights && state.config.signal_score_weights.default) || {};
+            if (!profile) return candidate.fit_score;
+
+            // filtri rigidi del profilo, replicati lato client (stessa logica
+            // di discovery_engine.fit_score)
+            if (profile.max_tier && !profile.max_tier.includes(candidate.tier)) return null;
+            if (profile.restrict_to_watchlist === "fsgc_oriundi_watchlist" &&
+                candidate.source !== "fsgc_oriundi_watchlist") return null;
+
+            const mult = profile.weight_multipliers || {};
+            let totalWeight = 0, combined = 0;
+            for (const key in candidate.components) {
+                const w = (weights[key] || 0) * (mult[key] !== undefined ? mult[key] : 1);
+                totalWeight += w;
+                combined += candidate.components[key] * w;
+            }
+            if (totalWeight === 0) return 0;
+            return Math.round((combined / totalWeight) * 1000) / 10;
+        }
+
+        const COMPONENT_LABELS = { age_vs_level: "eta'-vs-livello", buzz: "buzz" };
+
+        // Scompone il Signal Score nei suoi ingredienti (stessa formula di
+        // discovery_engine.signal_score: media pesata dei componenti
+        // disponibili, pesi per tier - vedi radar_config.yaml). Restituisce
+        // null se non c'e' nulla da scomporre (candidato senza componenti).
+        function componentBreakdown(candidate) {
+            if (!candidate.components || Object.keys(candidate.components).length === 0) return null;
+            const weights = (state.config && state.config.signal_score_weights &&
+                (state.config.signal_score_weights[candidate.tier] || state.config.signal_score_weights.default)) || {};
+            const totalWeight = Object.keys(candidate.components)
+                .reduce((sum, k) => sum + (weights[k] || 0), 0);
+            return Object.entries(candidate.components).map(([key, value]) => ({
+                key,
+                label: COMPONENT_LABELS[key] || key,
+                valuePct: Math.round(value * 100),
+                weightPct: totalWeight ? Math.round((weights[key] || 0) / totalWeight * 100) : null,
+            }));
+        }
+
+        function renderBreakdownLine(candidate) {
+            const parts = componentBreakdown(candidate);
+            if (!parts) return "";
+            const text = parts
+                .map(p => `${escapeHTML(p.label)} <b>${p.valuePct}</b>${p.weightPct !== null ? ` (peso ${p.weightPct}%)` : ""}`)
+                .join(" + ");
+            return `<div class="score-breakdown">score = ${text}</div>`;
+        }
+
+        function renderBayesianLine(candidate) {
+            // Non e' una previsione: e' quanto ci si puo' fidare del Signal
+            // Score attuale alla luce delle osservazioni passate dello stesso
+            // candidato (filtro alla Kalman su radar_feed.history, vedi
+            // discovery_engine.bayesian_estimate). Banda stretta = segnale
+            // ripetuto e coerente; banda larga = vista una volta sola o su
+            // dati parziali, poco da fidarsi ancora.
+            const b = candidate.bayesian;
+            if (!b) return "";
+            const n = b.n_observations === 1 ? "1 osservazione" : `${b.n_observations} osservazioni`;
+            return `<div class="score-breakdown">stima bayesiana <b>${b.estimate}</b> ` +
+                `(banda ${b.confidence_band[0]}–${b.confidence_band[1]}, ${n})</div>`;
+        }
+
+        // Mini-curva sulla scheda: dove sta il giocatore sul percorso da
+        // sconosciuto a conosciuto (Layer E). Compare solo se il candidato ha
+        // gia' una fase calcolata (serve un minimo di storico); i dati vecchi
+        // senza il campo curve semplicemente non la mostrano.
+        const PHASE_LABELS_R = ["nessuno ne parla", "solo fonti locali", "se ne parla", "sta per esplodere", "sui grandi giornali", "lo sanno tutti"];
+        function renderMiniCurve(candidate) {
+            const curve = candidate.curve;
+            if (!curve || curve.phase === null || curve.phase === undefined) return "";
+            const F = x => 24 - 20 / (1 + Math.exp(-(x - 55) / 10));
+            const PX = p => 4 + p * (92 / 5);
+            const xs = []; for (let x = 4; x <= 96; x += 3) xs.push(x);
+            const full = xs.map(x => `${x},${F(x).toFixed(2)}`).join(" ");
+            const px = PX(curve.phase);
+            const done = xs.filter(x => x <= px).map(x => `${x},${F(x).toFixed(2)}`).join(" ") + ` ${px.toFixed(1)},${F(px).toFixed(2)}`;
+            const ticks = [0, 1, 2, 3, 4, 5].map(p => `<circle cx="${PX(p).toFixed(1)}" cy="${F(PX(p)).toFixed(2)}" r="1" class="mc-tick"/>`).join("");
+            const label = PHASE_LABELS_R[curve.phase] || "";
+            const spinta = (curve.exit_pressure !== null && curve.exit_pressure !== undefined) ? ` · spinta ${curve.exit_pressure}` : "";
+            return `<div class="mini-curve">
+                <svg viewBox="0 0 100 26" preserveAspectRatio="none" aria-hidden="true">
+                    <polyline class="mc-path" points="${full}"/>
+                    <polyline class="mc-done" points="${done}"/>
+                    ${ticks}
+                    <circle class="mc-dot" cx="${px.toFixed(1)}" cy="${F(px).toFixed(2)}" r="2.2"/>
+                </svg>
+                <div class="mc-label">percorso: <b>${escapeHTML(label)}</b>${escapeHTML(spinta)}</div>
+            </div>`;
+        }
+
+        function verdictBadge(candidate) {
+            const dossier = candidate.dossier;
+            if (!dossier) return { color: "var(--accent-low)", text: "IN CODA" };
+            if (dossier.skipped) return { color: "var(--accent-mid)", text: "SERVE ALTRO SEGNALE" };
+            if (dossier.error) return { color: "var(--accent-low)", text: "DOSSIER N/D" };
+            const g = dossier.giudice || {};
+            if (g.vale_la_pena === true) return { color: "var(--accent-high)", text: "DA SEGUIRE" };
+            if (g.vale_la_pena === false) return { color: "var(--accent-doubt)", text: "DUBBIO" };
+            return { color: "var(--accent-mid)", text: "VERDETTO N/D" };
+        }
+
+        function renderDossier(candidate) {
+            const d = candidate.dossier;
+            // il contraddittorio (motivi di dubbio dai dati) si mostra SEMPRE,
+            // anche quando manca il dossier AI - e' calcolato a parte
+            const contra = contraddittorioBlock(candidate);
+            if (!d) return contra + '<div class="dossier-error">Ancora nessun dossier AI per questo candidato (fuori dal top N di questo giro, o in attesa del prossimo Aggiorna).</div>';
+            if (d.skipped) return contra + `<div class="dossier-error">${escapeHTML(d.skipped)}</div>`;
+            if (d.error) return contra + `<div class="dossier-error">${escapeHTML(d.error)}</div>`;
+            const g = d.giudice || {};
+            const verdictText = g.vale_la_pena === true ? "Vale la pena seguirlo ora"
+                : g.vale_la_pena === false ? "Non prioritario ora" : "Verdetto non disponibile";
+            const clubLine = g.club_aggiornato
+                ? `<div class="club-update-flag" style="display:block;margin:6px 0;">⚠️ Squadra su Wikidata non aggiornata - risulta ora a ${escapeHTML(g.club_aggiornato)} (confermato via ricerca web)</div>`
+                : g.club_verificato_via_ricerca
+                    ? `<div style="font-size:10px;color:var(--text-dim);margin:6px 0;">✓ squadra confermata via ricerca web</div>`
+                    : `<div style="font-size:10px;color:var(--text-dim);margin:6px 0;">squadra non riverificata via ricerca web - solo da Wikidata</div>`;
+            return `
+                <div class="verdict-line">⚖️ ${escapeHTML(verdictText)}${g.confidence != null ? ` · confidence ${escapeHTML(g.confidence)}` : ""}<br>${escapeHTML(g.motivazione || "")}</div>
+                ${clubLine}
+                ${contraddittorioBlock(candidate)}
+                <div class="dossier-role"><div class="dossier-role-label">📰 Cronista</div>${escapeHTML(d.cronista || "N/D")}</div>
+                <div class="dossier-role"><div class="dossier-role-label">🔍 Verificatore</div>${escapeHTML(d.verificatore || "N/D")}</div>
+                <div class="dossier-role"><div class="dossier-role-label">😈 Scettico</div>${escapeHTML(d.scettico || "N/D")}</div>
+            `;
+        }
+
+        // Il contraddittorio (motivi oggettivi di dubbio dai dati del
+        // giocatore) - disponibile anche senza dossier AI, vedi feed API.
+        function contraddittorioBlock(candidate) {
+            const cav = candidate.caveats || [];
+            if (cav.length === 0) return "";
+            const items = cav.map(t => `<div class="contra-item"><span class="x">✕</span> ${escapeHTML(t)}</div>`).join("");
+            return `<div class="dossier-contra"><div class="dossier-contra-head">il contraddittorio — cosa gioca contro</div>${items}</div>`;
+        }
+
+        function renderFilterPanel() {
+            const panel = document.getElementById("filter-panel");
+            panel.classList.toggle("open", state.filterPanelOpen);
+
+            const toggle = document.getElementById("filter-toggle");
+            const filtersActive = state.filters.roles.size > 0 || state.filters.maxAge !== "all" || state.filters.country !== "all";
+            toggle.classList.toggle("active", filtersActive);
+            toggle.textContent = `FILTRI ${state.filterPanelOpen ? "▴" : "▾"}`;
+
+            const roleEl = document.getElementById("role-filters");
+            roleEl.innerHTML = ROLES.map(r =>
+                `<div class="filter-chip ${state.filters.roles.has(r) ? "active" : ""}" data-role="${r}">${r}</div>`
+            ).join("");
+            roleEl.querySelectorAll(".filter-chip").forEach(el => {
+                el.addEventListener("click", () => {
+                    const r = el.dataset.role;
+                    if (state.filters.roles.has(r)) state.filters.roles.delete(r);
+                    else state.filters.roles.add(r);
+                    state.renderLimit = 60;
+                    render();
+                });
+            });
+
+            const ageEl = document.getElementById("age-filters");
+            ageEl.innerHTML = AGE_PRESETS.map(p =>
+                `<div class="filter-chip ${state.filters.maxAge === p.key ? "active" : ""}" data-age="${p.key}">${p.label}</div>`
+            ).join("");
+            ageEl.querySelectorAll(".filter-chip").forEach(el => {
+                el.addEventListener("click", () => {
+                    state.filters.maxAge = el.dataset.age;
+                    state.renderLimit = 60;
+                    render();
+                });
+            });
+
+            // opzioni paese/competizione calcolate dai risultati presenti,
+            // cosi' si aggiornano da sole quando radar_config.yaml cambia
+            // senza dover toccare questo file
+            const countryEl = document.getElementById("country-filter");
+            const groups = new Map();
+            for (const c of state.results) {
+                const key = groupKey(c);
+                if (!groups.has(key)) groups.set(key, tierLabel(c));
+            }
+            const sortedGroups = [...groups.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+            const prevValue = state.filters.country;
+            countryEl.innerHTML = '<option value="all">Tutti</option>' +
+                sortedGroups.map(([key, label]) => `<option value="${key}">${label}</option>`).join("");
+            countryEl.value = prevValue;
+            countryEl.onchange = () => {
+                state.filters.country = countryEl.value;
+                state.renderLimit = 60;
+                render();
+            };
+        }
+
+        function applyFilters(list) {
+            return list.filter(c => {
+                if (state.filters.roles.size > 0 && !state.filters.roles.has(c.role)) return false;
+                const preset = AGE_PRESETS.find(p => p.key === state.filters.maxAge);
+                if (preset && preset.max !== null) {
+                    const age = computeAge(c.dob);
+                    if (age === null || age > preset.max) return false;
+                }
+                if (state.filters.country !== "all" && groupKey(c) !== state.filters.country) return false;
+                return true;
+            });
+        }
+
+        function render() {
+            const chipsEl = document.getElementById("profile-chips");
+            chipsEl.innerHTML = PROFILES.map(p =>
+                `<div class="chip ${p.key === state.activeProfile ? "active" : ""}" data-profile="${p.key}">${p.label}</div>`
+            ).join("");
+            chipsEl.querySelectorAll(".chip").forEach(el => {
+                el.addEventListener("click", () => {
+                    state.activeProfile = el.dataset.profile;
+                    state.renderLimit = 60;
+                    render();
+                });
+            });
+
+            renderFilterPanel();
+
+            let scored = state.results
+                .map(c => ({ ...c, _fit: computeFitScore(c, state.activeProfile) }))
+                .filter(c => c._fit !== null);
+            scored = applyFilters(scored);
+            scored.sort((a, b) => b._fit - a._fit);
+
+            // il totale mostrato dice sia quanti passano i filtri sia quanti
+            // ne esistono in tutto (il server manda solo i primi per non
+            // soffocare il telefono - vedi cap in /api/radar/feed)
+            const capNote = (state.totalCount > state.results.length)
+                ? ` · caricati i primi ${state.results.length} di ${state.totalCount}`
+                : "";
+            document.getElementById("result-count").textContent = `${scored.length} candidati${capNote}`;
+
+            const resultsEl = document.getElementById("results");
+            if (scored.length === 0) {
+                resultsEl.innerHTML = state.results.length === 0
+                    ? '<div class="empty-state">Nessun candidato ancora.<br>Premi AGGIORNA per far partire la scansione (Wikidata + Wikipedia + buzz + dossier AI, puo\' richiedere alcuni minuti).</div>'
+                    : '<div class="empty-state">Nessun candidato per questa combinazione di profilo/filtri.<br>Prova ad allargare i filtri.</div>';
+                return;
+            }
+
+            // paginazione: si disegnano solo le prime renderLimit schede.
+            // Disegnarne 3000 insieme blocca il telefono - il "carica altri"
+            // ne aggiunge un blocco per volta senza perdere la posizione.
+            const shown = scored.slice(0, state.renderLimit);
+            const remaining = scored.length - shown.length;
+
+            resultsEl.innerHTML = shown.map(c => {
+                const badge = verdictBadge(c);
+                const expanded = state.expanded.has(c.candidate_id);
+                return `
+                    <div class="card ${expanded ? "expanded" : ""}" data-id="${escapeHTML(c.candidate_id)}">
+                        <div class="card-main">
+                            <div class="card-badge" style="background:${escapeHTML(badge.color)}"></div>
+                            <div class="card-info">
+                                <div class="card-name">${escapeHTML(c.name)}</div>
+                                <div class="card-meta">${c.role ? escapeHTML(c.role) + " · " : ""}${escapeHTML(c.club || "club N/D")} · ${escapeHTML(tierLabel(c))}${computeAge(c.dob) !== null ? " · " + Math.floor(computeAge(c.dob)) + " anni" : ""}</div>
+                                ${c.partial_data ? '<div class="partial-flag">DATI PARZIALI</div>' : ""}
+                                ${clubUpdate(c) ? `<div class="club-update-flag">CLUB AGGIORNATO: ${escapeHTML(clubUpdate(c))}</div>` : ""}
+                                ${renderBreakdownLine(c)}
+                                ${renderBayesianLine(c)}
+                                ${renderMiniCurve(c)}
+                            </div>
+                            <div class="card-scores">
+                                <button class="wl-star ${c.watchlisted ? "active" : ""}" data-wl="${escapeHTML(c.candidate_id)}" title="Segna/togli dalla watchlist">${c.watchlisted ? "★" : "☆"}</button>
+                                <div class="fit-score" style="color:${escapeHTML(badge.color)}">${c._fit != null ? c._fit.toFixed(0) : "–"}</div>
+                                <div class="signal-score">signal ${c.signal_score != null ? c.signal_score : "–"}</div>
+                            </div>
+                        </div>
+                        <div class="card-dossier">${renderDossier(c)}</div>
+                    </div>
+                `;
+            }).join("") + (remaining > 0
+                ? `<button class="load-more" id="load-more">carica altri ${Math.min(60, remaining)} (${remaining} rimasti)</button>`
+                : "");
+
+            const moreBtn = document.getElementById("load-more");
+            if (moreBtn) {
+                moreBtn.addEventListener("click", () => {
+                    const y = window.scrollY;
+                    state.renderLimit += 60;
+                    render();
+                    window.scrollTo(0, y);   // resta dov'eri, non risalire in cima
+                });
+            }
+
+            resultsEl.querySelectorAll(".wl-star").forEach(btn => {
+                btn.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    const id = btn.dataset.wl;
+                    const c = state.results.find(r => r.candidate_id === id);
+                    if (!c) return;
+                    c.watchlisted = !c.watchlisted;
+                    toggleWatchlist(id, c.watchlisted);
+                    const y = window.scrollY;
+                    render();
+                    window.scrollTo(0, y);
+                });
+            });
+
+            resultsEl.querySelectorAll(".card").forEach(el => {
+                el.querySelector(".card-main").addEventListener("click", () => {
+                    const id = el.dataset.id;
+                    if (state.expanded.has(id)) state.expanded.delete(id);
+                    else state.expanded.add(id);
+                    const y = window.scrollY;
+                    render();
+                    window.scrollTo(0, y);
+                });
+            });
+        }
+
+        async function loadConfig() {
+            try {
+                const res = await fetch("/api/radar/config");
+                const data = await res.json();
+                if (data.status === "success") state.config = data;
+            } catch (e) { /* config non disponibile: si resta sui fit_score gia' salvati */ }
+        }
+
+        async function loadFeed() {
+            try {
+                const res = await fetch("/api/radar/feed");
+                const data = await res.json();
+                if (data.status === "success") {
+                    state.results = data.results;
+                    state.totalCount = data.total_count || data.results.length;
+                }
+            } catch (e) { /* nessun dato ancora, va bene: empty state */ }
+            render();
+        }
+
+        // Persistito sul server (radar_watchlist.json via l'API) - la
+        // stessa azione disponibile anche dentro IL TURNO, cosi' la
+        // watchlist si crea da qualunque schermata mostri una scheda
+        // giocatore, non da un file di config.
+        async function toggleWatchlist(candidateId, watchlisted) {
+            try {
+                await fetch("/api/radar/watchlist", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ candidate_id: candidateId, watchlisted }),
+                });
+            } catch (e) { /* il toggle locale resta comunque visibile in questa sessione */ }
+        }
+
+        function refreshBtn() { return document.getElementById("refresh-btn"); }
+
+        function resetRefreshBtn() {
+            const btn = refreshBtn();
+            btn.disabled = false;
+            btn.textContent = "AGGIORNA";
+            state.scanning = false;
+        }
+
+        // Un solo giro di polling alla volta: la generazione cresce a ogni
+        // (ri)avvio e un loop vecchio - es. quello congelato mentre l'app era
+        // in sottofondo - si spegne da solo quando non e' piu' il corrente.
+        function startPolling(elapsedSec) {
+            state.pollGen += 1;
+            pollRadarStatus(state.pollGen, elapsedSec);
+        }
+
+        async function pollRadarStatus(gen, elapsedSec, failures = 0) {
+            if (gen !== state.pollGen) return; // un giro piu' recente ha preso il posto
+            const btn = refreshBtn();
+            let data;
+            try {
+                const res = await fetch("/api/radar/refresh/status");
+                data = await res.json();
+            } catch (e) {
+                // La scansione gira sul SERVER: un errore di rete qui (tipico
+                // quando il telefono manda l'app in sottofondo) NON la ferma.
+                // Si riprova invece di arrendersi; appena l'app torna davanti
+                // il polling riprende e raccoglie il risultato.
+                if (failures < 40) {
+                    document.getElementById("last-run").textContent =
+                        "scansione in corso sul server... (riprovo la connessione)";
+                    setTimeout(() => pollRadarStatus(gen, elapsedSec + 3, failures + 1), 3000);
+                    return;
+                }
+                document.getElementById("last-run").textContent =
+                    "connessione persa, ma la scansione continua sul server: riapri tra un minuto.";
+                resetRefreshBtn();
+                return;
+            }
+
+            if (data.status === "running" || data.status === "started") {
+                // fase reale al posto del contatore muto: "dossier 3/8" dice
+                // che sta lavorando E quanto manca
+                btn.textContent = data.progress
+                    ? `${data.progress.toUpperCase()} (${elapsedSec}s)`
+                    : `SCANSIONE IN CORSO... (${elapsedSec}s)`;
+                // i punteggi sono gia' salvati (fase 1 del server): mostrali
+                // subito una volta, i dossier arriveranno col reload finale
+                if (data.feed_ready && !state.partialShown) {
+                    state.partialShown = true;
+                    document.getElementById("last-run").textContent =
+                        "punteggi aggiornati - i dossier AI stanno ancora arrivando";
+                    loadFeed();
+                }
+                setTimeout(() => pollRadarStatus(gen, elapsedSec + 3), 3000);
+                return;
+            }
+
+            resetRefreshBtn();
+
+            if (data.status === "success") {
+                document.getElementById("last-run").textContent =
+                    `ultimo aggiornamento: ${new Date(data.run_at).toLocaleTimeString("it-IT")} · ${data.candidates_ranked}/${data.candidates_evaluated} candidati`;
+                // ricarico dal feed limitato invece di tenere in memoria tutte
+                // le migliaia di schede appena scansionate (payload + DOM)
+                state.renderLimit = 60;
+                loadFeed();
+            } else {
+                document.getElementById("last-run").textContent = `errore: ${data.message}`;
+            }
+        }
+
+        async function refresh() {
+            const btn = refreshBtn();
+            btn.disabled = true;
+            btn.textContent = "SCANSIONE IN CORSO...";
+            state.scanning = true;
+            state.partialShown = false;
+            try {
+                const res = await fetch("/api/radar/refresh", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ profile: state.activeProfile }),
+                });
+                await res.json();
+            } catch (e) {
+                // Puo' darsi che la scansione sia comunque partita sul server:
+                // invece di un errore tecnico si prova subito il polling.
+                document.getElementById("last-run").textContent =
+                    "connessione instabile, controllo lo stato...";
+                startPolling(3);
+                return;
+            }
+            startPolling(3);
+        }
+
+        // Se una scansione lanciata da qui e' ancora in corso quando l'app
+        // torna in primo piano (sei uscito a scrivere un messaggio e sei
+        // rientrato), il polling puo' essersi interrotto: si ricontrolla lo
+        // stato reale del job e, se serve, si riprende - niente "failed to
+        // fetch" con la scansione che in realta' sta finendo sul server.
+        async function checkOngoingScan() {
+            try {
+                const res = await fetch("/api/radar/refresh/status");
+                const data = await res.json();
+                if (data.status === "running" || data.status === "started") {
+                    const btn = refreshBtn();
+                    btn.disabled = true;
+                    state.scanning = true;
+                    startPolling(3);
+                } else if (state.scanning) {
+                    resetRefreshBtn();
+                    if (data.status === "success") { state.renderLimit = 60; loadFeed(); }
+                }
+            } catch (e) { /* non blocca il resto della pagina */ }
+        }
+        document.addEventListener("visibilitychange", () => {
+            if (!document.hidden && state.scanning) checkOngoingScan();
+        });
+        window.addEventListener("focus", () => {
+            if (state.scanning) checkOngoingScan();
+        });
+
+        document.getElementById("refresh-btn").addEventListener("click", refresh);
+        document.getElementById("homeBtn").addEventListener("click", () => { window.location.href = "/turno"; });
+        document.getElementById("filter-toggle").addEventListener("click", () => {
+            state.filterPanelOpen = !state.filterPanelOpen;
+            render();
+        });
+
+        const THEME_KEY = "sentinel-theme";
+        function applyTheme(theme) {
+            const root = document.documentElement;
+            if (theme) root.setAttribute("data-theme", theme);
+            else root.removeAttribute("data-theme");
+            const isLight = theme === "light" ||
+                (!theme && window.matchMedia("(prefers-color-scheme: light)").matches);
+            document.getElementById("themeToggle").textContent = isLight ? "☾" : "☀";
+            document.querySelector('meta[name="theme-color"]').setAttribute(
+                "content", isLight ? "#f2f4f3" : "#0b0c10");
+        }
+        document.getElementById("themeToggle").addEventListener("click", () => {
+            const current = document.documentElement.getAttribute("data-theme") ||
+                (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+            const next = current === "light" ? "dark" : "light";
+            localStorage.setItem(THEME_KEY, next);
+            applyTheme(next);
+        });
+        applyTheme(localStorage.getItem(THEME_KEY) || null);
+
+        loadConfig();
+        loadFeed();
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="it">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#0a0e13">
+    <title>LA MAPPA — SENTINEL</title>
+    <link rel="manifest" href="/static/manifest.json">
+    <link rel="apple-touch-icon" href="/static/icon-192.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="SENTINEL">
+    <script>if("serviceWorker" in navigator){window.addEventListener("load",function(){navigator.serviceWorker.register("/sw.js").catch(function(){});});}</script>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;1,400&family=JetBrains+Mono:wght@400;500;700;800&display=swap"
+        rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+        :root {
+            --ink: #0a0e13; --panel: #121922; --line: rgba(231,235,238,0.14);
+            --text: #e7ebee; --text-dim: rgba(231,235,238,0.64); --text-faint: rgba(231,235,238,0.40);
+            --signal: #f2a93c; --signal-dim: rgba(242,169,60,0.14);
+            --verified: #4db8ab; --verified-dim: rgba(77,184,171,0.14);
+            --doubt: #d97463;
+            color-scheme: dark;
+        }
+        @media (prefers-color-scheme: light) {
+            :root {
+                --ink: #f3f5f6; --panel: #ffffff; --line: rgba(10,14,19,0.14);
+                --text: #10151b; --text-dim: rgba(16,21,27,0.66); --text-faint: rgba(16,21,27,0.42);
+                --signal: #a1650f; --signal-dim: rgba(161,101,15,0.10);
+                --verified: #1c7b71; --verified-dim: rgba(28,123,113,0.10);
+                --doubt: #a8483a;
+                color-scheme: light;
+            }
+        }
+        :root[data-theme="dark"] {
+            --ink: #0a0e13; --panel: #121922; --line: rgba(231,235,238,0.14);
+            --text: #e7ebee; --text-dim: rgba(231,235,238,0.64); --text-faint: rgba(231,235,238,0.40);
+            --signal: #f2a93c; --signal-dim: rgba(242,169,60,0.14);
+            --verified: #4db8ab; --verified-dim: rgba(77,184,171,0.14);
+            --doubt: #d97463;
+            color-scheme: dark;
+        }
+        :root[data-theme="light"] {
+            --ink: #f3f5f6; --panel: #ffffff; --line: rgba(10,14,19,0.14);
+            --text: #10151b; --text-dim: rgba(16,21,27,0.66); --text-faint: rgba(16,21,27,0.42);
+            --signal: #a1650f; --signal-dim: rgba(161,101,15,0.10);
+            --verified: #1c7b71; --verified-dim: rgba(28,123,113,0.10);
+            --doubt: #a8483a;
+            color-scheme: light;
+        }
+
+        html, body {
+            margin: 0; background: var(--ink); color: var(--text);
+            font-family: 'JetBrains Mono', ui-monospace, monospace;
+            overscroll-behavior-y: contain; -webkit-font-smoothing: antialiased;
+        }
+        ::selection { background: var(--signal-dim); color: var(--text); }
+        button { font-family: inherit; }
+        button:focus-visible, a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+
+        .theme-toggle {
+            position: fixed; top: calc(10px + env(safe-area-inset-top)); right: 14px; z-index: 50;
+            width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--line);
+            background: var(--panel); color: var(--text-dim); font-size: 16px;
+            display: flex; align-items: center; justify-content: center; cursor: pointer;
+        }
+
+        .wrap { max-width: 480px; margin: 0 auto; padding: calc(14px + env(safe-area-inset-top)) 18px 40px; }
+
+        .back { background: none; border: none; color: var(--verified); font-size: 0.78rem; padding: 0; cursor: pointer; margin-bottom: 18px; }
+
+        .eyebrow { font-size: 0.68rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-faint); margin: 0 0 6px; }
+        h1 { font-family: 'Newsreader', serif; font-weight: 500; font-size: 1.7rem; line-height: 1.2; margin: 0 0 8px; }
+        .sub { font-size: 0.82rem; color: var(--text-dim); line-height: 1.5; margin: 0 0 22px; }
+
+        /* ---------- la mappa (curva + pallini) ---------- */
+        .map-panel { background: var(--panel); border: 1px solid var(--line); padding: 14px 12px 10px; margin-bottom: 8px; position: relative; }
+        .map-svg { width: 100%; height: auto; display: block; touch-action: manipulation; }
+        .map-svg .hot-band { fill: var(--signal-dim); }
+        .map-svg .phase-hit { fill: transparent; pointer-events: all; cursor: pointer; }
+        .map-svg .curve, .map-svg text { pointer-events: none; }
+        .map-svg .curve { fill: none; stroke: var(--text-faint); stroke-width: 1; }
+        .map-svg .zone-label { font-size: 3px; fill: var(--text-faint); font-family: 'JetBrains Mono', monospace; letter-spacing: 0.03em; }
+        .map-svg .hot-label { font-size: 3.4px; fill: var(--signal); font-weight: 700; font-family: 'JetBrains Mono', monospace; letter-spacing: 0.04em; }
+        .map-svg .dot { fill: var(--text-dim); cursor: pointer; }
+        .map-svg .dot.takeoff { fill: var(--signal); }
+        .map-svg .dot.watch { stroke: var(--verified); stroke-width: 0.8; }
+        .map-svg .dot.sel { stroke: var(--text); stroke-width: 1; }
+        @media (prefers-reduced-motion: no-preference) {
+            .map-svg .dot.takeoff { animation: pulse 1.8s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+            @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
+        }
+
+        .counts { font-size: 0.74rem; color: var(--text-dim); line-height: 1.6; margin: 8px 2px 4px; }
+        .counts b { color: var(--text); }
+        .validation { font-size: 0.72rem; color: var(--text-faint); line-height: 1.6; margin: 0 2px 24px; }
+
+        /* ---------- shortlist "chi sta per esplodere" ---------- */
+        .section-h { font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--signal); margin: 0 0 12px; }
+        .shortlist { display: flex; flex-direction: column; gap: 8px; margin-bottom: 26px; }
+        .sl-row { display: flex; align-items: center; gap: 12px; background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--signal); padding: 11px 13px; cursor: pointer; text-align: left; width: 100%; }
+        .sl-name { font-weight: 700; font-size: 0.86rem; color: var(--text); }
+        .sl-meta { font-size: 0.7rem; color: var(--text-faint); margin-top: 2px; }
+        .sl-spinta { margin-left: auto; text-align: right; flex-shrink: 0; }
+        .sl-spinta .n { font-weight: 800; font-size: 1.05rem; color: var(--signal); }
+        .sl-spinta .l { font-size: 0.6rem; color: var(--text-faint); letter-spacing: 0.04em; }
+        .empty-hot { font-size: 0.8rem; color: var(--text-dim); line-height: 1.5; background: var(--panel); border: 1px solid var(--line); padding: 14px; margin-bottom: 26px; }
+
+        /* ---------- legenda ---------- */
+        .legend { border-top: 1px solid var(--line); padding-top: 16px; }
+        .legend-h { font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-faint); margin: 0 0 12px; }
+        .lg-row { display: flex; align-items: baseline; gap: 10px; padding: 5px 0; font-size: 0.78rem; }
+        .lg-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; align-self: center; }
+        .lg-name { color: var(--text); }
+        .lg-name.hot { color: var(--signal); font-weight: 700; }
+        .lg-count { margin-left: auto; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+        .lg-row.tappable { cursor: pointer; padding: 9px 10px; margin: 0 -10px; border: 1px solid transparent; }
+        .lg-row.tappable:hover, .lg-row.tappable:focus-visible { border-color: var(--line); outline: none; }
+        .lg-row .lg-chev { color: var(--text-faint); margin-left: 8px; }
+        .legend-hint { font-size: 0.7rem; color: var(--text-faint); margin: 0 0 10px; }
+
+        /* ---------- lista di una tappa (drill-down) ---------- */
+        .phase-sheet { padding-top: 16px; }
+        .ph-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
+        .ph-title .ph-eyebrow { display: block; font-size: 0.6rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-faint); margin-bottom: 3px; }
+        .ph-title .ph-name-big { font-family: 'Newsreader', serif; font-weight: 600; font-size: 1.3rem; }
+        .ph-close { background: none; border: 1px solid var(--line); color: var(--text-dim); width: 34px; height: 34px; border-radius: 50%; cursor: pointer; font-size: 1rem; flex-shrink: 0; }
+        .ph-list { max-height: 56vh; overflow-y: auto; -webkit-overflow-scrolling: touch; display: flex; flex-direction: column; gap: 6px; }
+        .ph-row { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; background: var(--panel); border: 1px solid var(--line); padding: 11px 13px; cursor: pointer; }
+        .ph-name { font-weight: 700; font-size: 0.86rem; color: var(--text); }
+        .ph-meta { font-size: 0.7rem; color: var(--text-faint); margin-top: 2px; }
+        .ph-score { margin-left: auto; text-align: right; flex-shrink: 0; font-weight: 800; font-size: 1rem; color: var(--text); }
+        .ph-score span { display: block; font-size: 0.58rem; font-weight: 400; letter-spacing: 0.04em; color: var(--text-faint); }
+        .ph-empty { font-size: 0.82rem; color: var(--text-dim); padding: 10px 0; }
+
+        /* ---------- dettaglio giocatore ---------- */
+        .detail-scrim { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 60; display: none; }
+        .detail-scrim.open { display: block; }
+        .detail { position: fixed; left: 0; right: 0; bottom: 0; z-index: 61; background: var(--ink); border-top: 1px solid var(--line);
+            max-width: 480px; margin: 0 auto; padding: 20px 20px calc(24px + env(safe-area-inset-bottom)); transform: translateY(100%); transition: transform 0.22s ease; }
+        .detail.open { transform: translateY(0); }
+        @media (prefers-reduced-motion: reduce) { .detail { transition: none; } }
+        .detail-tag { display: inline-block; font-size: 0.64rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; padding: 3px 8px; border: 1px solid var(--signal); color: var(--signal); background: var(--signal-dim); margin-bottom: 12px; }
+        .detail-name { font-family: 'Newsreader', serif; font-weight: 600; font-size: 1.35rem; margin: 0 0 4px; }
+        .detail-meta { font-size: 0.76rem; color: var(--text-faint); margin-bottom: 16px; }
+        .detail-grid { display: flex; gap: 22px; padding: 14px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); margin-bottom: 16px; }
+        .detail-grid .k { font-size: 0.62rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-faint); margin-bottom: 3px; }
+        .detail-grid .v { font-size: 1.2rem; font-weight: 700; }
+        .detail-grid .v.hot { color: var(--signal); }
+        .detail-actions { display: flex; gap: 10px; }
+        .btn-flag { flex: 1; background: none; border: 1px solid var(--line); color: var(--text-dim); padding: 12px; font-size: 0.78rem; cursor: pointer; }
+        .btn-flag.active { border-color: var(--signal); color: var(--signal); background: var(--signal-dim); }
+        .btn-close { flex: 1; background: var(--text); color: var(--ink); border: none; padding: 12px; font-size: 0.8rem; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; cursor: pointer; }
+
+        .loading { text-align: center; color: var(--text-faint); font-size: 0.8rem; padding: 40px 0; }
+    </style>
+</head>
+
+<body>
+    <button class="theme-toggle" id="themeToggle" aria-label="Chiaro/scuro">☀</button>
+    <div class="wrap">
+        <button class="back" id="backBtn">← torna al turno</button>
+        <button class="back" id="procBtn" style="float:right;color:var(--doubt)">⚖ l'avvocato del diavolo →</button>
+        <p class="eyebrow">la mappa</p>
+        <h1>Dove sta ogni giocatore sul percorso.</h1>
+        <p class="sub">Ogni pallino è un giocatore. Più è a destra, più il mondo lo conosce. Il tuo vantaggio sta a sinistra della zona calda — chi è lì costa ancora poco, ma sta per esplodere.</p>
+
+        <div id="content"><div class="loading">carico la mappa…</div></div>
+
+        <div class="legend" id="legend" style="display:none;">
+            <p class="legend-h">le sei tappe del percorso</p>
+            <p class="legend-hint">tocca una tappa per vedere tutti i giocatori che ci sono dentro</p>
+            <div id="legendRows"></div>
+        </div>
+    </div>
+
+    <div class="detail-scrim" id="detailScrim"></div>
+
+    <div class="detail phase-sheet" id="phaseSheet">
+        <div class="ph-head">
+            <div class="ph-title" id="phaseTitle"></div>
+            <button class="ph-close" id="phaseClose" aria-label="Chiudi">✕</button>
+        </div>
+        <div class="ph-list" id="phaseList"></div>
+    </div>
+
+    <div class="detail" id="detail">
+        <div id="detailBody"></div>
+        <div class="detail-actions">
+            <button class="btn-flag" id="detailFlag">☆ SEGNA</button>
+            <button class="btn-close" id="detailClose">CHIUDI</button>
+        </div>
+    </div>
+
+    <script>
+        const PHASE_LABELS = ["nessuno ne parla", "solo fonti locali", "se ne parla", "sta per esplodere", "sui grandi giornali", "lo sanno tutti"];
+        // geometria della curva a S nel viewBox 100 x 62
+        const CURVE_F = x => 50 - 40 / (1 + Math.exp(-(x - 50) / 9));
+        const PHASE_X = p => 6 + p * (88 / 5);
+
+        let state = { players: [], selected: null };
+
+        function escapeHTML(s) {
+            if (s === null || s === undefined) return "";
+            return String(s).replace(/[&<>'"]/g, t => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[t]));
+        }
+
+        function buildMap(data) {
+            const players = data.players || [];
+            const pts = [];
+            for (let x = 6; x <= 94; x += 1.5) pts.push(`${x},${CURVE_F(x).toFixed(2)}`);
+            const curve = pts.join(" ");
+
+            const bandX = PHASE_X(2.5), bandW = PHASE_X(3.5) - PHASE_X(2.5);
+
+            // pallini: distribuiti lungo il segmento di curva della loro fase,
+            // sempre ESATTAMENTE sulla linea (cy = f(cx)), cosi' si vede il
+            // mucchio a ogni tappa senza staccarsi dal percorso
+            const byPhase = {};
+            players.forEach((p, i) => { (byPhase[p.phase] = byPhase[p.phase] || []).push(i); });
+            let dots = "";
+            Object.entries(byPhase).forEach(([phase, idxs]) => {
+                const ph = +phase;
+                const cx0 = PHASE_X(ph);
+                const cap = 12;
+                const shown = idxs.slice(0, cap);
+                const span = 11;
+                shown.forEach((i, k) => {
+                    const t = shown.length === 1 ? 0.5 : k / (shown.length - 1);
+                    let cx = cx0 - span / 2 + t * span;
+                    cx = Math.max(6, Math.min(94, cx));
+                    const cy = CURVE_F(cx);
+                    const p = players[i];
+                    const cls = ["dot", p.is_takeoff ? "takeoff" : "", p.watchlisted ? "watch" : ""].join(" ").trim();
+                    const r = p.is_takeoff ? 2.2 : 1.7;
+                    dots += `<circle class="${cls}" data-idx="${i}" cx="${cx.toFixed(2)}" cy="${cy.toFixed(2)}" r="${r}"/>`;
+                });
+                if (idxs.length > cap) {
+                    dots += `<text class="zone-label" x="${cx0.toFixed(1)}" y="${(CURVE_F(cx0) - 4).toFixed(1)}" text-anchor="middle">+${idxs.length - cap}</text>`;
+                }
+            });
+
+            // zone tappabili: una fascia invisibile per ogni tappa. Stanno
+            // SOTTO i pallini (i pallini restano cliccabili singolarmente),
+            // ma catturano il tocco sul mucchio / sugli spazi vuoti aprendo
+            // la lista completa di quella tappa - cosi' vedi ogni giocatore
+            // anche dove i pallini si sovrappongono.
+            const halfBand = (88 / 5) / 2;
+            const hits = [0, 1, 2, 3, 4, 5].map(p => {
+                const x = Math.max(0, PHASE_X(p) - halfBand);
+                const w = Math.min(100, PHASE_X(p) + halfBand) - x;
+                return `<rect class="phase-hit" data-phase="${p}" x="${x.toFixed(1)}" y="0" width="${w.toFixed(1)}" height="62"/>`;
+            }).join("");
+
+            return `
+                <div class="map-panel">
+                    <svg class="map-svg" viewBox="0 0 100 62" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Mappa dei giocatori sulla curva di adozione">
+                        <rect class="hot-band" x="${bandX.toFixed(1)}" y="0" width="${bandW.toFixed(1)}" height="56"/>
+                        <text class="hot-label" x="${PHASE_X(3).toFixed(1)}" y="5" text-anchor="middle">STA PER ESPLODERE</text>
+                        <text class="zone-label" x="${PHASE_X(3).toFixed(1)}" y="8.6" text-anchor="middle">← la zona calda</text>
+                        ${hits}
+                        <polyline class="curve" points="${curve}"/>
+                        <text class="zone-label" x="6" y="60" text-anchor="start">sconosciuto</text>
+                        <text class="zone-label" x="94" y="60" text-anchor="end">lo sanno tutti</text>
+                        ${dots}
+                    </svg>
+                </div>
+                <p class="counts"><b>${data.assessed_count}</b> giocator${data.assessed_count === 1 ? "e" : "i"} sul percorso · <b>${data.not_yet_count}</b> ancora da profilare (meno scansioni del minimo).</p>
+                ${data.validation && data.validation.crossings > 0
+                    ? `<p class="validation">Prova sui fatti: ${data.validation.crossings} arrivat${data.validation.crossings === 1 ? "o" : "i"} sui grandi giornali finora, ${data.validation.anticipated} anticipat${data.validation.anticipated === 1 ? "o" : "i"} dal radar.</p>`
+                    : `<p class="validation">Il registro di verifica è ancora vuoto: si riempie quando un giocatore attraversa davvero verso i grandi giornali.</p>`}
+                ${shortlist(players)}
+            `;
+        }
+
+        function shortlist(players) {
+            const hot = players.filter(p => p.phase === 3).sort((a, b) => (b.exit_pressure || 0) - (a.exit_pressure || 0));
+            if (hot.length === 0) {
+                return `<p class="section-h">chi sta per esplodere ora</p>
+                    <div class="empty-hot">Nessuno in zona calda in questo momento. È normale: è la fascia più rara e più preziosa. Continua a scansionare — appena i segnali convergono su qualcuno, comparirà qui per primo.</div>`;
+            }
+            const rows = hot.map(p => {
+                const i = players.indexOf(p);
+                return `<button class="sl-row" data-idx="${i}">
+                    <div>
+                        <div class="sl-name">${escapeHTML(p.name || "—")}</div>
+                        <div class="sl-meta">${p.role ? escapeHTML(p.role) + " · " : ""}${escapeHTML(p.club || "club N/D")}${p.climbing ? " · appena salito" : ""}</div>
+                    </div>
+                    <div class="sl-spinta"><div class="n">${p.exit_pressure != null ? p.exit_pressure : "–"}</div><div class="l">spinta</div></div>
+                </button>`;
+            }).join("");
+            return `<p class="section-h">chi sta per esplodere ora — ${hot.length}</p><div class="shortlist">${rows}</div>`;
+        }
+
+        function buildLegend(data) {
+            const dist = data.distribution || {};
+            return PHASE_LABELS.map((label, p) => {
+                const hot = p === 3;
+                const color = hot ? "var(--signal)" : (p >= 4 ? "var(--verified)" : "var(--text-dim)");
+                const count = dist[p] || 0;
+                const tappable = count > 0 ? "tappable" : "";
+                return `<div class="lg-row ${tappable}" ${count > 0 ? `data-phase="${p}" role="button" tabindex="0"` : ""}>
+                    <span class="lg-dot" style="background:${color}"></span>
+                    <span class="lg-name ${hot ? "hot" : ""}">${escapeHTML(label)}</span>
+                    <span class="lg-count">${count}</span>
+                    ${count > 0 ? '<span class="lg-chev">›</span>' : ''}
+                </div>`;
+            }).join("");
+        }
+
+        // drill-down: la lista completa dei giocatori di una tappa - risolve
+        // il problema dei pallini sovrapposti (li vedi tutti, non solo i
+        // primi 12), toccabile col pollice invece dello zoom pinch.
+        function openPhaseList(phase) {
+            const items = state.players
+                .map((p, i) => ({ p, i }))
+                .filter(x => x.p.phase === phase);
+            const label = PHASE_LABELS[phase] || "";
+            document.getElementById("phaseTitle").innerHTML =
+                `<span class="ph-eyebrow">tappa · ${items.length} giocator${items.length === 1 ? "e" : "i"}</span><span class="ph-name-big">${escapeHTML(label)}</span>`;
+            document.getElementById("phaseList").innerHTML = items.length
+                ? items.map(({ p, i }) => `<button class="ph-row" data-idx="${i}">
+                        <div>
+                            <div class="ph-name">${escapeHTML(p.name || "—")}${p.is_takeoff ? " ★" : ""}</div>
+                            <div class="ph-meta">${p.role ? escapeHTML(p.role) + " · " : ""}${escapeHTML(p.club || "club N/D")}${p.climbing ? " · appena salito" : ""}</div>
+                        </div>
+                        <div class="ph-score">${p.signal_score != null ? p.signal_score : "–"}<span>signal</span></div>
+                    </button>`).join("")
+                : `<div class="ph-empty">Nessun giocatore in questa tappa ora.</div>`;
+            document.querySelectorAll("#phaseList .ph-row").forEach(r =>
+                r.addEventListener("click", () => { closeSheets(); openDetail(+r.getAttribute("data-idx")); }));
+            document.getElementById("detailScrim").classList.add("open");
+            document.getElementById("phaseSheet").classList.add("open");
+        }
+
+        function openDetail(i) {
+            const p = state.players[i];
+            if (!p) return;
+            state.selected = i;
+            const phaseName = PHASE_LABELS[p.phase] || "";
+            const hot = p.phase === 3;
+            document.getElementById("detailBody").innerHTML = `
+                ${hot ? '<span class="detail-tag">sta per esplodere</span>' : ''}
+                <div class="detail-name">${escapeHTML(p.name || "—")}</div>
+                <div class="detail-meta">${p.role ? escapeHTML(p.role) + " · " : ""}${escapeHTML(p.club || "club N/D")}${p.climbing ? " · appena salito di tappa" : ""}</div>
+                <div class="detail-grid">
+                    <div><div class="k">tappa</div><div class="v ${hot ? "hot" : ""}" style="font-size:0.95rem;font-family:'Newsreader',serif">${escapeHTML(phaseName)}</div></div>
+                    <div><div class="k">signal</div><div class="v">${p.signal_score != null ? p.signal_score : "–"}</div></div>
+                    <div><div class="k">spinta</div><div class="v ${hot ? "hot" : ""}">${p.exit_pressure != null ? p.exit_pressure : "–"}</div></div>
+                </div>`;
+            const flag = document.getElementById("detailFlag");
+            flag.classList.toggle("active", !!p.watchlisted);
+            flag.textContent = p.watchlisted ? "★ SEGNATO" : "☆ SEGNA";
+            document.getElementById("detailScrim").classList.add("open");
+            document.getElementById("detail").classList.add("open");
+            document.querySelectorAll(".map-svg .dot.sel").forEach(d => d.classList.remove("sel"));
+            const dot = document.querySelector(`.map-svg .dot[data-idx="${i}"]`);
+            if (dot) dot.classList.add("sel");
+        }
+
+        function closeSheets() {
+            document.getElementById("detailScrim").classList.remove("open");
+            document.getElementById("detail").classList.remove("open");
+            document.getElementById("phaseSheet").classList.remove("open");
+            document.querySelectorAll(".map-svg .dot.sel").forEach(d => d.classList.remove("sel"));
+        }
+
+        async function toggleWatch(candidateId, watchlisted) {
+            try {
+                await fetch("/api/radar/watchlist", {
+                    method: "POST", headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ candidate_id: candidateId, watchlisted }),
+                });
+            } catch (e) { /* il toggle resta visibile in questa sessione comunque */ }
+        }
+
+        function bindDots() {
+            document.querySelectorAll(".map-svg .dot").forEach(d =>
+                d.addEventListener("click", () => openDetail(+d.getAttribute("data-idx"))));
+            document.querySelectorAll(".sl-row").forEach(r =>
+                r.addEventListener("click", () => openDetail(+r.getAttribute("data-idx"))));
+            // tocco su una fascia della curva -> lista di quella tappa
+            document.querySelectorAll(".map-svg .phase-hit").forEach(h =>
+                h.addEventListener("click", () => openPhaseList(+h.getAttribute("data-phase"))));
+        }
+
+        function bindLegend() {
+            document.querySelectorAll("#legendRows .lg-row.tappable").forEach(r => {
+                const go = () => openPhaseList(+r.getAttribute("data-phase"));
+                r.addEventListener("click", go);
+                r.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
+            });
+        }
+
+        async function load() {
+            let data;
+            try {
+                const res = await fetch("/api/radar/mappa");
+                data = await res.json();
+            } catch (e) {
+                document.getElementById("content").innerHTML = `<div class="loading">errore di rete: ${escapeHTML(String(e))}</div>`;
+                return;
+            }
+            if (data.status !== "success") {
+                document.getElementById("content").innerHTML = `<div class="loading">errore: ${escapeHTML(data.message || "sconosciuto")}</div>`;
+                return;
+            }
+            state.players = data.players || [];
+            if (data.assessed_count === 0) {
+                document.getElementById("content").innerHTML =
+                    `<div class="empty-hot">Ancora nessun giocatore collocato sul percorso: serve un minimo di scansioni ripetute per capire dove si trova ciascuno. Finora ${data.not_yet_count} candidati sono stati visti, ma non abbastanza volte. Torna dopo qualche altra scansione.</div>`;
+                return;
+            }
+            document.getElementById("content").innerHTML = buildMap(data);
+            document.getElementById("legendRows").innerHTML = buildLegend(data);
+            document.getElementById("legend").style.display = "block";
+            bindDots();
+            bindLegend();
+        }
+
+        document.getElementById("backBtn").addEventListener("click", () => { window.location.href = "/turno"; });
+        document.getElementById("procBtn").addEventListener("click", () => { window.location.href = "/processo"; });
+        document.getElementById("detailClose").addEventListener("click", closeSheets);
+        document.getElementById("phaseClose").addEventListener("click", closeSheets);
+        document.getElementById("detailScrim").addEventListener("click", closeSheets);
+        document.getElementById("detailFlag").addEventListener("click", () => {
+            const p = state.players[state.selected];
+            if (!p) return;
+            p.watchlisted = !p.watchlisted;
+            const flag = document.getElementById("detailFlag");
+            flag.classList.toggle("active", p.watchlisted);
+            flag.textContent = p.watchlisted ? "★ SEGNATO" : "☆ SEGNA";
+            const dot = document.querySelector(`.map-svg .dot[data-idx="${state.selected}"]`);
+            if (dot) dot.classList.toggle("watch", p.watchlisted);
+            toggleWatch(p.candidate_id, p.watchlisted);
+        });
+
+        // tema: identico agli altri schermi del portale
+        const THEME_KEY = "sentinel-theme";
+        function applyTheme(theme) {
+            const root = document.documentElement;
+            if (theme) root.setAttribute("data-theme", theme); else root.removeAttribute("data-theme");
+            const isLight = theme === "light" || (!theme && window.matchMedia("(prefers-color-scheme: light)").matches);
+            document.getElementById("themeToggle").textContent = isLight ? "☾" : "☀";
+            document.querySelector('meta[name="theme-color"]').setAttribute("content", isLight ? "#f3f5f6" : "#0a0e13");
+        }
+        document.getElementById("themeToggle").addEventListener("click", () => {
+            const current = document.documentElement.getAttribute("data-theme") ||
+                (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+            const next = current === "light" ? "dark" : "light";
+            localStorage.setItem(THEME_KEY, next);
+            applyTheme(next);
+        });
+        applyTheme(localStorage.getItem(THEME_KEY) || null);
+
+        load();
+    </script>
+</body>
+
+</html>
