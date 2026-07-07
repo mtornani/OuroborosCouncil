@@ -1,3 +1,5 @@
+import hmac
+import os
 import time
 import threading
 from flask import Flask, render_template, request, redirect, jsonify
@@ -5,6 +7,38 @@ from flask import Flask, render_template, request, redirect, jsonify
 import discovery_engine
 
 app = Flask(__name__)
+
+# ============================================================
+# ACCESSO - chiave condivisa opzionale
+# ============================================================
+# Il servizio Cloud Run e' pubblico (--allow-unauthenticated): senza questo
+# gate chiunque trovi l'URL puo' lanciare scansioni a raffica (bruciando le
+# quote giornaliere free di Gemini/OpenRouter/NVIDIA) o modificare la
+# watchlist. Opt-in per non rompere nulla: finche' RADAR_ACCESS_KEY non e'
+# impostata nell'ambiente, il comportamento e' identico a prima. Quando e'
+# impostata: si apre l'app UNA volta con ?key=LACHIAVE, il browser riceve un
+# cookie e da li' in poi tutto (pagine, API, PWA) funziona come sempre.
+RADAR_ACCESS_KEY = os.getenv("RADAR_ACCESS_KEY", "")
+_ACCESS_COOKIE = "radar_key"
+
+
+@app.before_request
+def _access_gate():
+    if not RADAR_ACCESS_KEY:
+        return  # gate spento: nessun cambiamento rispetto a prima
+    # compare_digest, non ==: confronto in tempo costante, una chiave non si
+    # indovina misurando i tempi di risposta
+    if hmac.compare_digest(request.cookies.get(_ACCESS_COOKIE, ""), RADAR_ACCESS_KEY):
+        return
+    if hmac.compare_digest(request.args.get("key", ""), RADAR_ACCESS_KEY):
+        resp = redirect(request.path)  # togli la chiave dalla URL visibile
+        resp.set_cookie(
+            _ACCESS_COOKIE, RADAR_ACCESS_KEY,
+            max_age=180 * 24 * 3600, httponly=True, samesite="Lax",
+            secure=request.is_secure,
+        )
+        return resp
+    return jsonify({"status": "error", "message": "Accesso negato: apri l'app con ?key=LACHIAVE."}), 401
 
 
 @app.after_request
@@ -96,6 +130,14 @@ def _radar_job_is_stale(job):
 def _run_radar_job(profile):
     try:
         result = discovery_engine.refresh_radar(profile)
+        # niente lista "results" nello stato del job: il client a fine
+        # scansione ricarica comunque /api/radar/feed (gia' cappato a 300),
+        # mentre qui la lista completa - migliaia di schede coi dossier -
+        # restava pinnata in memoria e usciva INTERA dal polling di
+        # /api/radar/refresh/status, proprio il payload che il cap del feed
+        # era nato per evitare su mobile. Del risultato servono solo i
+        # contatori e run_at.
+        result.pop("results", None)
         with _radar_job_lock:
             _radar_job["status"] = "done"
             _radar_job["result"] = result

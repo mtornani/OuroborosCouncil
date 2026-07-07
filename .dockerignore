@@ -6,6 +6,8 @@ __pycache__
 *.pyc
 radar_feed.json
 buzz_history.json
+watchlist.json
+curve_validation.json
 web_intel.json
 telegram_sent.json
 state.json

@@ -176,6 +176,7 @@ curve_validation.json     # registro scommesse (esplosi/sgonfiati) + crossing
 | `GEMINI_API_KEY` | ⬜ | Provider primario dello swarm (consigliato) |
 | `NVIDIA_API_KEY` | ⬜ | Provider di riserva |
 | `DATABASE_URL` | ⬜ | Postgres per persistere lo stato oltre il filesystem effimero |
+| `RADAR_ACCESS_KEY` | ⬜ | Se impostata, l'app chiede una chiave d'accesso: si apre una volta con `?key=LACHIAVE` e da lì un cookie sblocca tutto. Senza, il servizio pubblico è aperto a chiunque trovi l'URL (che può bruciare le quote AI gratuite con scansioni a raffica) |
 
 ### In locale
 
@@ -196,14 +197,24 @@ python discovery_engine.py diagnose
 ```bash
 gcloud config set project <IL_TUO_PROJECT_ID>
 gcloud run deploy ob1-radar --source . --region europe-west1 \
-  --allow-unauthenticated --no-cpu-throttling
+  --allow-unauthenticated --no-cpu-throttling --max-instances 1
 ```
 
 > `--no-cpu-throttling` **non è opzionale**: la scansione gira in un thread di
 > sfondo (per non far scadere la richiesta HTTP), e senza quel flag Cloud Run
 > affama di CPU il thread tra un polling e l'altro, allungando una scansione da
-> ~60s a diversi minuti. Le pagine escono con `Cache-Control: no-store` così ogni
-> deploy si vede subito, senza refresh forzati.
+> ~60s a diversi minuti.
+>
+> `--max-instances 1` **nemmeno**: lo stato della scansione vive nella memoria
+> del processo, e se l'autoscaling accende una seconda istanza il polling di
+> `/api/radar/refresh/status` può finire sull'istanza *sbagliata* — vedresti
+> "inattivo" mentre la scansione gira altrove. Un'istanza sola basta e avanza
+> per un uso personale.
+>
+> Le pagine escono con `Cache-Control: no-store` così ogni deploy si vede
+> subito, senza refresh forzati. Dopo il primo deploy con `DATABASE_URL`
+> impostata, apri `/api/radar/health` una volta per confermare che lo storico
+> sta davvero su Postgres (Neon) e non sul filesystem effimero.
 
 ---
 

@@ -31,4 +31,8 @@ EXPOSE 8080
 # CPU tra un polling e l'altro del client, e una scansione misurata in
 # ~60s in locale puo' arrivare a durare minuti in produzione per questo,
 # non per il lavoro che fa davvero.
-CMD exec gunicorn --bind 0.0.0.0:$PORT --workers 1 --timeout 570 visual_council_app:app
+# --workers 1 e' DELIBERATO (lo stato del job di scansione vive nella memoria
+# del processo: piu' worker = piu' copie scollegate dello stato); --threads 4
+# da' comunque risposte concorrenti dentro quell'unico processo, cosi' il
+# polling dello stato non resta in coda dietro una lettura lenta del feed.
+CMD exec gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 570 visual_council_app:app

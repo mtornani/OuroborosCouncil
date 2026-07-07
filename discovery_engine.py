@@ -15,6 +15,7 @@ numero stimato spacciato per reale. Stessa regola gia' in monitor/web_monitor.py
 import json
 import os
 import re
+import threading
 import unicodedata
 import urllib.parse
 import urllib.request
@@ -24,7 +25,7 @@ from pathlib import Path
 
 import yaml
 
-from monitor.web_monitor import search_google_news, deduplicate_signals
+from monitor.web_monitor import search_google_news
 from openrouter_client import call_openrouter, get_available_models
 from nvidia_client import call_nvidia, get_available_models as get_available_nvidia_models
 from gemini_client import call_gemini, get_available_models as get_available_gemini_models
@@ -69,8 +70,6 @@ def _min_birth_year() -> int:
 # costante strutturale, non un peso da tarare, resta nel codice.
 RESERVE_TEAM_QID = "Q2412834"
 
-DEFAULT_FALLBACK_MODEL = "google/gemini-2.0-flash-lite-preview-02-05:free"
-
 
 # ============================================================
 # CONFIG / STATO
@@ -79,6 +78,14 @@ DEFAULT_FALLBACK_MODEL = "google/gemini-2.0-flash-lite-preview-02-05:free"
 def load_config() -> dict:
     with open(CONFIG_FILE, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
+
+
+class PersistenceError(Exception):
+    """Il DB e' configurato ma non risponde. Errore DEDICATO perche' chi legge
+    non deve mai scambiarlo per 'nessun dato': un refresh partito da {} per un
+    errore transitorio finirebbe, a fine run, per sovrascrivere su Postgres
+    l'INTERO storico append-only con i soli dati del run corrente - il tipo di
+    perdita che noti solo il giorno che ti servivano i mesi di storico."""
 
 
 def _db_ensure_table(conn):
@@ -92,24 +99,63 @@ def _db_ensure_table(conn):
             )
             """
         )
-    conn.commit()
+
+
+# Connessione riusata a livello di modulo, dietro lock (il refresh gira in un
+# thread di sfondo mentre le richieste web leggono): prima ogni load/save
+# apriva una connessione NUOVA a Neon (handshake TLS + resume dall'autosuspend
+# del free tier = secondi) e rieseguiva la CREATE TABLE ogni volta - decine di
+# connessioni sequenziali per un solo refresh. Il retry singolo serve proprio
+# per Neon: chiude le connessioni rimaste inattive, il primo uso dopo una
+# pausa fallisce e deve solo riconnettersi, non e' un errore vero.
+_db_lock = threading.Lock()
+_db_conn = None
+_db_table_ready = False
+
+
+def _db_run(fn):
+    """Esegue fn(conn) sulla connessione condivisa, con commit e un retry su
+    connessione fresca. Dopo due tentativi falliti alza PersistenceError -
+    mai un risultato vuoto spacciato per 'nessun dato'."""
+    global _db_conn, _db_table_ready
+    with _db_lock:
+        last_error = None
+        for _attempt in (1, 2):
+            try:
+                if _db_conn is None or _db_conn.closed:
+                    _db_conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
+                    _db_table_ready = False
+                if not _db_table_ready:
+                    _db_ensure_table(_db_conn)
+                    _db_table_ready = True
+                result = fn(_db_conn)
+                _db_conn.commit()
+                return result
+            except Exception as e:
+                last_error = e
+                try:
+                    _db_conn.close()
+                except Exception:
+                    pass
+                _db_conn = None
+                _db_table_ready = False
+        raise PersistenceError(f"Postgres non risponde: {last_error}") from last_error
 
 
 def _load_json(path: Path) -> dict:
     """path.stem diventa la chiave su Postgres quando DATABASE_URL e'
     impostata (radar_feed.json -> 'radar_feed'), altrimenti file locale -
     stesso comportamento di prima, cosi' lo sviluppo senza DB configurato
-    non si rompe."""
+    non si rompe. Se il DB e' configurato ma non risponde alza
+    PersistenceError (vedi la classe): il chiamante fallisce in modo
+    esplicito invece di proseguire su uno stato vuoto."""
     if DATABASE_URL and psycopg2:
-        try:
-            with psycopg2.connect(DATABASE_URL) as conn:
-                _db_ensure_table(conn)
-                with conn.cursor() as cur:
-                    cur.execute("SELECT data FROM radar_state WHERE key = %s", (path.stem,))
-                    row = cur.fetchone()
-                    return row[0] if row else {}
-        except Exception:
-            return {}  # fonte non disponibile: mai un fallback silenzioso con dati vecchi/inventati
+        def read(conn):
+            with conn.cursor() as cur:
+                cur.execute("SELECT data FROM radar_state WHERE key = %s", (path.stem,))
+                row = cur.fetchone()
+                return row[0] if row else {}
+        return _db_run(read)
 
     if not path.exists():
         return {}
@@ -122,22 +168,26 @@ def _load_json(path: Path) -> dict:
 
 def _save_json(path: Path, data: dict):
     if DATABASE_URL and psycopg2:
+        def write(conn):
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO radar_state (key, data, updated_at)
+                    VALUES (%s, %s, now())
+                    ON CONFLICT (key) DO UPDATE SET data = EXCLUDED.data, updated_at = now()
+                    """,
+                    (path.stem, psycopg2.extras.Json(data)),
+                )
         try:
-            with psycopg2.connect(DATABASE_URL) as conn:
-                _db_ensure_table(conn)
-                with conn.cursor() as cur:
-                    cur.execute(
-                        """
-                        INSERT INTO radar_state (key, data, updated_at)
-                        VALUES (%s, %s, now())
-                        ON CONFLICT (key) DO UPDATE SET data = EXCLUDED.data, updated_at = now()
-                        """,
-                        (path.stem, psycopg2.extras.Json(data)),
-                    )
-                conn.commit()
+            _db_run(write)
             return
-        except Exception:
-            pass  # DB irraggiungibile in questo run: non blocca il refresh, scrive comunque su file locale
+        except PersistenceError as e:
+            # Il DB e' morto A META' refresh (le letture iniziali erano
+            # passate, altrimenti non saremmo qui): il lavoro gia' fatto non
+            # si butta, si scrive il backup d'emergenza su file locale. Ma a
+            # voce alta nei log, non in silenzio: il file su Cloud Run e'
+            # effimero e /api/radar/health continuera' a dire la verita'.
+            print(f"[persistenza] ATTENZIONE: {e} - '{path.stem}' scritto SOLO su file locale effimero.")
 
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
@@ -145,31 +195,32 @@ def _save_json(path: Path, data: dict):
 
 def persistence_status() -> dict:
     """Dice CHIARAMENTE dove vive lo stato: Postgres durevole, oppure file
-    effimero. Serve perche' _load_json/_save_json ricadono in silenzio sul
-    file locale se il DB non risponde - comodo per non bloccare un refresh,
-    ma pericoloso per un sistema che vive del suo storico: uno sbaglio nella
-    DATABASE_URL ti farebbe perdere tutto senza accorgertene. Questo rende il
-    fallback visibile: 'credo sia su Neon' diventa 'lo vedo'."""
+    effimero. Con il DB configurato le letture falliscono ESPLICITAMENTE se
+    Postgres non risponde (PersistenceError, vedi _load_json) e solo le
+    scritture a meta' refresh ripiegano sul file locale come backup
+    d'emergenza - questo endpoint resta il posto dove 'credo sia su Neon'
+    diventa 'lo vedo', p.es. per uno sbaglio nella DATABASE_URL."""
     if not DATABASE_URL:
         return {"mode": "file", "durable": False,
                 "message": "Nessun DATABASE_URL impostata: lo stato e' su file locale, EFFIMERO su Cloud Run (si azzera a ogni deploy/riavvio)."}
     if not psycopg2:
         return {"mode": "file", "durable": False,
                 "message": "DATABASE_URL c'e' ma psycopg2 non e' installato: si sta scrivendo su file locale effimero."}
+
+    def read(conn):
+        with conn.cursor() as cur:
+            cur.execute("SELECT key, pg_column_size(data), updated_at FROM radar_state ORDER BY key")
+            return cur.fetchall()
     try:
-        with psycopg2.connect(DATABASE_URL, connect_timeout=8) as conn:
-            _db_ensure_table(conn)
-            with conn.cursor() as cur:
-                cur.execute("SELECT key, pg_column_size(data), updated_at FROM radar_state ORDER BY key")
-                rows = cur.fetchall()
+        rows = _db_run(read)
         keys = [{"key": r[0], "kb": round((r[1] or 0) / 1024, 1),
                  "updated_at": r[2].isoformat() if r[2] else None} for r in rows]
         return {"mode": "postgres", "durable": True,
                 "message": f"Stato durevole su Postgres: {len(keys)} tabelle di stato salvate. Lo storico sopravvive ai deploy.",
                 "keys": keys}
-    except Exception as e:
+    except PersistenceError as e:
         return {"mode": "file", "durable": False,
-                "message": f"DATABASE_URL impostata ma il DB NON risponde ({e}): si sta ricadendo su file locale effimero - lo storico NON e' al sicuro."}
+                "message": f"DATABASE_URL impostata ma il DB NON risponde ({e}): lo storico NON e' al sicuro e ogni operazione fallira' esplicitamente."}
 
 
 def slugify(name: str) -> str:
@@ -919,13 +970,18 @@ def adoption_curve_assessment(candidate_id: str, history: dict, cfg: dict) -> di
 CURVE_VALIDATION_FILE = BASE_DIR / "curve_validation.json"
 
 
-def _record_curve_crossing(record: dict, candidate: dict, run_at: str) -> None:
-    ledger = _load_json(CURVE_VALIDATION_FILE)
+# Il ledger viene caricato UNA volta a inizio refresh e salvato UNA volta a
+# fine refresh (vedi refresh_radar): prima queste due funzioni facevano
+# load+save su Postgres PER OGNI candidato con una fase fresca - fino a oltre
+# cento round-trip sequenziali verso Neon in una sola scansione, per un file
+# di pochi KB. Ritornano True se hanno modificato il ledger.
+
+def _record_curve_crossing(ledger: dict, record: dict, candidate: dict, run_at: str) -> bool:
     events = ledger.get("events", [])
     # un candidato attraversa una sola volta: mai duplicare l'evento se un
     # run successivo rilegge lo stesso stato
     if any(ev.get("candidate_id") == candidate["candidate_id"] for ev in events):
-        return
+        return False
     prior_phases = [
         e["curve"].get("phase")
         for e in record["history"][:-1]
@@ -938,8 +994,8 @@ def _record_curve_crossing(record: dict, candidate: dict, run_at: str) -> None:
         "anticipato": 3 in prior_phases,
         "fasi_precedenti": [p for p in prior_phases if p is not None][-5:],
     })
-    ledger["events"] = events  # preserva "flags", non sovrascrivere l'intero file
-    _save_json(CURVE_VALIDATION_FILE, ledger)
+    ledger["events"] = events  # preserva "flags", non sovrascrivere l'intero ledger
+    return True
 
 
 # --- Il tabellone: precisione, non solo richiamo -----------------------------
@@ -953,10 +1009,9 @@ def _record_curve_crossing(record: dict, candidate: dict, run_at: str) -> None:
 # o sgonfiato (e' ricaduto senza attraversare). Un sistema che nasconde i
 # suoi errori e' marketing; questo li conta, davanti a chi lo vuole debunkare.
 
-def _update_flag_ledger(candidate: dict, phase, run_at: str) -> None:
+def _update_flag_ledger(ledger: dict, candidate: dict, phase, run_at: str) -> bool:
     if phase is None:
-        return
-    ledger = _load_json(CURVE_VALIDATION_FILE)
+        return False
     flags = ledger.get("flags", [])
     cid = candidate["candidate_id"]
     open_flag = next((f for f in flags if f["candidate_id"] == cid and f["outcome"] == "pending"), None)
@@ -976,7 +1031,7 @@ def _update_flag_ledger(candidate: dict, phase, run_at: str) -> None:
         changed = True
     if changed:
         ledger["flags"] = flags
-        _save_json(CURVE_VALIDATION_FILE, ledger)
+    return changed
 
 
 def curve_validation_summary() -> dict:
@@ -1385,7 +1440,11 @@ def _candidate_models() -> list[tuple]:
     pool = [(call_gemini, m["id"]) for m in get_available_gemini_models()]
     pool += [(call_openrouter, m["id"]) for m in get_available_models()[:5]]
     pool += [(call_nvidia, m["id"]) for m in get_available_nvidia_models()]
-    return pool or [(call_openrouter, DEFAULT_FALLBACK_MODEL)]
+    # pool vuota = nessuna chiave configurata o cataloghi irraggiungibili:
+    # meglio l'errore esplicito di _call_with_fallback che un finto fallback
+    # su un modello hardcodato (il vecchio default era un modello ":preview"
+    # che OpenRouter ha gia' ritirato - falliva comunque, ma piu' confuso)
+    return pool
 
 
 def _grounded_cronista_pool() -> list[tuple]:
@@ -1411,6 +1470,13 @@ def _call_with_fallback(model_pool: list[tuple], system_prompt: str, user_messag
     la giornata) - prova il prossimo candidato invece di far fallire subito
     l'intero dossier. Ritorna (risposta, call_fn, modello) cosi' il resto
     del dossier riusa lo stesso provider/modello che ha gia' risposto."""
+    if not model_pool:
+        # senza questa guardia una pool vuota finiva in `raise None` in fondo
+        # (TypeError fuorviante nei log al posto della causa vera)
+        raise RuntimeError(
+            "Nessun modello AI disponibile: nessuna chiave API configurata "
+            "(OPENROUTER_API_KEY/GEMINI_API_KEY/NVIDIA_API_KEY) o cataloghi irraggiungibili."
+        )
     last_error = None
     for call_fn, model in model_pool:
         try:
@@ -1644,6 +1710,11 @@ def refresh_radar(profile_key: str = "tactical_profile") -> dict:
     # sovrascritto - e' l'unico modo per verificare nel tempo se il segnale
     # ha davvero anticipato qualcosa
     run_at = _now_iso()
+    # il ledger di validazione si carica UNA volta qui e si salva UNA volta a
+    # fine giro (vedi commento su _record_curve_crossing): con Postgres ogni
+    # load/save e' un round-trip di rete, farne due per candidato non scala
+    ledger = _load_json(CURVE_VALIDATION_FILE)
+    ledger_changed = False
     for entry in ranked:
         cid = entry["candidate"]["candidate_id"]
         record = feed.setdefault(cid, {"identity": entry["candidate"], "history": []})
@@ -1665,6 +1736,14 @@ def refresh_radar(profile_key: str = "tactical_profile") -> dict:
                 "curve": entry["signal"].get("curve"),
             }
         )
+        # bound alla crescita, come gia' per buzz_history (runs[-20:]): la
+        # history serve a Kalman/CUSUM/trail, che convergono ben prima di 30
+        # osservazioni - senza tetto il feed cresce di ~un'entry a candidato
+        # PER OGNI scansione (pool in migliaia) e il JSONB monolitico su
+        # Postgres viene riscritto per intero a ogni salvataggio incrementale.
+        # Gli esiti di lungo periodo NON si perdono: vivono nel ledger di
+        # validazione (curve_validation), che e' append-only per davvero.
+        record["history"] = record["history"][-30:]
         if "dossier" in entry:
             record["dossier"] = entry["dossier"]
 
@@ -1674,12 +1753,12 @@ def refresh_radar(profile_key: str = "tactical_profile") -> dict:
         # posto nel turno di revisione
         curve_phase = (entry["signal"].get("curve") or {}).get("phase")
         if curve_phase == 4:
-            _record_curve_crossing(record, entry["candidate"], run_at)
+            ledger_changed = _record_curve_crossing(ledger, record, entry["candidate"], run_at) or ledger_changed
         # tabellone precisione: apre/chiude la scommessa "sta per esplodere"
         # per ogni candidato con una fase fresca questo run (esploso vs
         # sgonfiato) - e' cio' che rende il rilevatore falsificabile sui fatti
         if curve_phase is not None:
-            _update_flag_ledger(entry["candidate"], curve_phase, run_at)
+            ledger_changed = _update_flag_ledger(ledger, entry["candidate"], curve_phase, run_at) or ledger_changed
 
         # sonda di cambiamento di stato: solo sui candidati con un dossier
         # AI vero questo giro (stesso sottoinsieme stretto del funnel, mai
@@ -1725,6 +1804,8 @@ def refresh_radar(profile_key: str = "tactical_profile") -> dict:
 
     _save_json(FEED_FILE, feed)
     _save_json(BUZZ_HISTORY_FILE, history)
+    if ledger_changed:
+        _save_json(CURVE_VALIDATION_FILE, ledger)
 
     return {
         "run_at": run_at,
