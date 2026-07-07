@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import time
 import threading
 from flask import Flask, render_template, request, jsonify
 
@@ -199,7 +200,25 @@ def service_worker():
 # senza risposta oltre i 150s). Girare il refresh in un thread di sfondo e
 # far fare polling al client elimina il limite di tempo della request.
 _radar_job_lock = threading.Lock()
-_radar_job = {"status": "idle", "result": None, "message": None}
+_radar_job = {"status": "idle", "result": None, "message": None, "started_at": None}
+
+# Una scansione sana finisce in minuti, non in ore. Se il flag "running"
+# resta appeso oltre questo limite la scansione va considerata morta -
+# tipicamente un thread di sfondo affamato di CPU su Cloud Run (revisione
+# senza --no-cpu-throttling) o un'istanza riciclata a meta' turno. Senza
+# questa scadenza il flag bloccato in memoria impedisce IN ETERNO ogni nuova
+# scansione (verificato dal vivo: 19h a "running" con zero scritture, e ogni
+# nuovo Aggiorna respinto con "already_running" finche' non si riavvia il
+# container).
+_RADAR_JOB_MAX_SECONDS = 15 * 60
+
+
+def _radar_job_is_stale(job):
+    return (
+        job["status"] == "running"
+        and job.get("started_at") is not None
+        and (time.time() - job["started_at"]) > _RADAR_JOB_MAX_SECONDS
+    )
 
 
 def _run_radar_job(profile):
@@ -221,11 +240,12 @@ def radar_refresh():
     data = request.json or {}
     profile = data.get("profile", "tactical_profile")
     with _radar_job_lock:
-        if _radar_job["status"] == "running":
+        if _radar_job["status"] == "running" and not _radar_job_is_stale(_radar_job):
             return jsonify({"status": "already_running"})
         _radar_job["status"] = "running"
         _radar_job["result"] = None
         _radar_job["message"] = None
+        _radar_job["started_at"] = time.time()
     threading.Thread(target=_run_radar_job, args=(profile,), daemon=True).start()
     return jsonify({"status": "started"})
 
@@ -233,6 +253,14 @@ def radar_refresh():
 @app.route("/api/radar/refresh/status")
 def radar_refresh_status():
     with _radar_job_lock:
+        if _radar_job_is_stale(_radar_job):
+            # scansione appesa oltre il limite: la si dichiara fallita, cosi'
+            # il client smette di girare a vuoto e l'utente puo' rilanciare
+            # subito (invece di restare bloccato su "already_running").
+            _radar_job["status"] = "error"
+            _radar_job["message"] = ("La scansione precedente si e' bloccata oltre il limite "
+                                     "di tempo ed e' stata annullata. Premi Aggiorna per riprovare.")
+            _radar_job["started_at"] = None
         job = dict(_radar_job)
     if job["status"] == "done":
         return jsonify({"status": "success", **job["result"]})
