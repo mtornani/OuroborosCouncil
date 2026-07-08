@@ -1737,13 +1737,19 @@ def _call_with_fallback(model_pool: list[tuple], system_prompt: str, user_messag
     last_error = None
     for call_fn, model in usable:
         try:
-            result = call_fn(model, system_prompt, user_message), call_fn, model
+            response = call_fn(model, system_prompt, user_message)
         except Exception as e:
             _record_model_result(model, ok=False)
             last_error = e
             continue
+        if _looks_like_tool_markup(response):
+            # il modello ha emesso sintassi di chiamata-strumento come testo:
+            # non e' una risposta, e' un fallimento - prova il prossimo
+            _record_model_result(model, ok=False)
+            last_error = RuntimeError(f"{model} ha risposto con markup di tool call, non testo")
+            continue
         _record_model_result(model, ok=True)
-        return result
+        return response, call_fn, model
     raise last_error
 
 
@@ -1770,6 +1776,33 @@ def _sanitize_technical_terms(text: str) -> str:
     return _TECHNICAL_TERM_PATTERN.sub(lambda m: _COMPONENT_LABELS_IT[m.group(0).lower()], text)
 
 
+# Un modello free puo' "rispondere" emettendo la sintassi di una chiamata
+# strumento come TESTO (verificato dal vivo: la voce dello Scettico mostrava
+# parola per parola "<tool_call> <function=openrouter_web_search>..." sulla
+# card di Leandro Santos). Non e' una risposta: e' il tentativo fallito di
+# usare un tool che quel modello non ha. In generazione si tratta come
+# chiamata fallita (si passa al modello successivo); in lettura, per i
+# dossier gia' salvati, il testo viene sostituito da una nota onesta.
+_TOOL_MARKUP_PATTERN = re.compile(
+    r"<\s*/?\s*tool_call|<\s*/?\s*function[=\s>]|<\s*/?\s*parameter[=\s>]"
+    r"|\[\s*/?\s*TOOL_CALL\s*\]|<\|tool_call\|>",
+    re.IGNORECASE,
+)
+
+_AI_VOICE_UNAVAILABLE = (
+    "voce non disponibile in questo giro: il modello AI ha risposto in un "
+    "formato tecnico non valido invece che in italiano."
+)
+
+
+def _looks_like_tool_markup(text) -> bool:
+    return isinstance(text, str) and bool(_TOOL_MARKUP_PATTERN.search(text))
+
+
+def _reject_tool_markup(text: str) -> str:
+    return _AI_VOICE_UNAVAILABLE if _looks_like_tool_markup(text) else text
+
+
 def run_swarm_dossier(candidate: dict, score_result: dict) -> dict:
     model_pool = _candidate_models()
     component_names = [_COMPONENT_LABELS_IT.get(k, k) for k in score_result.get("components", {})]
@@ -1793,18 +1826,22 @@ def run_swarm_dossier(candidate: dict, score_result: dict) -> dict:
     except Exception:
         cronista, call_fn, model = _call_with_fallback(model_pool, _ROLES["cronista"], context)
         grounded = False
-    cronista = _sanitize_technical_terms(cronista)
-    verificatore = _sanitize_technical_terms(
+    # _reject_tool_markup su OGNI voce: i ruoli dopo il Cronista riusano lo
+    # stesso modello senza ripassare dal fallback, quindi un modello che
+    # "risponde" con sintassi di tool call va intercettato anche qui - la
+    # voce diventa una nota onesta, mai markup mostrato sulla card
+    cronista = _sanitize_technical_terms(_reject_tool_markup(cronista))
+    verificatore = _sanitize_technical_terms(_reject_tool_markup(
         call_fn(model, _ROLES["verificatore"], f"{context}\n\nReport Cronista:\n{cronista}")
-    )
-    scettico = _sanitize_technical_terms(call_fn(
+    ))
+    scettico = _sanitize_technical_terms(_reject_tool_markup(call_fn(
         model, _ROLES["scettico"],
         f"{context}\n\nReport Cronista:\n{cronista}\n\nReport Verificatore:\n{verificatore}",
-    ))
-    giudice_raw = _sanitize_technical_terms(call_fn(
+    )))
+    giudice_raw = _sanitize_technical_terms(_reject_tool_markup(call_fn(
         model, _ROLES["giudice"],
         f"Cronista:\n{cronista}\n\nVerificatore:\n{verificatore}\n\nScettico:\n{scettico}",
-    ))
+    )))
     try:
         giudice = json.loads(giudice_raw.replace("```json", "").replace("```", "").strip())
     except Exception:
@@ -2237,10 +2274,11 @@ def _sanitize_dossier(dossier: dict) -> dict:
         return dossier
     for key in ("cronista", "verificatore", "scettico"):
         if dossier.get(key):
-            dossier[key] = _sanitize_technical_terms(dossier[key])
+            dossier[key] = _sanitize_technical_terms(_reject_tool_markup(dossier[key]))
     giudice = dossier.get("giudice")
     if isinstance(giudice, dict) and giudice.get("motivazione"):
-        giudice["motivazione"] = _sanitize_technical_terms(giudice["motivazione"])
+        giudice["motivazione"] = _sanitize_technical_terms(
+            _reject_tool_markup(giudice["motivazione"]))
     return dossier
 
 
