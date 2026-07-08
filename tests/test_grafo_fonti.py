@@ -7,7 +7,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from discovery_engine import record_observation, resolve_field, _buzz_queries, _build_buzz_pool
+from discovery_engine import (record_observation, resolve_field, _buzz_queries,
+                              _build_buzz_pool, _looks_like_tool_markup,
+                              _reject_tool_markup, _sanitize_dossier,
+                              _AI_VOICE_UNAVAILABLE)
 
 CFG = {
     "piramide": {
@@ -171,6 +174,46 @@ class TestBuzzPool(unittest.TestCase):
         rest = [{"candidate_id": "Q0"}]
         pool = _build_buzz_pool(wl, rest, {}, pool_size=1)
         self.assertEqual([c["candidate_id"] for c in pool], ["W1", "Q0"])
+
+
+class TestToolMarkupNelleVoci(unittest.TestCase):
+    """Un modello free puo' 'rispondere' emettendo la sintassi di una
+    chiamata strumento come testo. Caso reale mostrato sulla card di Leandro
+    Santos: la voce dello Scettico era letteralmente il markup del tool."""
+
+    # il testo ESATTO comparso sulla card in produzione (2026-07-08)
+    REALE = ('<tool_call> <function=openrouter_web_search> <parameter=query> '
+             '"Leandro Santos" 2005 calciatore Brasile Portogallo omonimo '
+             '</parameter> </function> </tool_call>')
+
+    def test_riconosce_il_caso_reale(self):
+        self.assertTrue(_looks_like_tool_markup(self.REALE))
+
+    def test_varianti(self):
+        self.assertTrue(_looks_like_tool_markup("bla <tool_call>x</tool_call>"))
+        self.assertTrue(_looks_like_tool_markup("[TOOL_CALL] cerca [/TOOL_CALL]"))
+        self.assertTrue(_looks_like_tool_markup("<function=search>"))
+
+    def test_testo_normale_passa(self):
+        for ok in ("Prospetto 19enne con esordi in Primeira Liga",
+                   "il segnale e' debole, funzione del contesto",  # 'funzione' parola normale
+                   "parametri di crescita interessanti", "", None):
+            self.assertFalse(_looks_like_tool_markup(ok), ok)
+
+    def test_reject_sostituisce_con_nota_onesta(self):
+        self.assertEqual(_reject_tool_markup(self.REALE), _AI_VOICE_UNAVAILABLE)
+        self.assertEqual(_reject_tool_markup("testo sano"), "testo sano")
+
+    def test_sanitize_dossier_pulisce_anche_i_salvati(self):
+        # il dossier di Leandro era GIA' su Neon: la pulizia in lettura deve
+        # sistemarlo senza rigenerare niente
+        dossier = {"cronista": "ok", "verificatore": "ok",
+                   "scettico": self.REALE,
+                   "giudice": {"motivazione": self.REALE}}
+        _sanitize_dossier(dossier)
+        self.assertEqual(dossier["scettico"], _AI_VOICE_UNAVAILABLE)
+        self.assertEqual(dossier["giudice"]["motivazione"], _AI_VOICE_UNAVAILABLE)
+        self.assertEqual(dossier["cronista"], "ok")
 
 
 class TestScenarioYokoyamaEndToEnd(unittest.TestCase):
