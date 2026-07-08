@@ -133,6 +133,26 @@ Catena di fallback multi-provider genuina: **Gemini** (primario) → **OpenRoute
 Ogni candidato è identificato internamente dal suo **QID Wikidata** stabile, mai
 dal solo nome. FBref e Transfermarkt sono esclusi per rispetto di ToS/robots.
 
+### Il grafo delle fonti (la piramide)
+
+Le fonti gratuite sono spesso stantie (audit live 2026-07 su 100 QID reali del
+feed: 52% senza club su Wikidata, mediana 24 giorni dall'ultima modifica della
+scheda, p75 a 120 giorni). Per questo il motore non memorizza *fatti* ma
+**osservazioni con provenienza** — `(candidato, campo, valore, fonte, quando,
+citazione)` — accumulate in append-only (`radar_observations.json`, su Postgres
+in produzione). Un **risolutore** con regole esplicite decide il valore
+corrente e lo spiega sulla card ("secondo chi, da quando").
+
+Le fonti sono disposte in una **piramide** (`piramide` in `radar_config.yaml`):
+in basso l'occhio umano e la nicchia locale (fresco, vicino al campo), in alto
+i dati strutturati globali (consolidati, in ritardo). Regola d'inversione: i
+fatti **veloci** (club attuale) si leggono *dal basso* — un articolo datato
+batte un claim Wikidata senza data — i fatti **lenti** (data di nascita)
+*dall'alto*. La conferma umana (un tap sulla card "CLUB DA CORREGGERE") batte
+tutto e **sopravvive** alle riscritture da Wikidata. La query buzz usa il club
+*risolto* e, finché due fonti sono in disaccordo, cerca con **entrambi** i
+club — così un trasferimento non acceca il radar proprio nel momento del salto.
+
 ---
 
 ## Struttura del repo

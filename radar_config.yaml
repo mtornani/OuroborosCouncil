@@ -2,6 +2,32 @@
 # Unico posto dove si toccano i pesi/soglie/fonti senza toccare codice.
 # Aggiornato: 2026-07-01
 
+# --- Piramide delle fonti (grafo osservazioni) ----------------------------
+# Ogni fonte ha un LIVELLO: in basso l'occhio umano e la nicchia locale
+# (fresco, vicino al campo, rumoroso), in alto i dati strutturati globali
+# (consolidati ma in ritardo - audit live 2026-07: mediana 24gg dall'ultima
+# modifica scheda Wikidata, p75 = 120gg, e il club P54 resta "aperto" anche
+# dopo un trasferimento gia' sulla stampa).
+#
+# REGOLA D'INVERSIONE (regole_campo): la piramide non si legge sempre nello
+# stesso verso. I fatti VELOCI (club attuale) si leggono DAL BASSO: un
+# articolo datato batte un claim Wikidata senza data. I fatti LENTI (data di
+# nascita) DALL'ALTO: sull'anagrafica l'archivio consolidato batte il
+# giornale. L'osservazione fonte=umano (livello 0) batte tutto, sempre.
+piramide:
+  livelli:
+    umano: 0            # il tuo tap sulla card - L0, il campo per procura
+    news: 2             # stampa via ricerca web (la piu' fresca che abbiamo)
+    wikipedia_torneo: 3 # pagine-rosa dei tornei: congelate alla data del torneo
+    wikidata: 4         # spina dorsale per l'identita', lenta sul presente
+  regole_campo:
+    club: dal_basso     # fatto veloce
+    dob: dall_alto      # fatto lento (pronto per la fase 4, non ancora usato)
+  # finche' due fonti sono in disaccordo sul club, la query buzz cerca con
+  # ENTRAMBI i nomi (vedi buzz_score) - cosi' il trasferimento non acceca il
+  # radar nel momento esatto del salto
+  finestra_transizione_giorni: 45
+
 # --- Universo dei candidati ---------------------------------------------
 # Ogni "biblioteca" ha un'indicizzazione diversa - usare la stessa strategia
 # di ricerca ovunque produce falsi negativi sistematici, non perche' i dati

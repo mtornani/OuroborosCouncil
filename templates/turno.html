@@ -226,6 +226,17 @@
             line-height: 1.35; color: var(--text); margin: 0 0 22px; text-wrap: balance;
         }
 
+        .btn-confirm-club {
+            display: block; width: 100%; margin: -10px 0 8px; padding: 13px 16px;
+            background: var(--verified-dim); color: var(--verified);
+            border: 1px solid var(--verified); font-size: 0.78rem; font-weight: 700;
+            letter-spacing: 0.05em; cursor: pointer; text-align: left;
+        }
+        .btn-confirm-club:disabled { opacity: 0.75; cursor: default; }
+        .confirm-club-note {
+            font-size: 0.72rem; color: var(--text-dim); margin: 0 0 16px; line-height: 1.5;
+        }
+
         .identity-row { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 16px; margin-bottom: 16px; border-bottom: 1px solid var(--line); }
         .id-name { font-family: 'Newsreader', serif; font-weight: 600; font-size: 1.15rem; }
         .id-meta { font-size: 0.76rem; color: var(--text-faint); margin-top: 3px; }
@@ -623,6 +634,7 @@
             document.getElementById("caseBody").innerHTML = `
                 <div class="change-tag ${tagClass(c.change.type)}">${escapeHTML(c.change.tag)}</div>${c.change.carried ? '<span class="carried-note">già visto · finestra ancora aperta</span>' : ''}
                 <p class="change-lead">${escapeHTML(c.change.lead)}</p>
+                ${c.change.club_nuovo ? `<button class="btn-confirm-club" id="confirmClubBtn" data-club="${escapeHTML(c.change.club_nuovo)}">✓ CONFERMO: ORA GIOCA IN «${escapeHTML(c.change.club_nuovo)}»</button><div class="confirm-club-note" id="confirmClubNote"></div>` : ''}
                 <div class="identity-row">
                     <div>
                         <div class="id-name">${escapeHTML(c.name)}</div>
@@ -646,6 +658,36 @@
             const isWatchlisted = !!state.cases[idx].watchlisted;
             document.getElementById("flagBtn").classList.toggle("active", isWatchlisted);
             document.getElementById("flagBtn").textContent = isWatchlisted ? "★ SEGNATO" : "☆ SEGNA";
+
+            // conferma umana del club: entra nel grafo delle fonti come
+            // osservazione fonte=umano - vince su tutto e sopravvive alle
+            // riscritture da Wikidata (prima la correzione moriva al run dopo)
+            const confirmBtn = document.getElementById("confirmClubBtn");
+            if (confirmBtn) {
+                confirmBtn.addEventListener("click", async () => {
+                    confirmBtn.disabled = true;
+                    confirmBtn.textContent = "REGISTRO...";
+                    try {
+                        const res = await fetch("/api/radar/club-conferma", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ candidate_id: c.candidate_id, club: confirmBtn.dataset.club }),
+                        });
+                        const data = await res.json();
+                        if (data.status === "success") {
+                            confirmBtn.textContent = "✓ REGISTRATO NEGLI ATTI";
+                            document.getElementById("confirmClubNote").textContent =
+                                "d'ora in poi il sistema usa questo club (anche nella ricerca stampa), qualunque cosa dica l'archivio.";
+                        } else {
+                            confirmBtn.disabled = false;
+                            confirmBtn.textContent = "✓ RIPROVA LA CONFERMA";
+                        }
+                    } catch (e) {
+                        confirmBtn.disabled = false;
+                        confirmBtn.textContent = "✓ RIPROVA LA CONFERMA";
+                    }
+                });
+            }
             animateCurveDot();
         }
 

@@ -1,0 +1,180 @@
+# Test del GRAFO DELLE FONTI (osservazioni con provenienza + risolutore).
+# Funzioni pure su dict: niente rete, niente filesystem, niente DB.
+#   python3 -m unittest tests/test_grafo_fonti.py -v
+import sys
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from discovery_engine import record_observation, resolve_field, _buzz_queries
+
+CFG = {
+    "piramide": {
+        "livelli": {"umano": 0, "news": 2, "wikipedia_torneo": 3, "wikidata": 4},
+        "regole_campo": {"club": "dal_basso", "dob": "dall_alto"},
+        "finestra_transizione_giorni": 45,
+    }
+}
+
+
+class TestRecordObservation(unittest.TestCase):
+    def test_registra_e_deduplica(self):
+        store = {}
+        self.assertTrue(record_observation(store, "Q1", "club", "FC Imabari", "wikidata", CFG))
+        self.assertEqual(len(store["Q1"]["club"]), 1)
+        # stessa fonte, stesso valore -> conferma, non riga nuova
+        self.assertTrue(record_observation(store, "Q1", "club", "FC Imabari", "wikidata", CFG))
+        self.assertEqual(len(store["Q1"]["club"]), 1)
+        # stessa fonte, valore NUOVO -> riga nuova (lo storico non si riscrive)
+        self.assertTrue(record_observation(store, "Q1", "club", "Cerezo Osaka", "wikidata", CFG))
+        self.assertEqual(len(store["Q1"]["club"]), 2)
+
+    def test_fonte_non_censita_rifiutata(self):
+        store = {}
+        self.assertFalse(record_observation(store, "Q1", "club", "X", "fonte_inventata", CFG))
+        self.assertEqual(store, {})
+
+    def test_valore_vuoto_rifiutato(self):
+        store = {}
+        self.assertFalse(record_observation(store, "Q1", "club", "  ", "wikidata", CFG))
+
+    def test_bound_crescita(self):
+        store = {}
+        for i in range(80):
+            record_observation(store, "Q1", "club", f"Club {i}", "news", CFG)
+        self.assertLessEqual(len(store["Q1"]["club"]), 30)
+
+
+class TestResolveField(unittest.TestCase):
+    def test_grafo_vuoto_usa_fallback_dichiarato(self):
+        res = resolve_field({}, "Q1", "club", CFG, fallback="FC Imabari")
+        self.assertEqual(res["valore"], "FC Imabari")
+        self.assertIn("nessuna osservazione", res["spiegazione"])
+        self.assertIsNone(resolve_field({}, "Q1", "club", CFG))
+
+    def test_accordo_pieno(self):
+        store = {}
+        record_observation(store, "Q1", "club", "Benfica B", "wikidata", CFG)
+        record_observation(store, "Q1", "club", "Benfica B", "news", CFG)
+        res = resolve_field(store, "Q1", "club", CFG)
+        self.assertEqual(res["valore"], "Benfica B")
+        self.assertFalse(res["conflitto"])
+        self.assertIn("concordano", res["spiegazione"])
+
+    def test_club_dal_basso_news_datata_batte_wikidata_non_datata(self):
+        # LO SCENARIO YOKOYAMA (caso reale, audit 2026-07): Wikidata dice
+        # ancora Imabari (P54 senza fine), la stampa datata dice Cerezo.
+        store = {}
+        record_observation(store, "Q1", "club", "FC Imabari", "wikidata", CFG)
+        record_observation(store, "Q1", "club", "Cerezo Osaka", "news", CFG,
+                           datato_al="2026-06-28", url="https://esempio/articolo")
+        res = resolve_field(store, "Q1", "club", CFG)
+        self.assertEqual(res["valore"], "Cerezo Osaka")
+        self.assertEqual(res["fonte"], "news")
+        self.assertTrue(res["conflitto"])
+        self.assertEqual(res["alternativa"], "FC Imabari")
+        self.assertIn("datata", res["spiegazione"].lower())
+
+    def test_club_dal_basso_senza_date_vince_il_livello_basso(self):
+        store = {}
+        record_observation(store, "Q1", "club", "River Plate", "wikipedia_torneo", CFG)
+        record_observation(store, "Q1", "club", "Real Madrid", "news", CFG)
+        res = resolve_field(store, "Q1", "club", CFG)
+        self.assertEqual(res["valore"], "Real Madrid")  # news (L2) < torneo (L3)
+        self.assertTrue(res["conflitto"])
+
+    def test_dob_dall_alto_wikidata_batte_news(self):
+        # regola d'inversione: sull'anagrafica vince la fonte consolidata
+        store = {}
+        record_observation(store, "Q1", "dob", "2008-06-03", "wikidata", CFG)
+        record_observation(store, "Q1", "dob", "2007-01-01", "news", CFG,
+                           datato_al="2026-07-01")
+        res = resolve_field(store, "Q1", "dob", CFG)
+        self.assertEqual(res["valore"], "2008-06-03")
+        self.assertEqual(res["fonte"], "wikidata")
+        self.assertTrue(res["conflitto"])
+
+    def test_umano_batte_tutti_e_sopravvive(self):
+        store = {}
+        record_observation(store, "Q1", "club", "FC Imabari", "wikidata", CFG)
+        record_observation(store, "Q1", "club", "Cerezo Osaka", "news", CFG,
+                           datato_al="2026-06-28")
+        record_observation(store, "Q1", "club", "Cerezo Osaka", "umano", CFG)
+        res = resolve_field(store, "Q1", "club", CFG)
+        self.assertEqual(res["fonte"], "umano")
+        self.assertIn("confermato a mano", res["spiegazione"])
+        # ...e una RI-emissione da Wikidata stantia non lo ribalta (la falla
+        # vecchia: la correzione moriva alla riscrittura successiva)
+        record_observation(store, "Q1", "club", "FC Imabari", "wikidata", CFG)
+        res = resolve_field(store, "Q1", "club", CFG)
+        self.assertEqual(res["valore"], "Cerezo Osaka")
+        self.assertEqual(res["fonte"], "umano")
+
+    def test_deterministico(self):
+        store = {}
+        record_observation(store, "Q1", "club", "A", "wikidata", CFG)
+        record_observation(store, "Q1", "club", "B", "news", CFG, datato_al="2026-01-01")
+        r1 = resolve_field(store, "Q1", "club", CFG)
+        r2 = resolve_field(store, "Q1", "club", CFG)
+        self.assertEqual(r1, r2)
+
+
+class TestBuzzQueries(unittest.TestCase):
+    def test_query_sul_club_risolto_non_su_quello_grezzo(self):
+        c = {"name": "Yumeki Yokoyama", "club": "FC Imabari",
+             "club_risolto": "Cerezo Osaka"}
+        qs = _buzz_queries(c)
+        self.assertEqual(qs, ['"Yumeki Yokoyama" "Cerezo Osaka"'])
+
+    def test_doppia_query_in_finestra_di_transizione(self):
+        c = {"name": "Yumeki Yokoyama", "club": "FC Imabari",
+             "club_risolto": "Cerezo Osaka", "club_alternativo": "FC Imabari"}
+        qs = _buzz_queries(c)
+        self.assertEqual(len(qs), 2)
+        self.assertIn('"Yumeki Yokoyama" "Cerezo Osaka"', qs)
+        self.assertIn('"Yumeki Yokoyama" "FC Imabari"', qs)
+
+    def test_senza_club_nome_nudo(self):
+        self.assertEqual(_buzz_queries({"name": "Moussa Cissé"}), ['"Moussa Cissé"'])
+
+
+class TestScenarioYokoyamaEndToEnd(unittest.TestCase):
+    """La prova su carta completa: da tre osservazioni discordi al club
+    risolto in card e alla query buzz giusta - il percorso che prima
+    falliva (query sul club vecchio nel momento esatto del salto)."""
+
+    def test_percorso_completo(self):
+        store = {}
+        # run 1: il lettore Wikidata emette il club stantio
+        record_observation(store, "Q123575819", "club", "Football Club Imabari", "wikidata", CFG)
+        res = resolve_field(store, "Q123575819", "club", CFG)
+        self.assertEqual(res["valore"], "Football Club Imabari")  # unica voce
+
+        # run 2: il Cronista trova il club nuovo via ricerca web (datato)
+        record_observation(store, "Q123575819", "club", "Cerezo Osaka", "news", CFG,
+                           datato_al="2026-07-07", nota="Cronista via ricerca web")
+        res = resolve_field(store, "Q123575819", "club", CFG)
+        self.assertEqual(res["valore"], "Cerezo Osaka")
+        self.assertTrue(res["conflitto"])
+
+        # la query buzz ora cerca con ENTRAMBI i club (finestra transizione)
+        candidate = {"name": "Yumeki Yokoyama", "club": "Football Club Imabari",
+                     "club_risolto": res["valore"],
+                     "club_alternativo": res["alternativa"]}
+        self.assertEqual(len(_buzz_queries(candidate)), 2)
+
+        # run 3: Wikidata RI-emette il club vecchio (la scheda non e' stata
+        # corretta) - il risolutore NON regredisce
+        record_observation(store, "Q123575819", "club", "Football Club Imabari", "wikidata", CFG)
+        res = resolve_field(store, "Q123575819", "club", CFG)
+        self.assertEqual(res["valore"], "Cerezo Osaka")
+
+        # il tap di conferma chiude il caso
+        record_observation(store, "Q123575819", "club", "Cerezo Osaka", "umano", CFG)
+        res = resolve_field(store, "Q123575819", "club", CFG)
+        self.assertEqual(res["fonte"], "umano")
+
+
+if __name__ == "__main__":
+    unittest.main()
