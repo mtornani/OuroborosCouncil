@@ -226,6 +226,11 @@
             line-height: 1.35; color: var(--text); margin: 0 0 22px; text-wrap: balance;
         }
 
+        .curve-missing {
+            font-size: 0.74rem; color: var(--text-dim); line-height: 1.55;
+            border: 1px dashed var(--line); padding: 12px 14px; margin: 0 0 16px;
+        }
+
         .btn-confirm-club {
             display: block; width: 100%; margin: -10px 0 8px; padding: 13px 16px;
             background: var(--verified-dim); color: var(--verified);
@@ -508,7 +513,18 @@
         }
 
         function curveStrip(curve, trail) {
-            if (!curve || curve.phase === null || curve.phase === undefined) return "";
+            // niente sparisce in silenzio: se la curva non c'e', la card dice
+            // PERCHE' e quando arrivera' - non un buco muto
+            if (!curve) {
+                return `<div class="curve-missing">📈 curva non ancora tracciata: questo giocatore entra
+                    nel giro dei controlli stampa dal prossimo turno, e la sua posizione
+                    sul percorso verso la ribalta si disegnerà da sola.</div>`;
+            }
+            if (curve.phase === null || curve.phase === undefined) {
+                const seen = curve.runs_seen ?? 0;
+                return `<div class="curve-missing">📈 curva in costruzione: ${seen} ${seen === 1 ? "controllo stampa" : "controlli stampa"} su 3 —
+                    ancora ${Math.max(1, 3 - seen)} e la posizione sul percorso compare qui.</div>`;
+            }
             const xs = [];
             for (let x = 4; x <= 96; x += 2) xs.push(x);
             const full = xs.map(x => `${x},${CURVE_F(x).toFixed(2)}`).join(" ");

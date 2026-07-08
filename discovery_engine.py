@@ -1830,6 +1830,34 @@ def run_swarm_dossier(candidate: dict, score_result: dict) -> dict:
 # ORCHESTRATORE
 # ============================================================
 
+def _build_buzz_pool(watchlist: list[dict], rest_sorted: list[dict],
+                     feed: dict, pool_size: int) -> list[dict]:
+    """Chi entra nel giro dei controlli stampa di questo run.
+
+    BUG TROVATO E CORRETTO (verificato sui dati live 2026-07): il pool era
+    solo watchlist + i primi N per punteggio-eta'. Ma la testa di quella
+    classifica e' occupata dalle centinaia di candidati saturi a 1.0 (solo
+    eta', zero riscontri - il segmento che il funnel dossier giustamente
+    SALTA), mentre i giocatori che vincono davvero il dossier e compaiono
+    nel TURNO (age score alto ma non saturo) restavano fuori dal pool: mai
+    un controllo stampa, mai uno snapshot buzz, quindi curva perennemente
+    assente proprio sulle card che l'utente guarda.
+
+    Regola: i CASI ATTIVI (chi ha gia' un dossier AI vero nel feed) hanno il
+    posto garantito nel pool - sono i giocatori sotto revisione umana, il
+    loro segnale stampa va tenuto aggiornato. I posti a classifica-eta'
+    restano per scoprire candidati nuovi. Il pool cresce al massimo di
+    ~top_n posti (i dossier per run sono cappati), quindi resta bounded."""
+    active_ids = {
+        cid for cid, rec in feed.items()
+        if isinstance(rec, dict) and isinstance(rec.get("dossier"), dict)
+        and "giudice" in rec["dossier"]
+    }
+    active = [c for c in rest_sorted if c["candidate_id"] in active_ids]
+    rest = [c for c in rest_sorted if c["candidate_id"] not in active_ids]
+    return watchlist + active + rest[:pool_size]
+
+
 def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> dict:
     """progress_cb(stage, done=None, total=None, feed_ready=None) e' opzionale:
     riceve lo stato leggibile della scansione man mano che avanza, cosi' chi
@@ -1889,7 +1917,7 @@ def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> di
     # watchlist sempre nel check buzz (curata a mano da Mirko, non si scarta
     # per un age score assente/basso); il resto e' il sottoinsieme piu'
     # promettente secondo lo score gratuito
-    buzz_pool = watchlist + rest_sorted[: perf["buzz_check_pool_size"]]
+    buzz_pool = _build_buzz_pool(watchlist, rest_sorted, feed, perf["buzz_check_pool_size"])
 
     # Stage 2: buzz score in parallelo, solo sul sottoinsieme selezionato
     _progress(f"controllo l'attenzione stampa su {len(buzz_pool)} candidati (pool: {len(candidates)})")

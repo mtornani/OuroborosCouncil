@@ -438,6 +438,7 @@
             margin-top: 6px;
         }
         .mini-curve { margin-top: 8px; }
+        .mini-curve-missing { margin-top: 8px; font-size: 0.68rem; color: var(--text-dim); font-style: italic; }
         .mini-curve svg { width: 100%; height: 30px; display: block; }
         .mini-curve .mc-path { fill: none; stroke: var(--panel-border); stroke-width: 2; }
         .mini-curve .mc-done { fill: none; stroke: var(--accent-high); stroke-width: 2; }
@@ -641,7 +642,12 @@
         const PHASE_LABELS_R = ["nessuno ne parla", "solo fonti locali", "se ne parla", "sta per esplodere", "sui grandi giornali", "lo sanno tutti"];
         function renderMiniCurve(candidate) {
             const curve = candidate.curve;
-            if (!curve || curve.phase === null || curve.phase === undefined) return "";
+            // versione compatta della regola "niente sparisce in silenzio":
+            // in card d'archivio basta una riga, ma il perche' va detto
+            if (!curve) return `<div class="mini-curve-missing">curva: non ancora nel giro dei controlli stampa</div>`;
+            if (curve.phase === null || curve.phase === undefined) {
+                return `<div class="mini-curve-missing">curva in costruzione: ${curve.runs_seen ?? 0}/3 controlli</div>`;
+            }
             const F = x => 24 - 20 / (1 + Math.exp(-(x - 55) / 10));
             const PX = p => 4 + p * (92 / 5);
             const xs = []; for (let x = 4; x <= 96; x += 3) xs.push(x);

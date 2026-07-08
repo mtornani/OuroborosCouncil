@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from discovery_engine import record_observation, resolve_field, _buzz_queries
+from discovery_engine import record_observation, resolve_field, _buzz_queries, _build_buzz_pool
 
 CFG = {
     "piramide": {
@@ -137,6 +137,40 @@ class TestBuzzQueries(unittest.TestCase):
 
     def test_senza_club_nome_nudo(self):
         self.assertEqual(_buzz_queries({"name": "Moussa Cissé"}), ['"Moussa Cissé"'])
+
+
+class TestBuzzPool(unittest.TestCase):
+    """Il bug della curva mancante nel TURNO: i casi attivi (con dossier AI
+    vero) devono avere il posto garantito nel giro dei controlli stampa,
+    anche se la testa della classifica-eta' e' occupata dai saturi a 1.0."""
+
+    def test_caso_attivo_entra_anche_fuori_classifica(self):
+        # 5 saturi in testa, pool di 3: senza la regola, Yokoyama (attivo,
+        # age piu' basso) resterebbe fuori per sempre
+        saturi = [{"candidate_id": f"Q{i}"} for i in range(5)]
+        yokoyama = {"candidate_id": "Q123575819"}
+        rest = saturi + [yokoyama]
+        feed = {"Q123575819": {"dossier": {"giudice": {"vale_la_pena": False}}}}
+        pool = _build_buzz_pool([], rest, feed, pool_size=3)
+        ids = [c["candidate_id"] for c in pool]
+        self.assertIn("Q123575819", ids)
+        # i posti a classifica restano per i primi 3 saturi
+        self.assertEqual(ids, ["Q123575819", "Q0", "Q1", "Q2"])
+
+    def test_dossier_skip_o_errore_non_compra_il_posto(self):
+        rest = [{"candidate_id": f"Q{i}"} for i in range(4)]
+        feed = {
+            "Q3": {"dossier": {"skipped": "segnale singolo"}},   # non attivo
+            "Q2": {"dossier": {"error": "AI giu'"}},              # non attivo
+        }
+        pool = _build_buzz_pool([], rest, feed, pool_size=2)
+        self.assertEqual([c["candidate_id"] for c in pool], ["Q0", "Q1"])
+
+    def test_watchlist_sempre_prima(self):
+        wl = [{"candidate_id": "W1"}]
+        rest = [{"candidate_id": "Q0"}]
+        pool = _build_buzz_pool(wl, rest, {}, pool_size=1)
+        self.assertEqual([c["candidate_id"] for c in pool], ["W1", "Q0"])
 
 
 class TestScenarioYokoyamaEndToEnd(unittest.TestCase):
