@@ -41,6 +41,7 @@ CONFIG_FILE = BASE_DIR / "radar_config.yaml"
 FEED_FILE = BASE_DIR / "radar_feed.json"
 BUZZ_HISTORY_FILE = BASE_DIR / "buzz_history.json"
 WATCHLIST_FILE = BASE_DIR / "watchlist.json"
+OBSERVATIONS_FILE = BASE_DIR / "radar_observations.json"
 
 # Se impostata (in produzione: Neon/Supabase, mai committata), lo storico
 # vive su Postgres invece che su disco locale - un host gratuito con
@@ -230,6 +231,186 @@ def slugify(name: str) -> str:
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+# ============================================================
+# GRAFO DELLE FONTI - osservazioni con provenienza + risolutore
+# ============================================================
+# Il difetto strutturale misurato dal vivo (audit 2026-07 su 100 QID reali
+# del feed: 52% senza club su Wikidata, 19/48 con club "aperto" senza data
+# di inizio, casi confermati di club stantio tipo Yokoyama Imabari->Cerezo):
+# il motore memorizzava FATTI senza bibliografia ("club = FC Imabari") e a
+# ogni run li risovrascriveva dalla stessa fonte. Conseguenze: una correzione
+# scoperta via stampa moriva al run successivo, e la query buzz cercava il
+# giocatore col club VECCHIO proprio nel momento del trasferimento - zero
+# menzioni esattamente quando il segnale esplode (il falso negativo peggiore
+# possibile per lo scopo dichiarato del radar).
+#
+# Qui ogni dato diventa un'OSSERVAZIONE: (candidato, campo, valore, fonte,
+# osservato_il, datato_al, url). Le osservazioni si ACCUMULANO (append-only,
+# stessa filosofia dello storico punteggi) e un risolutore con regole
+# esplicite decide il valore corrente spiegando perche' - mai una
+# sovrascrittura muta.
+#
+# La piramide delle fonti (radar_config.yaml -> piramide.livelli) da' a ogni
+# fonte un livello: in basso la nicchia locale e l'occhio umano (fresco,
+# vicino al campo), in alto i dati strutturati globali (consolidati, in
+# ritardo). REGOLA D'INVERSIONE (piramide.regole_campo): i fatti VELOCI
+# (club attuale) si leggono dal basso - un articolo datato batte un claim
+# Wikidata non datato - i fatti LENTI (data di nascita) dall'alto.
+
+_OBS_MAX_PER_FIELD = 30  # bound crescita per candidato+campo (come runs[-20:])
+
+# etichette leggibili per le spiegazioni del risolutore
+_FONTE_LABELS = {
+    "umano": "conferma umana",
+    "news": "stampa (ricerca web)",
+    "wikipedia_torneo": "pagina torneo Wikipedia",
+    "wikidata": "Wikidata",
+}
+
+
+def _fonte_label(fonte: str) -> str:
+    return _FONTE_LABELS.get(fonte, fonte)
+
+
+def record_observation(store: dict, candidate_id: str, campo: str, valore: str,
+                       fonte: str, cfg: dict, datato_al: str | None = None,
+                       url: str | None = None, nota: str | None = None) -> bool:
+    """Aggiunge un'osservazione al grafo (in memoria - il salvataggio e' del
+    chiamante). Ritorna True se il grafo e' cambiato. Dedup: se l'ultima
+    osservazione della STESSA fonte porta lo stesso valore e' una conferma,
+    non una riga nuova - si aggiorna osservato_il e basta."""
+    valore = (valore or "").strip()
+    if not valore or not candidate_id:
+        return False
+    livelli = (cfg.get("piramide") or {}).get("livelli") or {}
+    if fonte not in livelli:
+        # fonte non censita nella piramide: rifiutata esplicitamente - mai un
+        # livello indovinato (stessa regola di "mai un numero inventato")
+        return False
+    obs_list = store.setdefault(candidate_id, {}).setdefault(campo, [])
+    now = _now_iso()
+    for obs in reversed(obs_list):
+        if obs["fonte"] != fonte:
+            continue
+        if obs["valore"] == valore:
+            obs["osservato_il"] = now
+            if datato_al and not obs.get("datato_al"):
+                obs["datato_al"] = datato_al
+            return True
+        break  # l'ultima della stessa fonte dice altro -> riga nuova
+    entry = {"valore": valore, "fonte": fonte, "osservato_il": now}
+    if datato_al:
+        entry["datato_al"] = datato_al
+    if url:
+        entry["url"] = url
+    if nota:
+        entry["nota"] = nota
+    obs_list.append(entry)
+    del obs_list[:-_OBS_MAX_PER_FIELD]
+    return True
+
+
+def resolve_field(store: dict, candidate_id: str, campo: str, cfg: dict,
+                  fallback: str | None = None) -> dict | None:
+    """Il valore corrente di un campo secondo il grafo, con spiegazione
+    leggibile. Deterministico: stesse osservazioni -> stessa risposta.
+
+    Regole, in ordine:
+      1. la conferma umana piu' recente batte tutto;
+      2. se tutte le fonti concordano, vince il valore condiviso;
+      3. in disaccordo: per i campi 'dal_basso' (fatti veloci, es. club)
+         vince l'osservazione DATATA piu' fresca, e a parita' di niente-date
+         il livello di piramide piu' basso (piu' vicino al campo); per i
+         campi 'dall_alto' (fatti lenti, es. dob) vince il livello piu' alto.
+
+    fallback: valore noto al chiamante fuori dal grafo - usato solo se il
+    grafo non sa nulla, e dichiarato tale nella spiegazione."""
+    pir = cfg.get("piramide") or {}
+    livelli = pir.get("livelli") or {}
+    obs_list = (store.get(candidate_id) or {}).get(campo) or []
+    if not obs_list:
+        if fallback:
+            return {"valore": fallback, "fonte": None, "livello": None,
+                    "spiegazione": "dato di partenza, nessuna osservazione registrata",
+                    "conflitto": False, "alternativa": None}
+        return None
+
+    # ultima osservazione per ciascuna fonte (la lista e' cronologica)
+    latest_per_fonte = {}
+    for obs in obs_list:
+        latest_per_fonte[obs["fonte"]] = obs
+    obs_set = list(latest_per_fonte.values())
+
+    def _result(best, spiegazione, conflitto):
+        alternative = [o for o in obs_set if o["valore"] != best["valore"]]
+        alternative.sort(key=lambda o: o["osservato_il"], reverse=True)
+        return {
+            "valore": best["valore"],
+            "fonte": best["fonte"],
+            "livello": livelli.get(best["fonte"]),
+            "datato_al": best.get("datato_al"),
+            "url": best.get("url"),
+            "spiegazione": spiegazione,
+            "conflitto": conflitto,
+            "alternativa": alternative[0]["valore"] if alternative else None,
+            "alternativa_fonte": alternative[0]["fonte"] if alternative else None,
+        }
+
+    # 1. umano batte tutti
+    human = [o for o in obs_set if livelli.get(o["fonte"]) == 0]
+    if human:
+        best = max(human, key=lambda o: o["osservato_il"])
+        others = any(o["valore"] != best["valore"] for o in obs_set)
+        return _result(best, f"confermato a mano il {best['osservato_il'][:10]}", others)
+
+    # 2. accordo pieno
+    distinct = {o["valore"] for o in obs_set}
+    if len(distinct) == 1:
+        best = max(obs_set, key=lambda o: o["osservato_il"])
+        spieg = (f"{len(obs_set)} fonti concordano" if len(obs_set) > 1
+                 else f"unica fonte: {_fonte_label(best['fonte'])}")
+        return _result(best, spieg, False)
+
+    # 3. disaccordo: regola d'inversione per campo
+    regola = (pir.get("regole_campo") or {}).get(campo, "dal_basso")
+    if regola == "dall_alto":
+        best = max(obs_set, key=lambda o: (livelli.get(o["fonte"], -1), o["osservato_il"]))
+        spieg = (f"\"{best['valore']}\" secondo {_fonte_label(best['fonte'])} - per questo campo "
+                 f"la fonte consolidata batte quella fresca")
+        return _result(best, spieg, True)
+
+    dated = [o for o in obs_set if o.get("datato_al")]
+    if dated:
+        best = max(dated, key=lambda o: o["datato_al"])
+        spieg = (f"\"{best['valore']}\" secondo {_fonte_label(best['fonte'])} "
+                 f"(datato {best['datato_al'][:10]}) - un'osservazione datata batte i claim senza data")
+    else:
+        best = min(obs_set, key=lambda o: (livelli.get(o["fonte"], 9), _reversed_ts(o)))
+        spieg = (f"\"{best['valore']}\" secondo {_fonte_label(best['fonte'])} - nessuna fonte porta "
+                 f"una data, vince il livello piu' vicino al campo")
+    return _result(best, spieg, True)
+
+
+def _reversed_ts(obs: dict) -> str:
+    """Chiave di ordinamento per 'piu' recente vince' dentro un min():
+    inverte lessicograficamente il timestamp ISO."""
+    return "".join(chr(255 - ord(c)) for c in obs["osservato_il"])
+
+
+def confirm_club(candidate_id: str, club: str) -> dict:
+    """Conferma umana dalla card: registra l'osservazione fonte=umano (che il
+    risolutore fa vincere su tutto) e la PERSISTE subito - e' il fix della
+    correzione che prima moriva alla riscrittura successiva da Wikidata."""
+    cfg = load_config()
+    store = _load_json(OBSERVATIONS_FILE)
+    changed = record_observation(store, candidate_id, "club", club, "umano", cfg,
+                                 datato_al=_now_iso()[:10])
+    if changed:
+        _save_json(OBSERVATIONS_FILE, store)
+    resolution = resolve_field(store, candidate_id, "club", cfg)
+    return {"registrata": changed, "club_provenienza": resolution}
 
 
 _BARE_QID_RE = re.compile(r"^Q\d+$")
@@ -611,6 +792,25 @@ def _source_tier(publisher: str, cfg: dict) -> int:
     return 3  # default: fonte di nicchia, e' li' che nasce il segnale
 
 
+def _buzz_queries(candidate: dict) -> list[str]:
+    """Le query news per un candidato. Il club viene dal RISOLUTORE del grafo
+    (club_risolto), non dal fetch grezzo: una scheda Wikidata stantia non deve
+    piu' far cercare il giocatore al club vecchio. Se le fonti sono in
+    disaccordo (finestra di transizione, es. trasferimento appena uscito
+    sulla stampa ma non ancora su Wikidata) si cerca con ENTRAMBI i club -
+    il momento del salto e' esattamente quello in cui il radar non puo'
+    permettersi di essere cieco."""
+    name = candidate["name"]
+    club = candidate.get("club_risolto") or candidate.get("club")
+    if not club:
+        return [f'"{name}"']
+    queries = [f'"{name}" "{club}"']
+    alt = candidate.get("club_alternativo")
+    if alt and alt != club:
+        queries.append(f'"{name}" "{alt}"')
+    return queries
+
+
 def buzz_score(candidate: dict, history: dict, cfg: dict) -> dict:
     """Ritorna dict con 'score' (0-1 o None) e i dettagli per la UI/storico.
     Cold start esplicito: al primo run per un candidato la velocita' non e'
@@ -620,9 +820,21 @@ def buzz_score(candidate: dict, history: dict, cfg: dict) -> dict:
     prior_runs = history.get(candidate_id, {}).get("runs", [])
     is_cold_start = len(prior_runs) == 0
 
-    query = f'"{candidate["name"]}" "{candidate["club"]}"' if candidate.get("club") else f'"{candidate["name"]}"'
-    results = search_google_news(query, max_results=8)
+    results = []
+    for query in _buzz_queries(candidate):
+        results.extend(search_google_news(query, max_results=8))
     results = [r for r in results if "error" not in r]
+    # dedup per titolo/link (la doppia query in transizione puo' riportare lo
+    # stesso articolo due volte) + cap a 8 per non gonfiare la scala di
+    # mention_count rispetto ai run a query singola
+    seen, unique = set(), []
+    for r in results:
+        key = (r.get("link") or "") + (r.get("title") or "")[:60]
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(r)
+    results = unique[:8]
 
     publishers = [_publisher_of(r["title"]) for r in results if r.get("title")]
     tiers_seen = [_source_tier(p, cfg) for p in publishers]
@@ -1214,6 +1426,10 @@ def detect_state_change(
         return {
             "type": "club",
             "tag": "CLUB DA CORREGGERE",
+            # campi strutturati per la card: servono al bottone "conferma"
+            # che registra l'osservazione fonte=umano nel grafo delle fonti
+            "club_vecchio": old_club,
+            "club_nuovo": club_aggiornato,
             "lead": (
                 f"Attenzione: negli archivi risultava a \"{old_club}\", ma la ricerca web piu' recente dice "
                 f"\"{club_aggiornato}\". Controlla di persona se e' un cambio di squadra vero (es. da prima "
@@ -1614,6 +1830,34 @@ def run_swarm_dossier(candidate: dict, score_result: dict) -> dict:
 # ORCHESTRATORE
 # ============================================================
 
+def _build_buzz_pool(watchlist: list[dict], rest_sorted: list[dict],
+                     feed: dict, pool_size: int) -> list[dict]:
+    """Chi entra nel giro dei controlli stampa di questo run.
+
+    BUG TROVATO E CORRETTO (verificato sui dati live 2026-07): il pool era
+    solo watchlist + i primi N per punteggio-eta'. Ma la testa di quella
+    classifica e' occupata dalle centinaia di candidati saturi a 1.0 (solo
+    eta', zero riscontri - il segmento che il funnel dossier giustamente
+    SALTA), mentre i giocatori che vincono davvero il dossier e compaiono
+    nel TURNO (age score alto ma non saturo) restavano fuori dal pool: mai
+    un controllo stampa, mai uno snapshot buzz, quindi curva perennemente
+    assente proprio sulle card che l'utente guarda.
+
+    Regola: i CASI ATTIVI (chi ha gia' un dossier AI vero nel feed) hanno il
+    posto garantito nel pool - sono i giocatori sotto revisione umana, il
+    loro segnale stampa va tenuto aggiornato. I posti a classifica-eta'
+    restano per scoprire candidati nuovi. Il pool cresce al massimo di
+    ~top_n posti (i dossier per run sono cappati), quindi resta bounded."""
+    active_ids = {
+        cid for cid, rec in feed.items()
+        if isinstance(rec, dict) and isinstance(rec.get("dossier"), dict)
+        and "giudice" in rec["dossier"]
+    }
+    active = [c for c in rest_sorted if c["candidate_id"] in active_ids]
+    rest = [c for c in rest_sorted if c["candidate_id"] not in active_ids]
+    return watchlist + active + rest[:pool_size]
+
+
 def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> dict:
     """progress_cb(stage, done=None, total=None, feed_ready=None) e' opzionale:
     riceve lo stato leggibile della scansione man mano che avanza, cosi' chi
@@ -1634,9 +1878,29 @@ def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> di
     _progress("leggo lo storico")
     history = _load_json(BUZZ_HISTORY_FILE)
     feed = _load_json(FEED_FILE)
+    observations = _load_json(OBSERVATIONS_FILE)
 
     _progress("raccolgo i candidati dalle fonti (Wikidata/Wikipedia)")
     candidates = fetch_candidate_pool(cfg)
+
+    # Grafo delle fonti: i lettori EMETTONO osservazioni (non sovrascrivono),
+    # poi il risolutore decide il club corrente per ciascun candidato - e' lui
+    # che alimenta la query buzz, non il fetch grezzo. Vedi la sezione GRAFO
+    # DELLE FONTI in alto per il perche' (audit staleness 2026-07).
+    _progress("aggiorno il grafo delle fonti")
+    _READER_FONTE = {"wikidata": "wikidata", "wikipedia": "wikipedia_torneo"}
+    for c in candidates:
+        fonte = _READER_FONTE.get(c.get("source"))
+        if fonte and c.get("club"):
+            record_observation(observations, c["candidate_id"], "club", c["club"], fonte, cfg)
+    for c in candidates:
+        resolution = resolve_field(observations, c["candidate_id"], "club", cfg,
+                                   fallback=c.get("club"))
+        if resolution:
+            c["club_risolto"] = resolution["valore"]
+            c["club_provenienza"] = resolution
+            if resolution["conflitto"] and resolution.get("alternativa"):
+                c["club_alternativo"] = resolution["alternativa"]
 
     # Stage 1: eta'-relativa-al-livello, locale, zero chiamate di rete su
     # tutti i candidati (pool nell'ordine delle centinaia - vedi commento in
@@ -1653,7 +1917,7 @@ def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> di
     # watchlist sempre nel check buzz (curata a mano da Mirko, non si scarta
     # per un age score assente/basso); il resto e' il sottoinsieme piu'
     # promettente secondo lo score gratuito
-    buzz_pool = watchlist + rest_sorted[: perf["buzz_check_pool_size"]]
+    buzz_pool = _build_buzz_pool(watchlist, rest_sorted, feed, perf["buzz_check_pool_size"])
 
     # Stage 2: buzz score in parallelo, solo sul sottoinsieme selezionato
     _progress(f"controllo l'attenzione stampa su {len(buzz_pool)} candidati (pool: {len(candidates)})")
@@ -1727,6 +1991,11 @@ def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> di
         entry["_previous_dossier"] = record.get("dossier")
 
         record["identity"] = entry["candidate"]
+        # provenienza del club dal risolutore del grafo: la card puo' dire
+        # "secondo chi, da quando" invece di presentare un club nudo - e un
+        # disaccordo tra fonti resta visibile invece di sparire nell'identity
+        if entry["candidate"].get("club_provenienza"):
+            record["club_provenienza"] = entry["candidate"]["club_provenienza"]
         record["history"].append(
             {
                 "run_at": run_at,
@@ -1770,6 +2039,7 @@ def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> di
     _progress("salvo i punteggi (gia' consultabili)")
     _save_json(FEED_FILE, feed)
     _save_json(BUZZ_HISTORY_FILE, history)
+    _save_json(OBSERVATIONS_FILE, observations)
     if ledger_changed:
         _save_json(CURVE_VALIDATION_FILE, ledger)
     _progress("punteggi pronti; genero i dossier AI", feed_ready=True)
@@ -1847,6 +2117,19 @@ def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> di
             record["dossier"] = dossier
             return
         record["dossier"] = dossier
+        # il club scoperto dal Cronista via ricerca web entra nel GRAFO come
+        # osservazione fonte=news, datata a oggi: prima era solo un avviso
+        # usa-e-getta (CLUB DA CORREGGERE) che moriva alla riscrittura
+        # successiva da Wikidata - ora e' agli atti, e il risolutore lo fa
+        # vincere sui claim non datati gia' dal prossimo run (query buzz
+        # compresa)
+        club_aggiornato = (dossier.get("giudice") or {}).get("club_aggiornato")
+        if club_aggiornato:
+            cid = entry["candidate"]["candidate_id"]
+            if record_observation(observations, cid, "club", club_aggiornato,
+                                  "news", cfg, datato_al=run_at[:10],
+                                  nota="Cronista via ricerca web"):
+                record["club_provenienza"] = resolve_field(observations, cid, "club", cfg)
         bayes = bayesian_estimate(record["history"], cfg)
         z = (bayes or {}).get("last_innovation_z")
         cusum_state = record.get("cusum", {"pos": 0.0, "neg": 0.0})
@@ -1907,6 +2190,7 @@ def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> di
 
     _progress("salvataggio finale")
     _save_json(FEED_FILE, feed)
+    _save_json(OBSERVATIONS_FILE, observations)
 
     return {
         "run_at": run_at,

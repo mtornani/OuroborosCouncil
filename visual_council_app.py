@@ -260,10 +260,15 @@ def radar_feed():
                 continue
             last = record["history"][-1]
             identity = record.get("identity") or {}
+            provenienza = record.get("club_provenienza")
             results.append({
                 "candidate_id": candidate_id,
                 "name": identity.get("name"),
-                "club": identity.get("club"),
+                # il club mostrato e' quello RISOLTO dal grafo delle fonti
+                # (una scheda Wikidata stantia non deve piu' vincere sulla
+                # stampa datata); l'identity resta il dato grezzo del fetch
+                "club": (provenienza or {}).get("valore") or identity.get("club"),
+                "club_provenienza": provenienza,
                 "role": identity.get("role"),
                 "dob": identity.get("dob"),
                 "tier": identity.get("tier"),
@@ -335,6 +340,7 @@ def radar_turno():
                 "candidate_id": candidate_id,
                 "name": identity.get("name"),
                 "club": identity.get("club"),
+                "club_provenienza": record.get("club_provenienza"),
                 "role": identity.get("role"),
                 "dob": identity.get("dob"),
                 "tier": identity.get("tier"),
@@ -435,6 +441,24 @@ def radar_watchlist():
     try:
         discovery_engine.set_watchlisted(candidate_id, watchlisted)
         return jsonify({"status": "success", "candidate_id": candidate_id, "watchlisted": watchlisted})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+
+@app.route("/api/radar/club-conferma", methods=["POST"])
+def radar_club_conferma():
+    """Conferma umana del club dalla card (caso CLUB DA CORREGGERE): registra
+    un'osservazione fonte=umano nel grafo delle fonti - il risolutore la fa
+    vincere su tutto e SOPRAVVIVE alle riscritture da Wikidata, chiudendo la
+    falla della correzione che moriva al run successivo."""
+    data = request.json or {}
+    candidate_id = data.get("candidate_id")
+    club = (data.get("club") or "").strip()
+    if not candidate_id or not club:
+        return jsonify({"status": "error", "message": "candidate_id e club sono obbligatori"})
+    try:
+        result = discovery_engine.confirm_club(candidate_id, club)
+        return jsonify({"status": "success", "candidate_id": candidate_id, **result})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
 
