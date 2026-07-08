@@ -393,10 +393,15 @@ def resolve_field(store: dict, candidate_id: str, campo: str, cfg: dict,
     return _result(best, spieg, True)
 
 
-def _reversed_ts(obs: dict) -> str:
+def _reversed_ts(obs: dict) -> float:
     """Chiave di ordinamento per 'piu' recente vince' dentro un min():
-    inverte lessicograficamente il timestamp ISO."""
-    return "".join(chr(255 - ord(c)) for c in obs["osservato_il"])
+    timestamp negato. Un'osservazione con timestamp assente/malformato
+    ritorna 0.0, che e' maggiore di ogni timestamp negato valido: perde
+    contro qualunque osservazione ben datata, mai un crash."""
+    try:
+        return -datetime.fromisoformat(obs.get("osservato_il", "")).timestamp()
+    except (ValueError, TypeError):
+        return 0.0
 
 
 def confirm_club(candidate_id: str, club: str) -> dict:
