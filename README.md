@@ -197,6 +197,7 @@ curve_validation.json     # registro scommesse (esplosi/sgonfiati) + crossing
 | `NVIDIA_API_KEY` | ⬜ | Provider di riserva |
 | `DATABASE_URL` | ⬜ | Postgres per persistere lo stato oltre il filesystem effimero |
 | `RADAR_ACCESS_KEY` | ⬜ | Se impostata, l'app chiede una chiave d'accesso: si apre una volta con `?key=LACHIAVE` e da lì un cookie sblocca tutto. Senza, il servizio pubblico è aperto a chiunque trovi l'URL (che può bruciare le quote AI gratuite con scansioni a raffica) |
+| `RADAR_GUEST_KEY` | ⬜ | Chiave separata, **di sola lettura** — per mandare il link a qualcuno senza consegnare la chiave vera. Con `?guest_key=LACHIAVE` si legge tutto (turno, mappa, processo, archivio) ma ogni scrittura (scansione, watchlist, conferma club) risponde 403. Ha senso solo se `RADAR_ACCESS_KEY` è impostata; altrimenti è ignorata |
 
 ### In locale
 

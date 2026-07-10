@@ -21,6 +21,20 @@ app = Flask(__name__)
 RADAR_ACCESS_KEY = os.getenv("RADAR_ACCESS_KEY", "")
 _ACCESS_COOKIE = "radar_key"
 
+# Chiave OSPITE (opzionale, separata): stesso meccanismo ma di sola lettura -
+# pensata per mandare il link a qualcuno (es. per fargli provare il sistema)
+# senza consegnargli la chiave vera. Con la chiave ospite passano solo le
+# richieste GET: niente scansioni a raffica (quote AI free bruciate),
+# niente modifiche alla watchlist, niente conferme club che finiscono nel
+# grafo delle fonti a nome di uno sconosciuto. Se non impostata, si comporta
+# come se non esistesse - la chiave vera resta l'unica.
+RADAR_GUEST_KEY = os.getenv("RADAR_GUEST_KEY", "")
+_GUEST_COOKIE = "radar_guest_key"
+
+
+def _is_write_request() -> bool:
+    return request.method not in ("GET", "HEAD", "OPTIONS")
+
 
 @app.before_request
 def _access_gate():
@@ -30,6 +44,15 @@ def _access_gate():
     # indovina misurando i tempi di risposta
     if hmac.compare_digest(request.cookies.get(_ACCESS_COOKIE, ""), RADAR_ACCESS_KEY):
         return
+
+    guest_cookie_ok = (RADAR_GUEST_KEY
+                       and hmac.compare_digest(request.cookies.get(_GUEST_COOKIE, ""), RADAR_GUEST_KEY))
+    if guest_cookie_ok and not _is_write_request():
+        return
+    if guest_cookie_ok and _is_write_request():
+        return jsonify({"status": "error",
+                        "message": "Accesso ospite: sola lettura, questa azione richiede la chiave completa."}), 403
+
     # header per i client programmatici (Cloud Scheduler, curl), query param
     # per il primo accesso dal browser
     supplied = request.headers.get("X-Radar-Key", "") or request.args.get("key", "")
@@ -43,6 +66,22 @@ def _access_gate():
             secure=request.is_secure,
         )
         return resp
+
+    supplied_guest = request.headers.get("X-Radar-Guest-Key", "") or request.args.get("guest_key", "")
+    if RADAR_GUEST_KEY and hmac.compare_digest(supplied_guest, RADAR_GUEST_KEY):
+        if _is_write_request():
+            return jsonify({"status": "error",
+                            "message": "Accesso ospite: sola lettura, questa azione richiede la chiave completa."}), 403
+        if request.path.startswith("/api/"):
+            return
+        resp = redirect(request.path)
+        resp.set_cookie(
+            _GUEST_COOKIE, RADAR_GUEST_KEY,
+            max_age=30 * 24 * 3600, httponly=True, samesite="Lax",
+            secure=request.is_secure,
+        )
+        return resp
+
     return jsonify({"status": "error", "message": "Accesso negato: apri l'app con ?key=LACHIAVE."}), 401
 
 
