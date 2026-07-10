@@ -14,10 +14,9 @@ class TestAccessGate(unittest.TestCase):
     def setUp(self):
         os.environ["RADAR_ACCESS_KEY"] = "vera123"
         os.environ["RADAR_GUEST_KEY"] = "ospite456"
-        global app_mod
-        import visual_council_app as app_mod
-        importlib.reload(app_mod)
-        self.app_mod = app_mod
+        import visual_council_app
+        importlib.reload(visual_council_app)
+        self.app_mod = visual_council_app
 
     def tearDown(self):
         os.environ.pop("RADAR_ACCESS_KEY", None)
