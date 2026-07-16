@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from discovery_engine import (record_observation, resolve_field, _buzz_queries,
                               _build_buzz_pool, _looks_like_tool_markup,
                               _reject_tool_markup, _sanitize_dossier,
-                              _AI_VOICE_UNAVAILABLE)
+                              _AI_VOICE_UNAVAILABLE, _assert_no_duplicate_candidate_ids)
 
 CFG = {
     "piramide": {
@@ -174,6 +174,25 @@ class TestBuzzPool(unittest.TestCase):
         rest = [{"candidate_id": "Q0"}]
         pool = _build_buzz_pool(wl, rest, {}, pool_size=1)
         self.assertEqual([c["candidate_id"] for c in pool], ["W1", "Q0"])
+
+
+class TestGuardiaAntiDoppioneSwarm(unittest.TestCase):
+    """Blocco strutturale contro il rischio di raddoppiare le chiamate AI
+    dello swarm (es. un futuro dossier bilingue che ri-lancia Cronista/
+    Verificatore/Scettico/Giudice una volta per lingua). Deve bloccare
+    PRIMA di spendere la chiamata, non dopo averla scoperta a posteriori."""
+
+    def test_nessun_doppione_passa(self):
+        _assert_no_duplicate_candidate_ids(["Q1", "Q2", "Q3"], "test")  # non solleva
+
+    def test_lista_vuota_passa(self):
+        _assert_no_duplicate_candidate_ids([], "test")  # non solleva
+
+    def test_doppione_blocca_prima_della_chiamata(self):
+        with self.assertRaises(RuntimeError) as ctx:
+            _assert_no_duplicate_candidate_ids(["Q1", "Q2", "Q1"], "finestra swarm")
+        self.assertIn("Q1", str(ctx.exception))
+        self.assertIn("finestra swarm", str(ctx.exception))
 
 
 class TestToolMarkupNelleVoci(unittest.TestCase):

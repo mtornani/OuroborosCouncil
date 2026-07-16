@@ -898,6 +898,24 @@ def _needs_more_signal(score_result: dict) -> bool:
     return value >= 0.9
 
 
+def _assert_no_duplicate_candidate_ids(candidate_ids: list[str], stage: str) -> None:
+    """Guardia anti-doppione per lo swarm AI: blocca PRIMA di spendere una
+    chiamata, non dopo che e' gia' stata pagata/consumata. Il dossier e'
+    lingua-agnostico per design (vedi run_swarm_dossier) - questa e' la
+    difesa contro un futuro bug (es. un ciclo "per ogni lingua") che
+    rimetterebbe lo stesso candidato in coda due volte nello stesso turno."""
+    seen = set()
+    for cid in candidate_ids:
+        if cid in seen:
+            raise RuntimeError(
+                f"GUARDIA anti-doppione ({stage}): {cid} compare due volte nello stesso "
+                "turno - un secondo giro rischierebbe di raddoppiare silenziosamente la "
+                "chiamata AI (es. un dossier per lingua). Il dossier resta lingua-agnostico "
+                "per design: vedi il commento in run_swarm_dossier."
+            )
+        seen.add(cid)
+
+
 def _weights_for_tier(cfg: dict, tier: str) -> dict:
     """Pesi del Signal Score per tier, con fallback su 'default'. Serve per
     le squadre riserve (vedi RESERVE_TEAM_QID): li' l'eta' bassa e' un
@@ -1804,6 +1822,17 @@ def _reject_tool_markup(text: str) -> str:
 
 
 def run_swarm_dossier(candidate: dict, score_result: dict) -> dict:
+    # INVARIANTE: questa funzione e' LINGUA-AGNOSTICA per design. Genera UN
+    # SOLO dossier per candidato per scansione, sempre in italiano (i ruoli
+    # in _ROLES sono prompt italiani) - la scelta IT/EN dell'interfaccia
+    # (vedi translations.py, visual_council_app.py:_resolve_lang) e' solo
+    # rendering lato server, non tocca mai lo swarm.
+    # Se un giorno si vuole un dossier bilingue: tradurre il testo GIA'
+    # generato con UNA chiamata leggera (o lato client), MAI ririlanciare
+    # Cronista/Verificatore/Scettico/Giudice una volta per lingua - vedi la
+    # guardia anti-doppione in refresh_radar (blocca prima di spendere la
+    # chiamata, non dopo). Deciso con Mirko 2026-07 proprio per non bruciare
+    # le quote AI free raddoppiandole silenziosamente col bilinguismo.
     model_pool = _candidate_models()
     component_names = [_COMPONENT_LABELS_IT.get(k, k) for k in score_result.get("components", {})]
     context = (
@@ -2117,6 +2146,16 @@ def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> di
     # (solo le 4 chiamate DENTRO un dossier devono restare in ordine, per
     # coerenza Cronista->Giudice) - si parallelizza a livello di candidato,
     # non dentro il singolo dossier.
+    #
+    # GUARDIA ANTI-DOPPIONE: un candidate_id non deve mai finire in
+    # to_generate due volte nello stesso turno - oggi non puo' succedere
+    # (fetch_candidate_pool dedup, un solo entry per candidato in ranked),
+    # ma e' esattamente il tipo di bug silenzioso che un futuro dossier
+    # bilingue introdurrebbe (es. un ciclo "per ogni lingua" che ri-aggiunge
+    # lo stesso candidato). Si blocca QUI, prima di spendere una sola
+    # chiamata AI, non dopo - vedi anche l'invariante in run_swarm_dossier.
+    _assert_no_duplicate_candidate_ids(
+        [e["candidate"]["candidate_id"] for e in swarm_window], "finestra swarm")
     to_generate = []
     for entry in swarm_window:
         cid = entry["candidate"]["candidate_id"]
@@ -2207,6 +2246,12 @@ def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> di
     generated = 0
     if to_generate:
         _progress("dossier AI", done=0, total=len(to_generate))
+    # seconda guardia (difesa in profondita'): anche se to_generate e' gia'
+    # garantito senza doppioni dal controllo sopra, qui si blocca ESPLICITO
+    # prima di sottomettere la chiamata AI - non nel loop as_completed dopo,
+    # che scoprirebbe il doppione solo a chiamata gia' pagata/consumata.
+    _assert_no_duplicate_candidate_ids(
+        [e["candidate"]["candidate_id"] for e in to_generate], "sottomissione executor")
     with ThreadPoolExecutor(max_workers=cfg["swarm"]["swarm_workers"]) as executor:
         futures = {
             executor.submit(run_swarm_dossier, entry["candidate"], entry["signal"]): entry
