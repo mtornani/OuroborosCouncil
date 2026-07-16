@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="it">
+<html lang="{{ LANG }}">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="theme-color" content="#0a0e13">
-    <title>L'AVVOCATO DEL DIAVOLO — SENTINEL</title>
+    <title>{{ "THE DEVIL'S ADVOCATE" if LANG == 'en' else "L'AVVOCATO DEL DIAVOLO" }} — SENTINEL</title>
     <link rel="manifest" href="/static/manifest.json">
     <link rel="apple-touch-icon" href="/static/icon-192.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -111,9 +111,62 @@
 </head>
 
 <body>
-    <button class="theme-toggle" id="themeToggle" aria-label="Chiaro/scuro">☀</button>
+    <a class="lang-toggle" id="langToggle" href="?lang={{ 'it' if LANG == 'en' else 'en' }}" aria-label="Switch language" style="position:fixed;top:calc(10px + env(safe-area-inset-top));right:58px;z-index:50;height:36px;padding:0 11px;border-radius:18px;border:1px solid var(--line);background:var(--panel);color:var(--text-dim);font-family:'JetBrains Mono',monospace;font-size:0.7rem;font-weight:700;letter-spacing:0.03em;display:flex;align-items:center;justify-content:center;text-decoration:none;">{{ 'EN' if LANG == 'it' else 'IT' }}</a>
+    <button class="theme-toggle" id="themeToggle" aria-label="{{ 'Light/dark' if LANG == 'en' else 'Chiaro/scuro' }}">☀</button>
     <div class="wrap">
-        <button class="back" id="backBtn">← torna al turno</button>
+        <button class="back" id="backBtn">{{ '← back to the shift' if LANG == 'en' else '← torna al turno' }}</button>
+        {% if LANG == 'en' %}
+        <p class="eyebrow">the devil's advocate</p>
+        <h1>The system, put on trial by its own numbers.</h1>
+        <p class="sub">Anyone who sees SENTINEL will try to take it apart — that's fair. A system that defends itself with words is marketing. This one defends itself with <b>the scoreboard</b>: every time it says "about to break out" it opens a verifiable bet, and closes it with the real outcome, <b>failures included</b>. Below, the hardest objections and the honest answer to each — including the ones where the answer is "you're right".</p>
+
+        <p class="board-h">the scoreboard — proof on the facts</p>
+        <div id="board"><div class="loading">loading the scoreboard…</div></div>
+
+        <p class="obj-intro">The eight objections a skeptical expert would use to try to demolish it. None is hidden; for some, the honest answer is a concession.</p>
+
+        <div class="obj">
+            <div class="accusa"><span class="q">"</span><span class="t">You only cite the successes — Mora, Villarreal. What about everyone flagged who never became anyone? Survivorship bias.</span></div>
+            <div class="difesa"><div class="lbl">the honest defense</div><div class="t">That's exactly why the scoreboard above exists. It counts <b>every</b> "about to break out" call, deflated ones included. If failures outnumber the hits, you'll read it right there — we don't hide it. And while the cases are still few, the system says so and doesn't claim to be right.</div></div>
+        </div>
+
+        <div class="obj">
+            <div class="accusa"><span class="q">"</span><span class="t">Press mentions measure hype, not talent. You're clocking the noise, not the player.</span></div>
+            <div class="difesa concessione"><div class="lbl">concession</div><div class="t">Partly true. SENTINEL does <b>not</b> measure how good a player is — it measures when attention starts moving from the niche upward, a pattern that historically has <b>preceded</b> the names that later broke out. It's an attention indicator, declared as such everywhere. Skill is judged by the human eye afterward: the system says "watch him now", never "buy him".</div></div>
+        </div>
+
+        <div class="obj">
+            <div class="accusa"><span class="q">"</span><span class="t">An agent hammering the local press pumps up a mediocre player's score. It's gameable.</span></div>
+            <div class="difesa"><div class="lbl">the honest defense</div><div class="t">That's why a single signal is never enough: "about to break out" only fires when <b>multiple independent factors converge</b> — acceleration, climbing source tier, spreading to <b>different</b> outlets, persistence. One channel insisting isn't enough: the "spread" factor requires distinct outlets, precisely against the lone-agent case.</div></div>
+        </div>
+
+        <div class="obj">
+            <div class="accusa"><span class="q">"</span><span class="t">No control group. What's the base rate? Are you beating the case, or just picking a random young player?</span></div>
+            <div class="difesa concessione"><div class="lbl">concession</div><div class="t">That's the right question, and honestly it takes more history to answer with solid numbers. The scoreboard tracks precision and recall <b>on purpose</b> to get there. While the sample is small, the honest answer is "we don't know yet" — not an inflated percentage for show.</div></div>
+        </div>
+
+        <div class="obj">
+            <div class="accusa"><span class="q">"</span><span class="t">Four AI models talking to each other isn't verification: if they share the data they share the biases.</span></div>
+            <div class="difesa"><div class="lbl">the honest defense</div><div class="t">True, and in fact the swarm <b>is not the proof</b>: it's a filter. The real verification is the Cronista's web search (the system explicitly flags whether it happened) and the retroactive scoreboard. When the AIs agree without external corroboration, the verdict stays "doubtful", not "promoted".</div></div>
+        </div>
+
+        <div class="obj">
+            <div class="accusa"><span class="q">"</span><span class="t">Google News via RSS, with source tier guessed from the outlet's name? That's fragile and gameable.</span></div>
+            <div class="difesa concessione"><div class="lbl">concession</div><div class="t">It's the weakest part, and we know it. It's a budget choice: <b>zero paid sources</b>. That's why buzz alone never puts a player on top, and source classification lives in an open file, correctable by hand. The day a better source gets added, it plugs in without touching the rest.</div></div>
+        </div>
+
+        <div class="obj">
+            <div class="accusa"><span class="q">"</span><span class="t">When it's right, it takes credit; when it's wrong, it says "it's just an attention prioritizer." Unfalsifiable.</span></div>
+            <div class="difesa"><div class="lbl">the honest defense</div><div class="t">No: the scoreboard makes it <b>falsifiable</b>. An "about to break out" is a precise prediction — it will cross over to the major papers — with a verifiable outcome: broke out or deflated. If precision stays low on a large sample, the system <b>is wrong</b>, and it says so itself.</div></div>
+        </div>
+
+        <div class="obj">
+            <div class="accusa"><span class="q">"</span><span class="t">Thresholds pulled from thin air: 3 factors out of 4, a reference age computed on 5 players. Made-up numbers.</span></div>
+            <div class="difesa concessione"><div class="lbl">concession</div><div class="t">True: they're declared starting points, not truths. They all live in an open config file, with small samples <b>marked as provisional</b>. They get corrected when the scoreboard gives real evidence — that's why we keep the history instead of throwing it away at every scan.</div></div>
+        </div>
+
+        <p class="closer">A system that hides its mistakes asks for trust. This one only asks you to watch the scoreboard — and come back and watch it again in six months.</p>
+        {% else %}
         <p class="eyebrow">l'avvocato del diavolo</p>
         <h1>Il sistema, messo sotto processo dai suoi stessi numeri.</h1>
         <p class="sub">Chiunque veda SENTINEL cercherà di smontarlo — è giusto così. Un sistema che si difende con le parole è marketing. Questo si difende con <b>il tabellone</b>: ogni volta che dice «sta per esplodere» apre una scommessa verificabile, e la chiude con l'esito reale, <b>fallimenti compresi</b>. Sotto, le obiezioni più dure e la risposta onesta a ciascuna — comprese quelle a cui la risposta è «avete ragione».</p>
@@ -164,9 +217,12 @@
         </div>
 
         <p class="closer">Un sistema che nasconde i suoi errori chiede fiducia. Questo chiede solo di guardare il tabellone — e di tornare a guardarlo tra sei mesi.</p>
+        {% endif %}
     </div>
 
     <script>
+        const IS_EN = {{ 'true' if LANG == 'en' else 'false' }};
+
         function escapeHTML(s) {
             if (s === null || s === undefined) return "";
             return String(s).replace(/[&<>'"]/g, t => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[t]));
@@ -174,12 +230,32 @@
 
         function renderBoard(d) {
             const precBig = d.precision !== null
-                ? `<div class="big">${d.precision}<span style="font-size:1rem">%</span></div><div class="bl">esplosi su segnalati risolti</div>`
-                : `<div class="big na">—</div><div class="bl">nessuna scommessa ancora chiusa</div>`;
+                ? `<div class="big">${d.precision}<span style="font-size:1rem">%</span></div><div class="bl">${IS_EN ? "broke out of resolved bets" : "esplosi su segnalati risolti"}</div>`
+                : `<div class="big na">—</div><div class="bl">${IS_EN ? "no bet resolved yet" : "nessuna scommessa ancora chiusa"}</div>`;
             const recBig = d.recall !== null
-                ? `<div class="big">${d.recall}<span style="font-size:1rem">%</span></div><div class="bl">esplosi che avevamo segnalato</div>`
-                : `<div class="big na">—</div><div class="bl">nessuno è ancora esploso</div>`;
-            return `
+                ? `<div class="big">${d.recall}<span style="font-size:1rem">%</span></div><div class="bl">${IS_EN ? "broke out that we had flagged" : "esplosi che avevamo segnalato"}</div>`
+                : `<div class="big na">—</div><div class="bl">${IS_EN ? "no one has broken out yet" : "nessuno è ancora esploso"}</div>`;
+            return IS_EN ? `
+                <div class="board">
+                    <div class="card">
+                        <div class="ct">precision — of players flagged "about to break out"</div>
+                        ${precBig}
+                        <div class="rows">
+                            <div class="r good"><span>broke out (crossed over)</span><span class="n">${d.esplosi}</span></div>
+                            <div class="r bad"><span>deflated (fell back)</span><span class="n">${d.sgonfiati}</span></div>
+                            <div class="r"><span>pending (window still open)</span><span class="n">${d.pending}</span></div>
+                            <div class="r"><span>total flagged</span><span class="n">${d.flagged}</span></div>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="ct">recall — of players who really broke out</div>
+                        ${recBig}
+                        <div class="rows">
+                            <div class="r good"><span>flagged by the radar first</span><span class="n">${d.anticipati}</span></div>
+                            <div class="r"><span>reached the major papers</span><span class="n">${d.crossings}</span></div>
+                        </div>
+                    </div>
+                </div>` : `
                 <div class="board">
                     <div class="card">
                         <div class="ct">precisione — dei giocatori segnalati «sta per esplodere»</div>
@@ -205,12 +281,18 @@
         function boardNote(d) {
             const resolved = d.esplosi + d.sgonfiati;
             if (d.flagged === 0) {
-                return `<div class="board-note">Il tabellone è <b>vuoto</b>: nessuna segnalazione «sta per esplodere» ancora registrata. Si riempie da solo scansionando nel tempo. Meglio un tabellone vuoto e onesto che una percentuale inventata.</div>`;
+                return IS_EN
+                    ? `<div class="board-note">The scoreboard is <b>empty</b>: no "about to break out" call has been logged yet. It fills up on its own by scanning over time. Better an empty, honest scoreboard than a made-up percentage.</div>`
+                    : `<div class="board-note">Il tabellone è <b>vuoto</b>: nessuna segnalazione «sta per esplodere» ancora registrata. Si riempie da solo scansionando nel tempo. Meglio un tabellone vuoto e onesto che una percentuale inventata.</div>`;
             }
             if (resolved < 5) {
-                return `<div class="board-note">Attenzione: solo <b>${resolved}</b> scommess${resolved === 1 ? "a chiusa" : "e chiuse"} finora. Troppo poche per un giudizio: qualunque percentuale qui va letta come provvisoria, non come verdetto. Il numero diventa serio con le decine, non con le unità.</div>`;
+                return IS_EN
+                    ? `<div class="board-note">Careful: only <b>${resolved}</b> resolved bet${resolved === 1 ? "" : "s"} so far. Too few for a verdict — read any percentage here as provisional, not as proof. The number becomes serious in the tens, not the units.</div>`
+                    : `<div class="board-note">Attenzione: solo <b>${resolved}</b> scommess${resolved === 1 ? "a chiusa" : "e chiuse"} finora. Troppo poche per un giudizio: qualunque percentuale qui va letta come provvisoria, non come verdetto. Il numero diventa serio con le decine, non con le unità.</div>`;
             }
-            return `<div class="board-note">Campione ancora in crescita: <b>${resolved}</b> scommesse chiuse. Da leggere come tendenza, non come sentenza definitiva — e va riguardato nel tempo.</div>`;
+            return IS_EN
+                ? `<div class="board-note">Sample still growing: <b>${resolved}</b> resolved bets. Read it as a trend, not a final verdict — and revisit it over time.</div>`
+                : `<div class="board-note">Campione ancora in crescita: <b>${resolved}</b> scommesse chiuse. Da leggere come tendenza, non come sentenza definitiva — e va riguardato nel tempo.</div>`;
         }
 
         async function load() {
@@ -219,11 +301,11 @@
                 const res = await fetch("/api/radar/processo");
                 d = await res.json();
             } catch (e) {
-                document.getElementById("board").innerHTML = `<div class="loading">errore di rete: ${escapeHTML(String(e))}</div>`;
+                document.getElementById("board").innerHTML = `<div class="loading">${IS_EN ? "network error" : "errore di rete"}: ${escapeHTML(String(e))}</div>`;
                 return;
             }
             if (d.status !== "success") {
-                document.getElementById("board").innerHTML = `<div class="loading">errore: ${escapeHTML(d.message || "sconosciuto")}</div>`;
+                document.getElementById("board").innerHTML = `<div class="loading">${IS_EN ? "error" : "errore"}: ${escapeHTML(d.message || (IS_EN ? "unknown" : "sconosciuto"))}</div>`;
                 return;
             }
             document.getElementById("board").innerHTML = renderBoard(d) + boardNote(d);

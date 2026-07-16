@@ -2,11 +2,47 @@ import hmac
 import os
 import time
 import threading
-from flask import Flask, render_template, request, redirect, jsonify
+from flask import Flask, render_template, request, redirect, jsonify, g
 
 import discovery_engine
+from translations import TRANSLATIONS, translate
 
 app = Flask(__name__)
+
+# ============================================================
+# LINGUA - IT (default, invariato per chi gia' usa l'app) / EN
+# ============================================================
+# ?lang=en o ?lang=it sceglie esplicitamente; altrimenti si legge il cookie;
+# altrimenti italiano. Il cookie si aggiorna in no_html_cache() (dopo, in
+# questo file) - after_request gira SEMPRE, anche quando _access_gate
+# restituisce un redirect per la chiave d'accesso, cosi' un link tipo
+# "?guest_key=X&lang=en" imposta entrambi i cookie in un colpo solo invece
+# di perdere la lingua nel redirect che ripulisce l'URL dalla chiave.
+SUPPORTED_LANGS = ("it", "en")
+DEFAULT_LANG = "it"
+_LANG_COOKIE = "radar_lang"
+
+
+@app.before_request
+def _resolve_lang():
+    requested = request.args.get("lang")
+    if requested in SUPPORTED_LANGS:
+        g.lang = requested
+        return
+    cookie_lang = request.cookies.get(_LANG_COOKIE)
+    g.lang = cookie_lang if cookie_lang in SUPPORTED_LANGS else DEFAULT_LANG
+
+
+@app.context_processor
+def _inject_lang_helpers():
+    lang = getattr(g, "lang", DEFAULT_LANG)
+    return {
+        "LANG": lang,
+        "t": lambda key, **kw: translate(key, lang).format(**kw) if kw else translate(key, lang),
+        # sottoinsieme delle traduzioni per il lato JS dei template (status
+        # di scansione, bottoni generati a runtime) - JSON piccolo, solo le
+        # chiavi che servono lato client, non l'intero dizionario
+    }
 
 # ============================================================
 # ACCESSO - chiave condivisa opzionale
@@ -96,6 +132,15 @@ def no_html_cache(resp):
     risposte JSON delle API non sono toccate."""
     if resp.mimetype == "text/html":
         resp.headers["Cache-Control"] = "no-store, max-age=0"
+    # persiste la lingua scelta esplicitamente (?lang=en/it) come cookie -
+    # after_request gira SEMPRE, anche sul redirect che _access_gate produce
+    # per la chiave d'accesso, cosi' un link con guest_key+lang insieme
+    # imposta entrambi i cookie in una volta sola (vedi commento su
+    # _resolve_lang piu' in alto)
+    requested_lang = request.args.get("lang")
+    if requested_lang in SUPPORTED_LANGS and request.cookies.get(_LANG_COOKIE) != requested_lang:
+        resp.set_cookie(_LANG_COOKIE, requested_lang, max_age=180 * 24 * 3600,
+                        samesite="Lax", secure=request.is_secure)
     return resp
 
 @app.route("/")

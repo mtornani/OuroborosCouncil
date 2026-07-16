@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="it">
+<html lang="{{ LANG }}">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="theme-color" content="#0a0e13">
-    <title>LA MAPPA — SENTINEL</title>
+    <title>{{ 'THE MAP' if LANG == 'en' else 'LA MAPPA' }} — SENTINEL</title>
     <link rel="manifest" href="/static/manifest.json">
     <link rel="apple-touch-icon" href="/static/icon-192.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -161,19 +161,20 @@
 </head>
 
 <body>
-    <button class="theme-toggle" id="themeToggle" aria-label="Chiaro/scuro">☀</button>
+    <a class="lang-toggle" id="langToggle" href="?lang={{ 'it' if LANG == 'en' else 'en' }}" aria-label="Switch language" style="position:fixed;top:calc(10px + env(safe-area-inset-top));right:58px;z-index:50;height:36px;padding:0 11px;border-radius:18px;border:1px solid var(--line);background:var(--panel);color:var(--text-dim);font-family:'JetBrains Mono',monospace;font-size:0.7rem;font-weight:700;letter-spacing:0.03em;display:flex;align-items:center;justify-content:center;text-decoration:none;">{{ 'EN' if LANG == 'it' else 'IT' }}</a>
+    <button class="theme-toggle" id="themeToggle" aria-label="{{ 'Light/dark' if LANG == 'en' else 'Chiaro/scuro' }}">☀</button>
     <div class="wrap">
-        <button class="back" id="backBtn">← torna al turno</button>
-        <button class="back" id="procBtn" style="float:right;color:var(--doubt)">⚖ l'avvocato del diavolo →</button>
-        <p class="eyebrow">la mappa</p>
-        <h1>Dove sta ogni giocatore sul percorso.</h1>
-        <p class="sub">Ogni pallino è un giocatore. Più è a destra, più il mondo lo conosce. Il tuo vantaggio sta a sinistra della zona calda — chi è lì costa ancora poco, ma sta per esplodere.</p>
+        <button class="back" id="backBtn">{{ '← back to the shift' if LANG == 'en' else '← torna al turno' }}</button>
+        <button class="back" id="procBtn" style="float:right;color:var(--doubt);margin-right:100px;">{{ '⚖ the devil\'s advocate →' if LANG == 'en' else '⚖ l\'avvocato del diavolo →' }}</button>
+        <p class="eyebrow">{{ 'the map' if LANG == 'en' else 'la mappa' }}</p>
+        <h1>{{ 'Where every player stands on the path.' if LANG == 'en' else 'Dove sta ogni giocatore sul percorso.' }}</h1>
+        <p class="sub">{{ 'Every dot is a player. The further right, the more the world knows them. Your edge is to the left of the hot zone — whoever\'s there still costs little, but is about to break out.' if LANG == 'en' else 'Ogni pallino è un giocatore. Più è a destra, più il mondo lo conosce. Il tuo vantaggio sta a sinistra della zona calda — chi è lì costa ancora poco, ma sta per esplodere.' }}</p>
 
-        <div id="content"><div class="loading">carico la mappa…</div></div>
+        <div id="content"><div class="loading">{{ 'loading the map…' if LANG == 'en' else 'carico la mappa…' }}</div></div>
 
         <div class="legend" id="legend" style="display:none;">
-            <p class="legend-h">le sei tappe del percorso</p>
-            <p class="legend-hint">tocca una tappa per vedere tutti i giocatori che ci sono dentro</p>
+            <p class="legend-h">{{ 'the six stages of the path' if LANG == 'en' else 'le sei tappe del percorso' }}</p>
+            <p class="legend-hint">{{ 'tap a stage to see every player inside it' if LANG == 'en' else 'tocca una tappa per vedere tutti i giocatori che ci sono dentro' }}</p>
             <div id="legendRows"></div>
         </div>
     </div>
@@ -183,7 +184,7 @@
     <div class="detail phase-sheet" id="phaseSheet">
         <div class="ph-head">
             <div class="ph-title" id="phaseTitle"></div>
-            <button class="ph-close" id="phaseClose" aria-label="Chiudi">✕</button>
+            <button class="ph-close" id="phaseClose" aria-label="{{ 'Close' if LANG == 'en' else 'Chiudi' }}">✕</button>
         </div>
         <div class="ph-list" id="phaseList"></div>
     </div>
@@ -191,13 +192,65 @@
     <div class="detail" id="detail">
         <div id="detailBody"></div>
         <div class="detail-actions">
-            <button class="btn-flag" id="detailFlag">☆ SEGNA</button>
-            <button class="btn-close" id="detailClose">CHIUDI</button>
+            <button class="btn-flag" id="detailFlag">{{ '☆ FLAG' if LANG == 'en' else '☆ SEGNA' }}</button>
+            <button class="btn-close" id="detailClose">{{ 'CLOSE' if LANG == 'en' else 'CHIUDI' }}</button>
         </div>
     </div>
 
     <script>
-        const PHASE_LABELS = ["nessuno ne parla", "solo fonti locali", "se ne parla", "sta per esplodere", "sui grandi giornali", "lo sanno tutti"];
+        const IS_EN = {{ 'true' if LANG == 'en' else 'false' }};
+        const I18N = IS_EN ? {
+            hotTag: "ABOUT TO BREAK OUT", hotArrow: "← the hot zone",
+            axisLeft: "unknown", axisRight: "everyone knows them",
+            svgAria: "Map of players on the adoption curve",
+            counts: (n, notYet) => `<b>${n}</b> player${n === 1 ? "" : "s"} on the path · <b>${notYet}</b> still to profile (below the minimum scans).`,
+            validationDone: (v) => `Proof on the facts: ${v.crossings} reached the major papers so far, ${v.anticipated} anticipated by the radar.`,
+            validationEmpty: "The verification ledger is still empty: it fills up when a player really crosses over to the big papers.",
+            hotNowTitle: "who's about to break out now",
+            hotNowEmpty: "No one in the hot zone right now. That's normal: it's the rarest, most valuable band. Keep scanning — as soon as the signals converge on someone, they'll show up here first.",
+            justClimbed: " · just climbed", clubUnknown: "club N/A", pressure: "pressure",
+            stagePrefix: (n) => `stage · ${n} player${n === 1 ? "" : "s"}`,
+            stageEmpty: "No player in this stage right now.",
+            signal: "signal",
+            hotTagShort: "about to break out",
+            justClimbedFull: " · just climbed a stage",
+            stage: "stage",
+            networkError: (e) => `network error: ${e}`,
+            genericError: (m) => `error: ${m}`,
+            unknown: "unknown",
+            noneOnPathYet: (notYet) => `No player placed on the path yet: it takes a minimum of repeated scans to know where each one stands. So far ${notYet} candidates have been seen, but not enough times. Come back after a few more scans.`,
+            flagged: "★ FLAGGED", flag: "☆ FLAG",
+        } : {
+            hotTag: "STA PER ESPLODERE", hotArrow: "← la zona calda",
+            axisLeft: "sconosciuto", axisRight: "lo sanno tutti",
+            svgAria: "Mappa dei giocatori sulla curva di adozione",
+            counts: (n, notYet) => `<b>${n}</b> giocator${n === 1 ? "e" : "i"} sul percorso · <b>${notYet}</b> ancora da profilare (meno scansioni del minimo).`,
+            validationDone: (v) => `Prova sui fatti: ${v.crossings} arrivat${v.crossings === 1 ? "o" : "i"} sui grandi giornali finora, ${v.anticipated} anticipat${v.anticipated === 1 ? "o" : "i"} dal radar.`,
+            validationEmpty: "Il registro di verifica è ancora vuoto: si riempie quando un giocatore attraversa davvero verso i grandi giornali.",
+            hotNowTitle: "chi sta per esplodere ora",
+            hotNowEmpty: "Nessuno in zona calda in questo momento. È normale: è la fascia più rara e più preziosa. Continua a scansionare — appena i segnali convergono su qualcuno, comparirà qui per primo.",
+            justClimbed: " · appena salito", clubUnknown: "club N/D", pressure: "spinta",
+            stagePrefix: (n) => `tappa · ${n} giocator${n === 1 ? "e" : "i"}`,
+            stageEmpty: "Nessun giocatore in questa tappa ora.",
+            signal: "signal",
+            hotTagShort: "sta per esplodere",
+            justClimbedFull: " · appena salito di tappa",
+            stage: "tappa",
+            networkError: (e) => `errore di rete: ${e}`,
+            genericError: (m) => `errore: ${m}`,
+            unknown: "sconosciuto",
+            noneOnPathYet: (notYet) => `Ancora nessun giocatore collocato sul percorso: serve un minimo di scansioni ripetute per capire dove si trova ciascuno. Finora ${notYet} candidati sono stati visti, ma non abbastanza volte. Torna dopo qualche altra scansione.`,
+            flagged: "★ SEGNATO", flag: "☆ SEGNA",
+        };
+        const PHASE_LABELS = IS_EN
+            ? ["no one's talking", "local sources only", "getting talked about", "about to break out", "in the major papers", "everyone knows"]
+            : ["nessuno ne parla", "solo fonti locali", "se ne parla", "sta per esplodere", "sui grandi giornali", "lo sanno tutti"];
+        // il ruolo arriva dal server sempre in italiano - qui si traduce solo
+        // la visualizzazione (stesso motivo di turno.html/radar.html)
+        const ROLE_LABEL_MAP = IS_EN
+            ? { Portiere: "Goalkeeper", Difensore: "Defender", Centrocampista: "Midfielder", Attaccante: "Forward" }
+            : { Portiere: "Portiere", Difensore: "Difensore", Centrocampista: "Centrocampista", Attaccante: "Attaccante" };
+        function roleLabel(role) { return ROLE_LABEL_MAP[role] || role; }
         // geometria della curva a S nel viewBox 100 x 62
         const CURVE_F = x => 50 - 40 / (1 + Math.exp(-(x - 50) / 9));
         const PHASE_X = p => 6 + p * (88 / 5);
@@ -258,21 +311,21 @@
 
             return `
                 <div class="map-panel">
-                    <svg class="map-svg" viewBox="0 0 100 62" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Mappa dei giocatori sulla curva di adozione">
+                    <svg class="map-svg" viewBox="0 0 100 62" preserveAspectRatio="xMidYMid meet" role="img" aria-label="${I18N.svgAria}">
                         <rect class="hot-band" x="${bandX.toFixed(1)}" y="0" width="${bandW.toFixed(1)}" height="56"/>
-                        <text class="hot-label" x="${PHASE_X(3).toFixed(1)}" y="5" text-anchor="middle">STA PER ESPLODERE</text>
-                        <text class="zone-label" x="${PHASE_X(3).toFixed(1)}" y="8.6" text-anchor="middle">← la zona calda</text>
+                        <text class="hot-label" x="${PHASE_X(3).toFixed(1)}" y="5" text-anchor="middle">${I18N.hotTag}</text>
+                        <text class="zone-label" x="${PHASE_X(3).toFixed(1)}" y="8.6" text-anchor="middle">${I18N.hotArrow}</text>
                         ${hits}
                         <polyline class="curve" points="${curve}"/>
-                        <text class="zone-label" x="6" y="60" text-anchor="start">sconosciuto</text>
-                        <text class="zone-label" x="94" y="60" text-anchor="end">lo sanno tutti</text>
+                        <text class="zone-label" x="6" y="60" text-anchor="start">${I18N.axisLeft}</text>
+                        <text class="zone-label" x="94" y="60" text-anchor="end">${I18N.axisRight}</text>
                         ${dots}
                     </svg>
                 </div>
-                <p class="counts"><b>${data.assessed_count}</b> giocator${data.assessed_count === 1 ? "e" : "i"} sul percorso · <b>${data.not_yet_count}</b> ancora da profilare (meno scansioni del minimo).</p>
+                <p class="counts">${I18N.counts(data.assessed_count, data.not_yet_count)}</p>
                 ${data.validation && data.validation.crossings > 0
-                    ? `<p class="validation">Prova sui fatti: ${data.validation.crossings} arrivat${data.validation.crossings === 1 ? "o" : "i"} sui grandi giornali finora, ${data.validation.anticipated} anticipat${data.validation.anticipated === 1 ? "o" : "i"} dal radar.</p>`
-                    : `<p class="validation">Il registro di verifica è ancora vuoto: si riempie quando un giocatore attraversa davvero verso i grandi giornali.</p>`}
+                    ? `<p class="validation">${I18N.validationDone(data.validation)}</p>`
+                    : `<p class="validation">${I18N.validationEmpty}</p>`}
                 ${shortlist(players)}
             `;
         }
@@ -280,20 +333,20 @@
         function shortlist(players) {
             const hot = players.filter(p => p.phase === 3).sort((a, b) => (b.exit_pressure || 0) - (a.exit_pressure || 0));
             if (hot.length === 0) {
-                return `<p class="section-h">chi sta per esplodere ora</p>
-                    <div class="empty-hot">Nessuno in zona calda in questo momento. È normale: è la fascia più rara e più preziosa. Continua a scansionare — appena i segnali convergono su qualcuno, comparirà qui per primo.</div>`;
+                return `<p class="section-h">${I18N.hotNowTitle}</p>
+                    <div class="empty-hot">${I18N.hotNowEmpty}</div>`;
             }
             const rows = hot.map(p => {
                 const i = players.indexOf(p);
                 return `<button class="sl-row" data-idx="${i}">
                     <div>
                         <div class="sl-name">${escapeHTML(p.name || "—")}</div>
-                        <div class="sl-meta">${p.role ? escapeHTML(p.role) + " · " : ""}${escapeHTML(p.club || "club N/D")}${p.climbing ? " · appena salito" : ""}</div>
+                        <div class="sl-meta">${p.role ? escapeHTML(roleLabel(p.role)) + " · " : ""}${escapeHTML(p.club || I18N.clubUnknown)}${p.climbing ? I18N.justClimbed : ""}</div>
                     </div>
-                    <div class="sl-spinta"><div class="n">${p.exit_pressure != null ? p.exit_pressure : "–"}</div><div class="l">spinta</div></div>
+                    <div class="sl-spinta"><div class="n">${p.exit_pressure != null ? p.exit_pressure : "–"}</div><div class="l">${I18N.pressure}</div></div>
                 </button>`;
             }).join("");
-            return `<p class="section-h">chi sta per esplodere ora — ${hot.length}</p><div class="shortlist">${rows}</div>`;
+            return `<p class="section-h">${I18N.hotNowTitle} — ${hot.length}</p><div class="shortlist">${rows}</div>`;
         }
 
         function buildLegend(data) {
@@ -321,16 +374,16 @@
                 .filter(x => x.p.phase === phase);
             const label = PHASE_LABELS[phase] || "";
             document.getElementById("phaseTitle").innerHTML =
-                `<span class="ph-eyebrow">tappa · ${items.length} giocator${items.length === 1 ? "e" : "i"}</span><span class="ph-name-big">${escapeHTML(label)}</span>`;
+                `<span class="ph-eyebrow">${I18N.stagePrefix(items.length)}</span><span class="ph-name-big">${escapeHTML(label)}</span>`;
             document.getElementById("phaseList").innerHTML = items.length
                 ? items.map(({ p, i }) => `<button class="ph-row" data-idx="${i}">
                         <div>
                             <div class="ph-name">${escapeHTML(p.name || "—")}${p.is_takeoff ? " ★" : ""}</div>
-                            <div class="ph-meta">${p.role ? escapeHTML(p.role) + " · " : ""}${escapeHTML(p.club || "club N/D")}${p.climbing ? " · appena salito" : ""}</div>
+                            <div class="ph-meta">${p.role ? escapeHTML(roleLabel(p.role)) + " · " : ""}${escapeHTML(p.club || I18N.clubUnknown)}${p.climbing ? I18N.justClimbed : ""}</div>
                         </div>
-                        <div class="ph-score">${p.signal_score != null ? p.signal_score : "–"}<span>signal</span></div>
+                        <div class="ph-score">${p.signal_score != null ? p.signal_score : "–"}<span>${I18N.signal}</span></div>
                     </button>`).join("")
-                : `<div class="ph-empty">Nessun giocatore in questa tappa ora.</div>`;
+                : `<div class="ph-empty">${I18N.stageEmpty}</div>`;
             document.querySelectorAll("#phaseList .ph-row").forEach(r =>
                 r.addEventListener("click", () => { closeSheets(); openDetail(+r.getAttribute("data-idx")); }));
             document.getElementById("detailScrim").classList.add("open");
@@ -344,17 +397,17 @@
             const phaseName = PHASE_LABELS[p.phase] || "";
             const hot = p.phase === 3;
             document.getElementById("detailBody").innerHTML = `
-                ${hot ? '<span class="detail-tag">sta per esplodere</span>' : ''}
+                ${hot ? `<span class="detail-tag">${I18N.hotTagShort}</span>` : ''}
                 <div class="detail-name">${escapeHTML(p.name || "—")}</div>
-                <div class="detail-meta">${p.role ? escapeHTML(p.role) + " · " : ""}${escapeHTML(p.club || "club N/D")}${p.climbing ? " · appena salito di tappa" : ""}</div>
+                <div class="detail-meta">${p.role ? escapeHTML(roleLabel(p.role)) + " · " : ""}${escapeHTML(p.club || I18N.clubUnknown)}${p.climbing ? I18N.justClimbedFull : ""}</div>
                 <div class="detail-grid">
-                    <div><div class="k">tappa</div><div class="v ${hot ? "hot" : ""}" style="font-size:0.95rem;font-family:'Newsreader',serif">${escapeHTML(phaseName)}</div></div>
-                    <div><div class="k">signal</div><div class="v">${p.signal_score != null ? p.signal_score : "–"}</div></div>
-                    <div><div class="k">spinta</div><div class="v ${hot ? "hot" : ""}">${p.exit_pressure != null ? p.exit_pressure : "–"}</div></div>
+                    <div><div class="k">${I18N.stage}</div><div class="v ${hot ? "hot" : ""}" style="font-size:0.95rem;font-family:'Newsreader',serif">${escapeHTML(phaseName)}</div></div>
+                    <div><div class="k">${I18N.signal}</div><div class="v">${p.signal_score != null ? p.signal_score : "–"}</div></div>
+                    <div><div class="k">${I18N.pressure}</div><div class="v ${hot ? "hot" : ""}">${p.exit_pressure != null ? p.exit_pressure : "–"}</div></div>
                 </div>`;
             const flag = document.getElementById("detailFlag");
             flag.classList.toggle("active", !!p.watchlisted);
-            flag.textContent = p.watchlisted ? "★ SEGNATO" : "☆ SEGNA";
+            flag.textContent = p.watchlisted ? I18N.flagged : I18N.flag;
             document.getElementById("detailScrim").classList.add("open");
             document.getElementById("detail").classList.add("open");
             document.querySelectorAll(".map-svg .dot.sel").forEach(d => d.classList.remove("sel"));
@@ -402,17 +455,17 @@
                 const res = await fetch("/api/radar/mappa");
                 data = await res.json();
             } catch (e) {
-                document.getElementById("content").innerHTML = `<div class="loading">errore di rete: ${escapeHTML(String(e))}</div>`;
+                document.getElementById("content").innerHTML = `<div class="loading">${I18N.networkError(escapeHTML(String(e)))}</div>`;
                 return;
             }
             if (data.status !== "success") {
-                document.getElementById("content").innerHTML = `<div class="loading">errore: ${escapeHTML(data.message || "sconosciuto")}</div>`;
+                document.getElementById("content").innerHTML = `<div class="loading">${I18N.genericError(escapeHTML(data.message || I18N.unknown))}</div>`;
                 return;
             }
             state.players = data.players || [];
             if (data.assessed_count === 0) {
                 document.getElementById("content").innerHTML =
-                    `<div class="empty-hot">Ancora nessun giocatore collocato sul percorso: serve un minimo di scansioni ripetute per capire dove si trova ciascuno. Finora ${data.not_yet_count} candidati sono stati visti, ma non abbastanza volte. Torna dopo qualche altra scansione.</div>`;
+                    `<div class="empty-hot">${I18N.noneOnPathYet(data.not_yet_count)}</div>`;
                 return;
             }
             document.getElementById("content").innerHTML = buildMap(data);
@@ -433,7 +486,7 @@
             p.watchlisted = !p.watchlisted;
             const flag = document.getElementById("detailFlag");
             flag.classList.toggle("active", p.watchlisted);
-            flag.textContent = p.watchlisted ? "★ SEGNATO" : "☆ SEGNA";
+            flag.textContent = p.watchlisted ? I18N.flagged : I18N.flag;
             const dot = document.querySelector(`.map-svg .dot[data-idx="${state.selected}"]`);
             if (dot) dot.classList.toggle("watch", p.watchlisted);
             toggleWatch(p.candidate_id, p.watchlisted);
