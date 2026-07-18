@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="it">
+<html lang="{{ LANG }}">
 
 <head>
     <meta charset="UTF-8">
@@ -459,44 +459,54 @@
 </head>
 
 <body>
-    <button class="theme-toggle" id="themeToggle" aria-label="Cambia tema chiaro/scuro" title="Chiaro/scuro">☀</button>
+    <a class="lang-toggle" id="langToggle" href="?lang={{ 'it' if LANG == 'en' else 'en' }}" aria-label="Switch language" style="position:fixed;top:calc(10px + env(safe-area-inset-top));right:58px;z-index:50;height:36px;padding:0 11px;border-radius:18px;border:1px solid var(--panel-border);background:var(--panel);color:var(--text-dim);font-family:var(--font-mono);font-size:0.7rem;font-weight:700;letter-spacing:0.03em;display:flex;align-items:center;justify-content:center;text-decoration:none;">{{ 'EN' if LANG == 'it' else 'IT' }}</a>
+    <button class="theme-toggle" id="themeToggle" aria-label="{{ 'Switch light/dark theme' if LANG == 'en' else 'Cambia tema chiaro/scuro' }}" title="{{ 'Light/dark' if LANG == 'en' else 'Chiaro/scuro' }}">☀</button>
     <header>
-        <button id="homeBtn" style="background:none;border:none;padding:0;margin:0 0 10px;font-family:var(--font-mono);font-size:12px;color:var(--accent-high);cursor:pointer;">← il turno (home)</button>
+        <button id="homeBtn" style="background:none;border:none;padding:0;margin:0 0 10px;font-family:var(--font-mono);font-size:12px;color:var(--accent-high);cursor:pointer;">{{ '← the shift (home)' if LANG == 'en' else '← il turno (home)' }}</button>
         <div class="brand">OB1 <span>RADAR</span></div>
-        <div class="subtitle">discovery, non rassegna stampa</div>
+        <div class="subtitle">{{ 'discovery, not a press digest' if LANG == 'en' else "discovery, non rassegna stampa" }}</div>
         <div class="disclaimer">
+            {% if LANG == 'en' %}
+            Attention prioritizer, not a prediction engine: flags who deserves
+            20 minutes of your human eye this week. Buzz is a corroborating signal,
+            never the only proof.
+            {% else %}
             Prioritizzatore di attenzione, non motore di previsione: segnala chi merita
             20 minuti del tuo occhio umano questa settimana. Il buzz e' un segnale di
             corroborazione, mai l'unica prova.
+            {% endif %}
         </div>
+        {% if LANG == 'en' %}<div class="disclaimer" style="opacity:0.75;">{{ t('dynamic_content_note') }}</div>{% endif %}
     </header>
 
     <div class="chip-row" id="profile-chips"></div>
 
     <div class="filter-toggle-row">
-        <div class="filter-toggle" id="filter-toggle">FILTRI ▾</div>
+        <div class="filter-toggle" id="filter-toggle">{{ 'FILTERS ▾' if LANG == 'en' else 'FILTRI ▾' }}</div>
         <div class="result-count" id="result-count"></div>
     </div>
 
     <div class="filter-panel" id="filter-panel">
-        <div class="filter-label">Ruolo</div>
+        <div class="filter-label">{{ 'Role' if LANG == 'en' else 'Ruolo' }}</div>
         <div class="filter-chip-row" id="role-filters"></div>
 
-        <div class="filter-label">Eta' massima</div>
+        <div class="filter-label">{{ 'Max age' if LANG == 'en' else "Eta' massima" }}</div>
         <div class="filter-chip-row" id="age-filters"></div>
 
-        <div class="filter-label">Paese / competizione</div>
+        <div class="filter-label">{{ 'Country / competition' if LANG == 'en' else 'Paese / competizione' }}</div>
         <select class="filter-select" id="country-filter"></select>
     </div>
 
     <main id="results"></main>
 
     <div class="bottom-bar">
-        <button id="refresh-btn">AGGIORNA</button>
-        <div class="last-run" id="last-run">mai aggiornato</div>
+        <button id="refresh-btn">{{ 'REFRESH' if LANG == 'en' else 'AGGIORNA' }}</button>
+        <div class="last-run" id="last-run">{{ 'never updated' if LANG == 'en' else 'mai aggiornato' }}</div>
     </div>
 
     <script>
+        const IS_EN = {{ 'true' if LANG == 'en' else 'false' }};
+
         function escapeHTML(str) {
             if (str === null || str === undefined) return "";
             return String(str).replace(/[&<>'"]/g,
@@ -512,15 +522,39 @@
             return (g && g.club_aggiornato) || null;
         }
 
-        const PROFILES = [
+        const PROFILES = IS_EN ? [
+            { key: "tactical_profile", label: "Tactical profile" },
+            { key: "resale_value", label: "Resale" },
+            { key: "first_team_need", label: "Serie C squad" },
+            { key: "fsgc_oriundi", label: "FSGC oriundi" },
+        ] : [
             { key: "tactical_profile", label: "Profilo tattico" },
             { key: "resale_value", label: "Rivendita" },
             { key: "first_team_need", label: "Rosa Serie C" },
             { key: "fsgc_oriundi", label: "Oriundi FSGC" },
         ];
 
-        const ROLES = ["Portiere", "Difensore", "Centrocampista", "Attaccante"];
-        const AGE_PRESETS = [
+        // value = quello che manda il server (candidate.role, sempre in
+        // italiano: il motore ragiona in italiano - vedi dynamic_content_note).
+        // label = quello che l'utente vede. In EN il filtro resta funzionante
+        // perche' confronta sempre il value, non la label mostrata.
+        const ROLES = IS_EN ? [
+            { value: "Portiere", label: "Goalkeeper" },
+            { value: "Difensore", label: "Defender" },
+            { value: "Centrocampista", label: "Midfielder" },
+            { value: "Attaccante", label: "Forward" },
+        ] : [
+            { value: "Portiere", label: "Portiere" },
+            { value: "Difensore", label: "Difensore" },
+            { value: "Centrocampista", label: "Centrocampista" },
+            { value: "Attaccante", label: "Attaccante" },
+        ];
+        const AGE_PRESETS = IS_EN ? [
+            { key: "17", label: "U17", max: 17 },
+            { key: "20", label: "U20", max: 20 },
+            { key: "23", label: "U23", max: 23 },
+            { key: "all", label: "All", max: null },
+        ] : [
             { key: "17", label: "U17", max: 17 },
             { key: "20", label: "U20", max: 20 },
             { key: "23", label: "U23", max: 23 },
@@ -541,18 +575,32 @@
             partialShown: false, // feed gia' ricaricato a meta' scansione (fase punteggi)
         };
 
+        const TIER_LABELS_MAP = IS_EN ? {
+            serie_c: "Serie C", serie_d: "Serie D",
+            serie_c_riserve: "Serie C (reserves)", serie_d_riserve: "Serie D (reserves)",
+            conmebol_u20: "CONMEBOL U20", conmebol_u17: "CONMEBOL U17", watchlist: "Watchlist",
+        } : {
+            serie_c: "Serie C", serie_d: "Serie D",
+            serie_c_riserve: "Serie C (riserve)", serie_d_riserve: "Serie D (riserve)",
+            conmebol_u20: "CONMEBOL U20", conmebol_u17: "CONMEBOL U17", watchlist: "Watchlist",
+        };
         function tierLabel(candidate) {
-            if (candidate.tier === "nationality_pool") return candidate.nationality_label || "Pool nazionalita'";
-            return { serie_c: "Serie C", serie_d: "Serie D",
-                      serie_c_riserve: "Serie C (riserve)", serie_d_riserve: "Serie D (riserve)",
-                      conmebol_u20: "CONMEBOL U20",
-                      conmebol_u17: "CONMEBOL U17", watchlist: "Watchlist" }[candidate.tier] || candidate.tier || "N/D";
+            if (candidate.tier === "nationality_pool") return candidate.nationality_label || (IS_EN ? "Nationality pool" : "Pool nazionalita'");
+            return TIER_LABELS_MAP[candidate.tier] || candidate.tier || "N/D";
         }
 
         // chiave stabile per il filtro paese/competizione - stesso criterio
         // di tierLabel ma senza dipendere dalla label (usata come value del <select>)
         function groupKey(candidate) {
             return candidate.tier === "nationality_pool" ? `nat:${candidate.nationality_label}` : `tier:${candidate.tier}`;
+        }
+
+        // il ruolo arriva dal server sempre in italiano (stesso motivo del
+        // club/tier - vedi ROLES sopra): qui si traduce solo la VISUALIZZAZIONE
+        // sulla card, riusando la stessa mappa value->label dei filtri.
+        const ROLE_LABEL_BY_VALUE = Object.fromEntries(ROLES.map(r => [r.value, r.label]));
+        function roleLabel(role) {
+            return ROLE_LABEL_BY_VALUE[role] || role;
         }
 
         function computeAge(dob) {
@@ -592,7 +640,7 @@
             return Math.round((combined / totalWeight) * 1000) / 10;
         }
 
-        const COMPONENT_LABELS = { age_vs_level: "eta'-vs-livello", buzz: "buzz" };
+        const COMPONENT_LABELS = IS_EN ? { age_vs_level: "age-vs-level", buzz: "buzz" } : { age_vs_level: "eta'-vs-livello", buzz: "buzz" };
 
         // Scompone il Signal Score nei suoi ingredienti (stessa formula di
         // discovery_engine.signal_score: media pesata dei componenti
@@ -616,7 +664,7 @@
             const parts = componentBreakdown(candidate);
             if (!parts) return "";
             const text = parts
-                .map(p => `${escapeHTML(p.label)} <b>${p.valuePct}</b>${p.weightPct !== null ? ` (peso ${p.weightPct}%)` : ""}`)
+                .map(p => `${escapeHTML(p.label)} <b>${p.valuePct}</b>${p.weightPct !== null ? ` (${IS_EN ? "weight" : "peso"} ${p.weightPct}%)` : ""}`)
                 .join(" + ");
             return `<div class="score-breakdown">score = ${text}</div>`;
         }
@@ -630,23 +678,27 @@
             // dati parziali, poco da fidarsi ancora.
             const b = candidate.bayesian;
             if (!b) return "";
-            const n = b.n_observations === 1 ? "1 osservazione" : `${b.n_observations} osservazioni`;
-            return `<div class="score-breakdown">stima bayesiana <b>${b.estimate}</b> ` +
-                `(banda ${b.confidence_band[0]}–${b.confidence_band[1]}, ${n})</div>`;
+            const n = IS_EN
+                ? (b.n_observations === 1 ? "1 observation" : `${b.n_observations} observations`)
+                : (b.n_observations === 1 ? "1 osservazione" : `${b.n_observations} osservazioni`);
+            return `<div class="score-breakdown">${IS_EN ? "bayesian estimate" : "stima bayesiana"} <b>${b.estimate}</b> ` +
+                `(${IS_EN ? "band" : "banda"} ${b.confidence_band[0]}–${b.confidence_band[1]}, ${n})</div>`;
         }
 
         // Mini-curva sulla scheda: dove sta il giocatore sul percorso da
         // sconosciuto a conosciuto (Layer E). Compare solo se il candidato ha
         // gia' una fase calcolata (serve un minimo di storico); i dati vecchi
         // senza il campo curve semplicemente non la mostrano.
-        const PHASE_LABELS_R = ["nessuno ne parla", "solo fonti locali", "se ne parla", "sta per esplodere", "sui grandi giornali", "lo sanno tutti"];
+        const PHASE_LABELS_R = IS_EN
+            ? ["no one's talking", "local sources only", "getting talked about", "about to break out", "in the major papers", "everyone knows"]
+            : ["nessuno ne parla", "solo fonti locali", "se ne parla", "sta per esplodere", "sui grandi giornali", "lo sanno tutti"];
         function renderMiniCurve(candidate) {
             const curve = candidate.curve;
             // versione compatta della regola "niente sparisce in silenzio":
             // in card d'archivio basta una riga, ma il perche' va detto
-            if (!curve) return `<div class="mini-curve-missing">curva: non ancora nel giro dei controlli stampa</div>`;
+            if (!curve) return `<div class="mini-curve-missing">${IS_EN ? "chart: not in the press-monitoring round yet" : "curva: non ancora nel giro dei controlli stampa"}</div>`;
             if (curve.phase === null || curve.phase === undefined) {
-                return `<div class="mini-curve-missing">curva in costruzione: ${curve.runs_seen ?? 0}/3 controlli</div>`;
+                return `<div class="mini-curve-missing">${IS_EN ? "chart building" : "curva in costruzione"}: ${curve.runs_seen ?? 0}/3 ${IS_EN ? "checks" : "controlli"}</div>`;
             }
             const F = x => 24 - 20 / (1 + Math.exp(-(x - 55) / 10));
             const PX = p => 4 + p * (92 / 5);
@@ -656,7 +708,8 @@
             const done = xs.filter(x => x <= px).map(x => `${x},${F(x).toFixed(2)}`).join(" ") + ` ${px.toFixed(1)},${F(px).toFixed(2)}`;
             const ticks = [0, 1, 2, 3, 4, 5].map(p => `<circle cx="${PX(p).toFixed(1)}" cy="${F(PX(p)).toFixed(2)}" r="1" class="mc-tick"/>`).join("");
             const label = PHASE_LABELS_R[curve.phase] || "";
-            const spinta = (curve.exit_pressure !== null && curve.exit_pressure !== undefined) ? ` · spinta ${curve.exit_pressure}` : "";
+            const pressureLabel = IS_EN ? " · pressure " : " · spinta ";
+            const spinta = (curve.exit_pressure !== null && curve.exit_pressure !== undefined) ? `${pressureLabel}${curve.exit_pressure}` : "";
             return `<div class="mini-curve">
                 <svg viewBox="0 0 100 26" preserveAspectRatio="none" aria-hidden="true">
                     <polyline class="mc-path" points="${full}"/>
@@ -664,19 +717,19 @@
                     ${ticks}
                     <circle class="mc-dot" cx="${px.toFixed(1)}" cy="${F(px).toFixed(2)}" r="2.2"/>
                 </svg>
-                <div class="mc-label">percorso: <b>${escapeHTML(label)}</b>${escapeHTML(spinta)}</div>
+                <div class="mc-label">${IS_EN ? "path" : "percorso"}: <b>${escapeHTML(label)}</b>${escapeHTML(spinta)}</div>
             </div>`;
         }
 
         function verdictBadge(candidate) {
             const dossier = candidate.dossier;
-            if (!dossier) return { color: "var(--accent-low)", text: "IN CODA" };
-            if (dossier.skipped) return { color: "var(--accent-mid)", text: "SERVE ALTRO SEGNALE" };
-            if (dossier.error) return { color: "var(--accent-low)", text: "DOSSIER N/D" };
+            if (!dossier) return { color: "var(--accent-low)", text: IS_EN ? "IN QUEUE" : "IN CODA" };
+            if (dossier.skipped) return { color: "var(--accent-mid)", text: IS_EN ? "NEEDS MORE SIGNAL" : "SERVE ALTRO SEGNALE" };
+            if (dossier.error) return { color: "var(--accent-low)", text: IS_EN ? "DOSSIER N/A" : "DOSSIER N/D" };
             const g = dossier.giudice || {};
-            if (g.vale_la_pena === true) return { color: "var(--accent-high)", text: "DA SEGUIRE" };
-            if (g.vale_la_pena === false) return { color: "var(--accent-doubt)", text: "DUBBIO" };
-            return { color: "var(--accent-mid)", text: "VERDETTO N/D" };
+            if (g.vale_la_pena === true) return { color: "var(--accent-high)", text: IS_EN ? "WORTH FOLLOWING" : "DA SEGUIRE" };
+            if (g.vale_la_pena === false) return { color: "var(--accent-doubt)", text: IS_EN ? "DOUBTFUL" : "DUBBIO" };
+            return { color: "var(--accent-mid)", text: IS_EN ? "VERDICT N/A" : "VERDETTO N/D" };
         }
 
         function renderDossier(candidate) {
@@ -684,24 +737,33 @@
             // il contraddittorio (motivi di dubbio dai dati) si mostra SEMPRE,
             // anche quando manca il dossier AI - e' calcolato a parte
             const contra = contraddittorioBlock(candidate);
-            if (!d) return contra + '<div class="dossier-error">Ancora nessun dossier AI per questo candidato (fuori dal top N di questo giro, o in attesa del prossimo Aggiorna).</div>';
+            if (!d) return contra + `<div class="dossier-error">${IS_EN
+                ? "No AI dossier for this candidate yet (outside this round's top N, or awaiting the next Refresh)."
+                : "Ancora nessun dossier AI per questo candidato (fuori dal top N di questo giro, o in attesa del prossimo Aggiorna)."}</div>`;
             if (d.skipped) return contra + `<div class="dossier-error">${escapeHTML(d.skipped)}</div>`;
             if (d.error) return contra + `<div class="dossier-error">${escapeHTML(d.error)}</div>`;
             const g = d.giudice || {};
-            const verdictText = g.vale_la_pena === true ? "Vale la pena seguirlo ora"
-                : g.vale_la_pena === false ? "Non prioritario ora" : "Verdetto non disponibile";
+            const verdictText = IS_EN
+                ? (g.vale_la_pena === true ? "Worth following now" : g.vale_la_pena === false ? "Not a priority now" : "Verdict not available")
+                : (g.vale_la_pena === true ? "Vale la pena seguirlo ora" : g.vale_la_pena === false ? "Non prioritario ora" : "Verdetto non disponibile");
             const clubLine = g.club_aggiornato
-                ? `<div class="club-update-flag" style="display:block;margin:6px 0;">⚠️ Squadra su Wikidata non aggiornata - risulta ora a ${escapeHTML(g.club_aggiornato)} (confermato via ricerca web)</div>`
+                ? (IS_EN
+                    ? `<div class="club-update-flag" style="display:block;margin:6px 0;">⚠️ Wikidata club not up to date - now shows as ${escapeHTML(g.club_aggiornato)} (confirmed via web search)</div>`
+                    : `<div class="club-update-flag" style="display:block;margin:6px 0;">⚠️ Squadra su Wikidata non aggiornata - risulta ora a ${escapeHTML(g.club_aggiornato)} (confermato via ricerca web)</div>`)
                 : g.club_verificato_via_ricerca
-                    ? `<div style="font-size:10px;color:var(--text-dim);margin:6px 0;">✓ squadra confermata via ricerca web</div>`
-                    : `<div style="font-size:10px;color:var(--text-dim);margin:6px 0;">squadra non riverificata via ricerca web - solo da Wikidata</div>`;
+                    ? (IS_EN
+                        ? `<div style="font-size:10px;color:var(--text-dim);margin:6px 0;">✓ club confirmed via web search</div>`
+                        : `<div style="font-size:10px;color:var(--text-dim);margin:6px 0;">✓ squadra confermata via ricerca web</div>`)
+                    : (IS_EN
+                        ? `<div style="font-size:10px;color:var(--text-dim);margin:6px 0;">club not re-verified via web search - Wikidata only</div>`
+                        : `<div style="font-size:10px;color:var(--text-dim);margin:6px 0;">squadra non riverificata via ricerca web - solo da Wikidata</div>`);
             return `
                 <div class="verdict-line">⚖️ ${escapeHTML(verdictText)}${g.confidence != null ? ` · confidence ${escapeHTML(g.confidence)}` : ""}<br>${escapeHTML(g.motivazione || "")}</div>
                 ${clubLine}
                 ${contraddittorioBlock(candidate)}
-                <div class="dossier-role"><div class="dossier-role-label">📰 Cronista</div>${escapeHTML(d.cronista || "N/D")}</div>
-                <div class="dossier-role"><div class="dossier-role-label">🔍 Verificatore</div>${escapeHTML(d.verificatore || "N/D")}</div>
-                <div class="dossier-role"><div class="dossier-role-label">😈 Scettico</div>${escapeHTML(d.scettico || "N/D")}</div>
+                <div class="dossier-role"><div class="dossier-role-label">📰 ${IS_EN ? "Reporter" : "Cronista"}</div>${escapeHTML(d.cronista || "N/D")}</div>
+                <div class="dossier-role"><div class="dossier-role-label">🔍 ${IS_EN ? "Verifier" : "Verificatore"}</div>${escapeHTML(d.verificatore || "N/D")}</div>
+                <div class="dossier-role"><div class="dossier-role-label">😈 ${IS_EN ? "Skeptic" : "Scettico"}</div>${escapeHTML(d.scettico || "N/D")}</div>
             `;
         }
 
@@ -711,7 +773,7 @@
             const cav = candidate.caveats || [];
             if (cav.length === 0) return "";
             const items = cav.map(t => `<div class="contra-item"><span class="x">✕</span> ${escapeHTML(t)}</div>`).join("");
-            return `<div class="dossier-contra"><div class="dossier-contra-head">il contraddittorio — cosa gioca contro</div>${items}</div>`;
+            return `<div class="dossier-contra"><div class="dossier-contra-head">${IS_EN ? "the counter-argument — what plays against it" : "il contraddittorio — cosa gioca contro"}</div>${items}</div>`;
         }
 
         function renderFilterPanel() {
@@ -721,11 +783,11 @@
             const toggle = document.getElementById("filter-toggle");
             const filtersActive = state.filters.roles.size > 0 || state.filters.maxAge !== "all" || state.filters.country !== "all";
             toggle.classList.toggle("active", filtersActive);
-            toggle.textContent = `FILTRI ${state.filterPanelOpen ? "▴" : "▾"}`;
+            toggle.textContent = `${IS_EN ? "FILTERS" : "FILTRI"} ${state.filterPanelOpen ? "▴" : "▾"}`;
 
             const roleEl = document.getElementById("role-filters");
             roleEl.innerHTML = ROLES.map(r =>
-                `<div class="filter-chip ${state.filters.roles.has(r) ? "active" : ""}" data-role="${r}">${r}</div>`
+                `<div class="filter-chip ${state.filters.roles.has(r.value) ? "active" : ""}" data-role="${r.value}">${r.label}</div>`
             ).join("");
             roleEl.querySelectorAll(".filter-chip").forEach(el => {
                 el.addEventListener("click", () => {
@@ -760,7 +822,7 @@
             }
             const sortedGroups = [...groups.entries()].sort((a, b) => a[1].localeCompare(b[1]));
             const prevValue = state.filters.country;
-            countryEl.innerHTML = '<option value="all">Tutti</option>' +
+            countryEl.innerHTML = `<option value="all">${IS_EN ? "All" : "Tutti"}</option>` +
                 sortedGroups.map(([key, label]) => `<option value="${key}">${label}</option>`).join("");
             countryEl.value = prevValue;
             countryEl.onchange = () => {
@@ -808,15 +870,21 @@
             // ne esistono in tutto (il server manda solo i primi per non
             // soffocare il telefono - vedi cap in /api/radar/feed)
             const capNote = (state.totalCount > state.results.length)
-                ? ` · caricati i primi ${state.results.length} di ${state.totalCount}`
+                ? (IS_EN
+                    ? ` · loaded the first ${state.results.length} of ${state.totalCount}`
+                    : ` · caricati i primi ${state.results.length} di ${state.totalCount}`)
                 : "";
-            document.getElementById("result-count").textContent = `${scored.length} candidati${capNote}`;
+            document.getElementById("result-count").textContent = `${scored.length} ${IS_EN ? "candidates" : "candidati"}${capNote}`;
 
             const resultsEl = document.getElementById("results");
             if (scored.length === 0) {
                 resultsEl.innerHTML = state.results.length === 0
-                    ? '<div class="empty-state">Nessun candidato ancora.<br>Premi AGGIORNA per far partire la scansione (Wikidata + Wikipedia + buzz + dossier AI, puo\' richiedere alcuni minuti).</div>'
-                    : '<div class="empty-state">Nessun candidato per questa combinazione di profilo/filtri.<br>Prova ad allargare i filtri.</div>';
+                    ? (IS_EN
+                        ? '<div class="empty-state">No candidates yet.<br>Press REFRESH to start the scan (Wikidata + Wikipedia + buzz + AI dossiers, can take a few minutes).</div>'
+                        : '<div class="empty-state">Nessun candidato ancora.<br>Premi AGGIORNA per far partire la scansione (Wikidata + Wikipedia + buzz + dossier AI, puo\' richiedere alcuni minuti).</div>')
+                    : (IS_EN
+                        ? '<div class="empty-state">No candidates for this profile/filter combination.<br>Try widening the filters.</div>'
+                        : '<div class="empty-state">Nessun candidato per questa combinazione di profilo/filtri.<br>Prova ad allargare i filtri.</div>');
                 return;
             }
 
@@ -835,15 +903,15 @@
                             <div class="card-badge" style="background:${escapeHTML(badge.color)}"></div>
                             <div class="card-info">
                                 <div class="card-name">${escapeHTML(c.name)}</div>
-                                <div class="card-meta">${c.role ? escapeHTML(c.role) + " · " : ""}${escapeHTML(c.club || "club N/D")} · ${escapeHTML(tierLabel(c))}${computeAge(c.dob) !== null ? " · " + Math.floor(computeAge(c.dob)) + " anni" : ""}</div>
-                                ${c.partial_data ? '<div class="partial-flag">DATI PARZIALI</div>' : ""}
-                                ${clubUpdate(c) ? `<div class="club-update-flag">CLUB AGGIORNATO: ${escapeHTML(clubUpdate(c))}</div>` : ""}
+                                <div class="card-meta">${c.role ? escapeHTML(roleLabel(c.role)) + " · " : ""}${escapeHTML(c.club || (IS_EN ? "club N/A" : "club N/D"))} · ${escapeHTML(tierLabel(c))}${computeAge(c.dob) !== null ? " · " + Math.floor(computeAge(c.dob)) + (IS_EN ? " yo" : " anni") : ""}</div>
+                                ${c.partial_data ? `<div class="partial-flag">${IS_EN ? "PARTIAL DATA" : "DATI PARZIALI"}</div>` : ""}
+                                ${clubUpdate(c) ? `<div class="club-update-flag">${IS_EN ? "CLUB UPDATED" : "CLUB AGGIORNATO"}: ${escapeHTML(clubUpdate(c))}</div>` : ""}
                                 ${renderBreakdownLine(c)}
                                 ${renderBayesianLine(c)}
                                 ${renderMiniCurve(c)}
                             </div>
                             <div class="card-scores">
-                                <button class="wl-star ${c.watchlisted ? "active" : ""}" data-wl="${escapeHTML(c.candidate_id)}" title="Segna/togli dalla watchlist">${c.watchlisted ? "★" : "☆"}</button>
+                                <button class="wl-star ${c.watchlisted ? "active" : ""}" data-wl="${escapeHTML(c.candidate_id)}" title="${IS_EN ? 'Watch/unwatch' : 'Segna/togli dalla watchlist'}">${c.watchlisted ? "★" : "☆"}</button>
                                 <div class="fit-score" style="color:${escapeHTML(badge.color)}">${c._fit != null ? c._fit.toFixed(0) : "–"}</div>
                                 <div class="signal-score">signal ${c.signal_score != null ? c.signal_score : "–"}</div>
                             </div>
@@ -852,7 +920,7 @@
                     </div>
                 `;
             }).join("") + (remaining > 0
-                ? `<button class="load-more" id="load-more">carica altri ${Math.min(60, remaining)} (${remaining} rimasti)</button>`
+                ? `<button class="load-more" id="load-more">${IS_EN ? `load ${Math.min(60, remaining)} more (${remaining} left)` : `carica altri ${Math.min(60, remaining)} (${remaining} rimasti)`}</button>`
                 : "");
 
             const moreBtn = document.getElementById("load-more");
@@ -930,7 +998,7 @@
         function resetRefreshBtn() {
             const btn = refreshBtn();
             btn.disabled = false;
-            btn.textContent = "AGGIORNA";
+            btn.textContent = IS_EN ? "REFRESH" : "AGGIORNA";
             state.scanning = false;
         }
 
@@ -956,12 +1024,12 @@
                 // il polling riprende e raccoglie il risultato.
                 if (failures < 40) {
                     document.getElementById("last-run").textContent =
-                        "scansione in corso sul server... (riprovo la connessione)";
+                        IS_EN ? "scan running on the server... (retrying the connection)" : "scansione in corso sul server... (riprovo la connessione)";
                     setTimeout(() => pollRadarStatus(gen, elapsedSec + 3, failures + 1), 3000);
                     return;
                 }
                 document.getElementById("last-run").textContent =
-                    "connessione persa, ma la scansione continua sul server: riapri tra un minuto.";
+                    IS_EN ? "connection lost, but the scan keeps running on the server: reopen in a minute." : "connessione persa, ma la scansione continua sul server: riapri tra un minuto.";
                 resetRefreshBtn();
                 return;
             }
@@ -971,13 +1039,13 @@
                 // che sta lavorando E quanto manca
                 btn.textContent = data.progress
                     ? `${data.progress.toUpperCase()} (${elapsedSec}s)`
-                    : `SCANSIONE IN CORSO... (${elapsedSec}s)`;
+                    : (IS_EN ? `SCAN IN PROGRESS... (${elapsedSec}s)` : `SCANSIONE IN CORSO... (${elapsedSec}s)`);
                 // i punteggi sono gia' salvati (fase 1 del server): mostrali
                 // subito una volta, i dossier arriveranno col reload finale
                 if (data.feed_ready && !state.partialShown) {
                     state.partialShown = true;
                     document.getElementById("last-run").textContent =
-                        "punteggi aggiornati - i dossier AI stanno ancora arrivando";
+                        IS_EN ? "scores updated - AI dossiers still arriving" : "punteggi aggiornati - i dossier AI stanno ancora arrivando";
                     loadFeed();
                 }
                 setTimeout(() => pollRadarStatus(gen, elapsedSec + 3), 3000);
@@ -987,21 +1055,22 @@
             resetRefreshBtn();
 
             if (data.status === "success") {
-                document.getElementById("last-run").textContent =
-                    `ultimo aggiornamento: ${new Date(data.run_at).toLocaleTimeString("it-IT")} · ${data.candidates_ranked}/${data.candidates_evaluated} candidati`;
+                document.getElementById("last-run").textContent = IS_EN
+                    ? `last update: ${new Date(data.run_at).toLocaleTimeString("en-GB")} · ${data.candidates_ranked}/${data.candidates_evaluated} candidates`
+                    : `ultimo aggiornamento: ${new Date(data.run_at).toLocaleTimeString("it-IT")} · ${data.candidates_ranked}/${data.candidates_evaluated} candidati`;
                 // ricarico dal feed limitato invece di tenere in memoria tutte
                 // le migliaia di schede appena scansionate (payload + DOM)
                 state.renderLimit = 60;
                 loadFeed();
             } else {
-                document.getElementById("last-run").textContent = `errore: ${data.message}`;
+                document.getElementById("last-run").textContent = `${IS_EN ? "error" : "errore"}: ${data.message}`;
             }
         }
 
         async function refresh() {
             const btn = refreshBtn();
             btn.disabled = true;
-            btn.textContent = "SCANSIONE IN CORSO...";
+            btn.textContent = IS_EN ? "SCAN IN PROGRESS..." : "SCANSIONE IN CORSO...";
             state.scanning = true;
             state.partialShown = false;
             try {
@@ -1015,7 +1084,7 @@
                 // Puo' darsi che la scansione sia comunque partita sul server:
                 // invece di un errore tecnico si prova subito il polling.
                 document.getElementById("last-run").textContent =
-                    "connessione instabile, controllo lo stato...";
+                    IS_EN ? "unstable connection, checking status..." : "connessione instabile, controllo lo stato...";
                 startPolling(3);
                 return;
             }
