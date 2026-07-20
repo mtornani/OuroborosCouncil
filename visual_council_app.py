@@ -76,6 +76,17 @@ def _is_write_request() -> bool:
 def _access_gate():
     if not RADAR_ACCESS_KEY:
         return  # gate spento: nessun cambiamento rispetto a prima
+    # asset statici (manifest, icone, service worker): niente dati sensibili,
+    # e vanno raggiungibili SENZA cookie - il meccanismo di installazione PWA
+    # del sistema operativo (icona "aggiungi a schermata Home", su iOS in
+    # particolare) puo' richiederli senza allegare i cookie di sessione.
+    # Scoperto dal vivo: dopo una reinstallazione la PWA perdeva l'icona
+    # perche' /static/manifest.json e /static/icon-*.png rispondevano 401
+    # invece del file vero, e il sistema operativo ripiegava su un'icona
+    # generica. Il gate resta sulle pagine/API, che sono l'unica cosa che
+    # brucia quota AI o modifica dati.
+    if request.path == "/sw.js" or request.path.startswith("/static/"):
+        return
     # compare_digest, non ==: confronto in tempo costante, una chiave non si
     # indovina misurando i tempi di risposta
     if hmac.compare_digest(request.cookies.get(_ACCESS_COOKIE, ""), RADAR_ACCESS_KEY):
