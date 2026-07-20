@@ -85,7 +85,7 @@ def _access_gate():
     # invece del file vero, e il sistema operativo ripiegava su un'icona
     # generica. Il gate resta sulle pagine/API, che sono l'unica cosa che
     # brucia quota AI o modifica dati.
-    if request.path == "/sw.js" or request.path.startswith("/static/"):
+    if request.endpoint == "static" or request.path == "/sw.js":
         return
     # compare_digest, non ==: confronto in tempo costante, una chiave non si
     # indovina misurando i tempi di risposta
