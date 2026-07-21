@@ -75,6 +75,18 @@ class TestAccessGate(unittest.TestCase):
         r = self.app_mod.app.test_client().get("/turno?guest_key=qualsiasi")
         self.assertEqual(r.status_code, 401)
 
+    def test_manifest_icone_e_service_worker_restano_pubblici(self):
+        # senza questi esenti, l'installazione PWA (icona "aggiungi a
+        # schermata Home") si rompe: il sistema operativo puo' richiederli
+        # senza allegare il cookie della chiave, e senza esenzione riceverebbe
+        # un 401 al posto del file vero - visto dal vivo su una reinstallazione
+        c = self.client()
+        self.assertEqual(c.get("/static/manifest.json").status_code, 200)
+        self.assertEqual(c.get("/static/icon-192.png").status_code, 200)
+        self.assertEqual(c.get("/static/icon-512.png").status_code, 200)
+        self.assertEqual(c.get("/static/icon-maskable-512.png").status_code, 200)
+        self.assertEqual(c.get("/sw.js").status_code, 200)
+
 
 if __name__ == "__main__":
     unittest.main()

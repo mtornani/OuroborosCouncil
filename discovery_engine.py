@@ -2455,11 +2455,155 @@ def probe_nationality(country_qid: str, gender_qid: str, label: str = "") -> dic
     return stats
 
 
+# ============================================================
+# SAMPLE CLI - N profili reali per outreach (bridge Grok/runbook)
+# ============================================================
+# Nessuna chiamata AI per default: Layer A (eta'-vs-livello, Wikidata) +
+# Layer B buzz (Google News) sono gratuiti, quindi girano sempre. Il
+# dossier a 4 ruoli (Cronista/Verificatore/Scettico/Giudice) costa quota
+# AI vera - parte SOLO con --with-dossier esplicito, mai di default, per
+# lo stesso motivo per cui refresh_radar non lo rigira a ogni refresh: chi
+# lancia "sample 3" a raffica per un test non deve accorgersi solo dopo di
+# aver bruciato le chiamate free del giorno.
+
+def sample_profiles(limit: int, profile_key: str, cfg: dict, with_dossier: bool = False) -> dict:
+    """Produce un campione di N profili REALI (mai inventati) per un giro di
+    outreach: stessa pipeline di refresh_radar (fetch_candidate_pool ->
+    signal_score -> fit_score), ma senza toccare radar_feed.json ne' la
+    logica di stato/curva - un comando a se', pensato per girare anche da
+    un runbook esterno (es. Grok) senza dover capire l'intero orchestratore."""
+    pool = fetch_candidate_pool(cfg)
+    history = _load_json(BUZZ_HISTORY_FILE)
+    perf = cfg["performance"]
+
+    scored = []
+    for c in pool:
+        age_component = age_vs_level_score(c, cfg)
+        if age_component is not None:
+            scored.append((age_component, c))
+    scored.sort(key=lambda pair: -pair[0])
+
+    # buzz e' una chiamata di rete per candidato: si controlla solo su uno
+    # short-list ragionevole (stesso tetto di refresh_radar), non sull'intero
+    # pool - altrimenti "sample 3" resterebbe appeso per ore su migliaia di
+    # query a Google News per candidati che poi non finiscono nel campione
+    shortlist = [c for _, c in scored[: perf["buzz_check_pool_size"]]]
+
+    results = []
+    for c in shortlist:
+        buzz = buzz_score(c, history, cfg)
+        history.setdefault(c["candidate_id"], {"runs": []})["runs"].append(buzz["snapshot"])
+        score_result = signal_score(c, cfg, buzz)
+        fit = fit_score(c, score_result, profile_key, cfg)
+        if fit is None:
+            continue
+        results.append({"candidate": c, "signal": score_result, "buzz": buzz, "fit": fit})
+
+    _save_json(BUZZ_HISTORY_FILE, history)
+
+    results.sort(key=lambda r: -(r["fit"]["fit_score"] or 0))
+    top = results[:limit]
+
+    _assert_no_duplicate_candidate_ids(
+        [r["candidate"]["candidate_id"] for r in top], "sample_profiles")
+
+    profiles = []
+    for r in top:
+        c, sig, buzz, fit = r["candidate"], r["signal"], r["buzz"], r["fit"]
+        birth_year = c["dob"][:4] if c.get("dob") else None
+        sources = []
+        if buzz.get("available") and buzz.get("mention_count"):
+            sources = list(dict.fromkeys(buzz["snapshot"].get("publishers") or []))
+
+        if buzz["available"]:
+            buzz_bullet = f"Buzz: {buzz['mention_count']} menzioni rilevate in questo giro"
+        else:
+            buzz_bullet = f"Buzz: {buzz.get('reason', 'non disponibile')}"
+
+        if with_dossier and _needs_more_signal(sig):
+            # stessa protezione di refresh_radar: un solo componente disponibile
+            # E gia' al tetto non giustifica un dossier AI, e' rumore travestito
+            # da punteggio alto (vedi _needs_more_signal) - si salta la chiamata
+            # invece di sprecarla, anche qui dove il chiamante ha chiesto
+            # esplicitamente --with-dossier
+            dossier = {"skipped": "Segnale singolo e gia' al tetto (es. solo eta'-relativa, senza buzz a "
+                                   "corroborare): serve un altro segnale prima di spendere un dossier AI, "
+                                   "non solo un numero alto."}
+            bullets = [f"Segnale eta'-vs-livello: {sig['components'].get('age_vs_level', 'n/d')} (tier {c.get('tier')})",
+                       buzz_bullet, dossier["skipped"]]
+        elif with_dossier:
+            dossier = run_swarm_dossier(c, sig)
+            giudice = dossier.get("giudice") or {}
+            bullets = [dossier.get(k, "").strip() for k in ("cronista", "verificatore", "scettico") if dossier.get(k)]
+            if giudice.get("motivazione"):
+                bullets.append(f"Verdetto: {giudice.get('motivazione')}")
+        else:
+            dossier = None
+            bullets = [
+                f"Segnale eta'-vs-livello: {sig['components'].get('age_vs_level', 'n/d')} (tier {c.get('tier')})",
+                buzz_bullet,
+                "Dossier AI non generato in questo campione (--with-dossier per abilitarlo, richiede chiavi API valide).",
+            ]
+
+        profiles.append({
+            "candidate_id": c["candidate_id"],
+            "name": c["name"],
+            "club": c.get("club") or None,
+            "role": c.get("role") or None,
+            "birth_year": birth_year,
+            "age": round((datetime.now() - datetime.fromisoformat(c["dob"])).days / 365.25, 1) if c.get("dob") else None,
+            "tier": c.get("tier"),
+            "signal_score": sig["signal_score"],
+            "fit_score": fit["fit_score"],
+            "partial_data": sig["partial_data"],
+            "bullets": bullets,
+            "sources": sources,
+            "dossier": dossier,
+        })
+
+    return {
+        "generated_at": _now_iso(),
+        "profile": profile_key,
+        "pool_size": len(pool),
+        "shortlist_checked_for_buzz": len(shortlist),
+        "with_dossier": with_dossier,
+        "disclosure": "Dati reali da Wikidata + Google News (nessun giocatore inventato). "
+                      + ("Dossier AI generato con le chiavi configurate in questo ambiente."
+                         if with_dossier else
+                         "Dossier AI NON generato (default): i bullet sopra sono fatti strutturati, non testo scritto da un modello."),
+        "profiles": profiles,
+    }
+
+
 if __name__ == "__main__":
+    import argparse as _argparse
     import sys as _sys
 
     if len(_sys.argv) > 1 and _sys.argv[1] == "diagnose":
         report = diagnose_coverage()
         print(json.dumps(report, indent=2, ensure_ascii=False))
+    elif len(_sys.argv) > 1 and _sys.argv[1] == "sample":
+        parser = _argparse.ArgumentParser(prog="discovery_engine.py sample")
+        parser.add_argument("--limit", type=int, default=3)
+        parser.add_argument("--profile", default="tactical_profile")
+        parser.add_argument("--out", default=None,
+                            help="path del JSON di output; se assente, stampa su stdout")
+        parser.add_argument("--with-dossier", action="store_true",
+                            help="genera anche il dossier AI a 4 ruoli (costa quota, richiede chiavi API)")
+        args = parser.parse_args(_sys.argv[2:])
+
+        _cfg = load_config()
+        _result = sample_profiles(args.limit, args.profile, _cfg, with_dossier=args.with_dossier)
+        _out_text = json.dumps(_result, indent=2, ensure_ascii=False)
+        if args.out:
+            _out_path = Path(args.out)
+            _out_path.parent.mkdir(parents=True, exist_ok=True)
+            _out_path.write_text(_out_text, encoding="utf-8")
+            print(f"Scritto {len(_result['profiles'])} profili in {_out_path}")
+        else:
+            print(_out_text)
     else:
-        print("Uso: python3 discovery_engine.py diagnose")
+        print("Uso:\n"
+              "  python3 discovery_engine.py diagnose\n"
+              "  python3 discovery_engine.py sample --limit 3 --profile tactical_profile "
+              "--out out/sample_3.json [--with-dossier]")
