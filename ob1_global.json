@@ -1,0 +1,42 @@
+{
+  "source": "ob1_global",
+  "timestamp": "2026-07-22T13:11:25Z",
+  "data_scope": "Rilevamento di giovani talenti calcistici emergenti a livello globale, basato su segnali di attenzione mediatica e contesto sportivo.",
+  "freshness": "Ultimo ciclo di scansione completato il 22 luglio 2026 (04:29 UTC).",
+  "findings": [
+    {
+      "name": "Franco Mastantuono",
+      "role_age": "Centrocampista, 18 anni",
+      "signal": "Attenzione mediatica ampia e stabile da mesi, con interesse confermato di top club europei.",
+      "confidence_tier": "high",
+      "note": "Doppia nazionalita' argentina/italiana."
+    },
+    {
+      "name": "Mor Talla Ndiaye",
+      "role_age": "Difensore centrale, 18 anni",
+      "signal": "Copertura diffusa su un trasferimento di alto profilo, gia' ampiamente confermata dalle fonti.",
+      "confidence_tier": "high",
+      "note": "Trasferimento riportato come in fase avanzata."
+    },
+    {
+      "name": "Aoto Nanamure",
+      "role_age": "Classe 2005, 20 anni",
+      "signal": "Menzioni in accelerazione su piu' testate indipendenti, prima che i grandi media nazionali se ne accorgano.",
+      "confidence_tier": "medium"
+    },
+    {
+      "name": "Lucas Guinazu",
+      "role_age": "Centrocampista, 19 anni",
+      "signal": "Copertura in crescita e allargamento delle fonti giornalistiche negli ultimi controlli.",
+      "confidence_tier": "medium",
+      "note": "Club attuale ancora in fase di conferma dopo un recente cambio."
+    },
+    {
+      "name": "Ibrahim Mbaye",
+      "role_age": "Attaccante, 18 anni",
+      "signal": "Prima comparsa su una testata di livello nazionale dopo mesi di sola stampa locale.",
+      "confidence_tier": "watch",
+      "note": "Doppia idoneita' Francia/Senegal."
+    }
+  ]
+}
