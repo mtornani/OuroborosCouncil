@@ -1,0 +1,23 @@
+{
+  "source": "council",
+  "timestamp": "2026-07-22T14:14:03Z",
+  "audit_scope": "Cambiamenti di rilevanza rilevati nel ciclo di scansione piu' recente su prospetti pre-mainstream, con esclusione degli aggiornamenti puramente anagrafici (es. correzioni di affiliazione club) che non riflettono un reale spike di attenzione pubblica.",
+  "recipient_context": "Wasserman / Global Football Insights - early-signal su prospetti pre-mainstream",
+  "findings": [
+    {
+      "name": "Aoto Nanamure",
+      "role_age": "Ruolo non specificato nelle fonti (calcio giovanile), 20 anni",
+      "signal": "Convergenza di piu' fattori indipendenti nella stessa finestra di rilevamento: accelerazione delle menzioni, allargamento del numero di testate coinvolte, presenza sostenuta su piu' cicli consecutivi - ancora prima di una copertura mainstream.",
+      "why_relevant_to_recipient": "Finestra di osservazione ancora aperta: il primo contatto esplorativo costa meno oggi che dopo un'eventuale copertura mainstream, che tipicamente fa salire visibilita' e concorrenza tra agenzie.",
+      "confidence_tier": "medium"
+    },
+    {
+      "name": "Lucas Guinazu",
+      "role_age": "Centrocampista, 19 anni",
+      "signal": "Stesso pattern di convergenza (menzioni in crescita, testate in aumento, persistenza su piu' cicli) ma su ampiezza piu' contenuta, rilevato in coincidenza con un aggiornamento non ancora consolidato dell'affiliazione club.",
+      "why_relevant_to_recipient": "Segnale precoce autentico ma da trattare con cautela: la situazione contrattuale/club risulta ancora in fase di conferma nelle fonti pubbliche al momento di questo ciclo.",
+      "confidence_tier": "watch"
+    }
+  ],
+  "audit_result": "2 segnali sopra soglia in questo ciclo. Altri 2 cambiamenti rilevati nello stesso ciclo (Ali Houary, Brian Arias) erano correzioni di dati anagrafici (affiliazione club) senza alcun pattern di attenzione sottostante rilevato, e sono stati esclusi in quanto rumore di fondo, non segnale."
+}
