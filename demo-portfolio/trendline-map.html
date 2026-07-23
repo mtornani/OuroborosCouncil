@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#0a0e13">
+    <title>THE MAP — TRENDLINE (demo)</title>
+    <style>
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+        :root {
+            --ink: #0a0e13; --panel: #121922; --line: rgba(231,235,238,0.14);
+            --text: #e7ebee; --text-dim: rgba(231,235,238,0.64); --text-faint: rgba(231,235,238,0.40);
+            --signal: #f2a93c; --signal-dim: rgba(242,169,60,0.14);
+            --verified: #4db8ab; --verified-dim: rgba(77,184,171,0.14);
+            --doubt: #d97463;
+            color-scheme: dark;
+        }
+        @media (prefers-color-scheme: light) {
+            :root {
+                --ink: #f3f5f6; --panel: #ffffff; --line: rgba(10,14,19,0.14);
+                --text: #10151b; --text-dim: rgba(16,21,27,0.66); --text-faint: rgba(16,21,27,0.42);
+                --signal: #a1650f; --signal-dim: rgba(161,101,15,0.10);
+                --verified: #1c7b71; --verified-dim: rgba(28,123,113,0.10);
+                --doubt: #a8483a;
+                color-scheme: light;
+            }
+        }
+        :root[data-theme="dark"] {
+            --ink: #0a0e13; --panel: #121922; --line: rgba(231,235,238,0.14);
+            --text: #e7ebee; --text-dim: rgba(231,235,238,0.64); --text-faint: rgba(231,235,238,0.40);
+            --signal: #f2a93c; --signal-dim: rgba(242,169,60,0.14);
+            --verified: #4db8ab; --verified-dim: rgba(77,184,171,0.14);
+            --doubt: #d97463;
+            color-scheme: dark;
+        }
+        :root[data-theme="light"] {
+            --ink: #f3f5f6; --panel: #ffffff; --line: rgba(10,14,19,0.14);
+            --text: #10151b; --text-dim: rgba(16,21,27,0.66); --text-faint: rgba(16,21,27,0.42);
+            --signal: #a1650f; --signal-dim: rgba(161,101,15,0.10);
+            --verified: #1c7b71; --verified-dim: rgba(28,123,113,0.10);
+            --doubt: #a8483a;
+            color-scheme: light;
+        }
+
+        html, body {
+            margin: 0; background: var(--ink); color: var(--text);
+            /* system stack: niente CDN, niente font esterni */
+            font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Consolas, "Courier New", monospace;
+            overscroll-behavior-y: contain; -webkit-font-smoothing: antialiased;
+        }
+        ::selection { background: var(--signal-dim); color: var(--text); }
+        button { font-family: inherit; }
+        button:focus-visible, a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+
+        .theme-toggle {
+            position: fixed; top: calc(10px + env(safe-area-inset-top)); right: 14px; z-index: 50;
+            width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--line);
+            background: var(--panel); color: var(--text-dim); font-size: 16px;
+            display: flex; align-items: center; justify-content: center; cursor: pointer;
+        }
+        .lang-toggle {
+            position: fixed; top: calc(10px + env(safe-area-inset-top)); right: 58px; z-index: 50;
+            height: 36px; padding: 0 11px; border-radius: 18px; border: 1px solid var(--line);
+            background: var(--panel); color: var(--text-dim);
+            font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Consolas, monospace;
+            font-size: 0.7rem; font-weight: 700; letter-spacing: 0.03em;
+            display: flex; align-items: center; justify-content: center; cursor: pointer;
+            text-decoration: none;
+        }
+
+        .wrap { max-width: 480px; margin: 0 auto; padding: calc(56px + env(safe-area-inset-top)) 18px 40px; }
+
+        .eyebrow { font-size: 0.68rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-faint); margin: 0 0 6px; }
+        h1 {
+            /* headline: serif di sistema, niente Google Fonts */
+            font-family: Georgia, "Times New Roman", Times, serif;
+            font-weight: 500; font-size: 1.7rem; line-height: 1.2; margin: 0 0 8px;
+        }
+        .sub { font-size: 0.82rem; color: var(--text-dim); line-height: 1.5; margin: 0 0 22px; }
+
+        /* ---------- la mappa (curva + pallini) ---------- */
+        .map-panel { background: var(--panel); border: 1px solid var(--line); padding: 14px 12px 10px; margin-bottom: 8px; position: relative; }
+        .map-svg { width: 100%; height: auto; display: block; touch-action: manipulation; }
+        .map-svg .hot-band { fill: var(--signal-dim); }
+        .map-svg .phase-hit { fill: transparent; pointer-events: all; cursor: pointer; }
+        .map-svg .curve, .map-svg text { pointer-events: none; }
+        .map-svg .curve { fill: none; stroke: var(--text-faint); stroke-width: 1; }
+        .map-svg .zone-label { font-size: 3px; fill: var(--text-faint); font-family: ui-monospace, monospace; letter-spacing: 0.03em; }
+        .map-svg .hot-label { font-size: 3.4px; fill: var(--signal); font-weight: 700; font-family: ui-monospace, monospace; letter-spacing: 0.04em; }
+        .map-svg .dot { fill: var(--text-dim); cursor: pointer; }
+        .map-svg .dot.takeoff { fill: var(--signal); }
+        .map-svg .dot.watch { stroke: var(--verified); stroke-width: 0.8; }
+        .map-svg .dot.sel { stroke: var(--text); stroke-width: 1; }
+        @media (prefers-reduced-motion: no-preference) {
+            .map-svg .dot.takeoff { animation: pulse 1.8s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+            @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
+        }
+
+        .counts { font-size: 0.74rem; color: var(--text-dim); line-height: 1.6; margin: 8px 2px 4px; }
+        .counts b { color: var(--text); }
+        .validation { font-size: 0.72rem; color: var(--text-faint); line-height: 1.6; margin: 0 2px 24px; }
+
+        /* ---------- shortlist "cosa sta accelerando" ---------- */
+        .section-h { font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--signal); margin: 0 0 12px; }
+        .shortlist { display: flex; flex-direction: column; gap: 8px; margin-bottom: 26px; }
+        .sl-row { display: flex; align-items: center; gap: 12px; background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--signal); padding: 11px 13px; cursor: pointer; text-align: left; width: 100%; }
+        .sl-name { font-weight: 700; font-size: 0.86rem; color: var(--text); }
+        .sl-meta { font-size: 0.7rem; color: var(--text-faint); margin-top: 2px; }
+        .sl-spinta { margin-left: auto; text-align: right; flex-shrink: 0; }
+        .sl-spinta .n { font-weight: 800; font-size: 1.05rem; color: var(--signal); }
+        .sl-spinta .l { font-size: 0.6rem; color: var(--text-faint); letter-spacing: 0.04em; }
+        .empty-hot { font-size: 0.8rem; color: var(--text-dim); line-height: 1.5; background: var(--panel); border: 1px solid var(--line); padding: 14px; margin-bottom: 26px; }
+
+        /* ---------- legenda ---------- */
+        .legend { border-top: 1px solid var(--line); padding-top: 16px; }
+        .legend-h { font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-faint); margin: 0 0 12px; }
+        .lg-row { display: flex; align-items: baseline; gap: 10px; padding: 5px 0; font-size: 0.78rem; }
+        .lg-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; align-self: center; }
+        .lg-name { color: var(--text); }
+        .lg-name.hot { color: var(--signal); font-weight: 700; }
+        .lg-count { margin-left: auto; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+        .lg-row.tappable { cursor: pointer; padding: 9px 10px; margin: 0 -10px; border: 1px solid transparent; }
+        .lg-row.tappable:hover, .lg-row.tappable:focus-visible { border-color: var(--line); outline: none; }
+        .lg-row .lg-chev { color: var(--text-faint); margin-left: 8px; }
+        .legend-hint { font-size: 0.7rem; color: var(--text-faint); margin: 0 0 10px; }
+
+        /* ---------- lista di una tappa (drill-down) ---------- */
+        .phase-sheet { padding-top: 16px; }
+        .ph-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
+        .ph-title .ph-eyebrow { display: block; font-size: 0.6rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-faint); margin-bottom: 3px; }
+        .ph-title .ph-name-big { font-family: Georgia, "Times New Roman", Times, serif; font-weight: 600; font-size: 1.3rem; }
+        .ph-close { background: none; border: 1px solid var(--line); color: var(--text-dim); width: 34px; height: 34px; border-radius: 50%; cursor: pointer; font-size: 1rem; flex-shrink: 0; }
+        .ph-list { max-height: 56vh; overflow-y: auto; -webkit-overflow-scrolling: touch; display: flex; flex-direction: column; gap: 6px; }
+        .ph-row { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; background: var(--panel); border: 1px solid var(--line); padding: 11px 13px; cursor: pointer; }
+        .ph-name { font-weight: 700; font-size: 0.86rem; color: var(--text); }
+        .ph-meta { font-size: 0.7rem; color: var(--text-faint); margin-top: 2px; }
+        .ph-score { margin-left: auto; text-align: right; flex-shrink: 0; font-weight: 800; font-size: 1rem; color: var(--text); }
+        .ph-score span { display: block; font-size: 0.58rem; font-weight: 400; letter-spacing: 0.04em; color: var(--text-faint); }
+        .ph-empty { font-size: 0.82rem; color: var(--text-dim); padding: 10px 0; }
+
+        /* ---------- dettaglio asset ---------- */
+        .detail-scrim { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 60; display: none; }
+        .detail-scrim.open { display: block; }
+        .detail { position: fixed; left: 0; right: 0; bottom: 0; z-index: 61; background: var(--ink); border-top: 1px solid var(--line);
+            max-width: 480px; margin: 0 auto; padding: 20px 20px calc(24px + env(safe-area-inset-bottom)); transform: translateY(100%); transition: transform 0.22s ease; }
+        .detail.open { transform: translateY(0); }
+        @media (prefers-reduced-motion: reduce) { .detail { transition: none; } }
+        .detail-tag { display: inline-block; font-size: 0.64rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; padding: 3px 8px; border: 1px solid var(--signal); color: var(--signal); background: var(--signal-dim); margin-bottom: 12px; }
+        .detail-name { font-family: Georgia, "Times New Roman", Times, serif; font-weight: 600; font-size: 1.35rem; margin: 0 0 4px; }
+        .detail-meta { font-size: 0.76rem; color: var(--text-faint); margin-bottom: 16px; }
+        .detail-grid { display: flex; gap: 22px; padding: 14px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); margin-bottom: 16px; }
+        .detail-grid .k { font-size: 0.62rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-faint); margin-bottom: 3px; }
+        .detail-grid .v { font-size: 1.2rem; font-weight: 700; }
+        .detail-grid .v.hot { color: var(--signal); }
+        .detail-actions { display: flex; gap: 10px; }
+        .btn-flag { flex: 1; background: none; border: 1px solid var(--line); color: var(--text-dim); padding: 12px; font-size: 0.78rem; cursor: pointer; }
+        .btn-flag.active { border-color: var(--signal); color: var(--signal); background: var(--signal-dim); }
+        .btn-close { flex: 1; background: var(--text); color: var(--ink); border: none; padding: 12px; font-size: 0.8rem; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; cursor: pointer; }
+
+        .loading { text-align: center; color: var(--text-faint); font-size: 0.8rem; padding: 40px 0; }
+
+        .demo-footnote {
+            font-size: 0.68rem; color: var(--text-faint); line-height: 1.6; text-align: center;
+            border-top: 1px solid var(--line); margin-top: 30px; padding-top: 16px;
+        }
+    </style>
+</head>
+
+<body>
+    <button class="lang-toggle" id="langToggle" aria-label="Switch language">EN</button>
+    <button class="theme-toggle" id="themeToggle" aria-label="Light/dark">☀</button>
+    <div class="wrap">
+        <p class="eyebrow" id="eyebrow">the map</p>
+        <h1 id="h1"></h1>
+        <p class="sub" id="sub"></p>
+
+        <div id="content"><div class="loading" id="loadingMsg"></div></div>
+
+        <div class="legend" id="legend" style="display:none;">
+            <p class="legend-h" id="legendH"></p>
+            <p class="legend-hint" id="legendHint"></p>
+            <div id="legendRows"></div>
+        </div>
+
+        <p class="demo-footnote" id="footnote"></p>
+    </div>
+
+    <div class="detail-scrim" id="detailScrim"></div>
+
+    <div class="detail phase-sheet" id="phaseSheet">
+        <div class="ph-head">
+            <div class="ph-title" id="phaseTitle"></div>
+            <button class="ph-close" id="phaseClose" aria-label="Close">✕</button>
+        </div>
+        <div class="ph-list" id="phaseList"></div>
+    </div>
+
+    <div class="detail" id="detail">
+        <div id="detailBody"></div>
+        <div class="detail-actions">
+            <button class="btn-flag" id="detailFlag"></button>
+            <button class="btn-close" id="detailClose"></button>
+        </div>
+    </div>
+
+    <script>
+        // ============================================================
+        // DEMO PORTFOLIO — dati sintetici, nessuna chiamata di rete.
+        // Stessa logica SVG/drill-down dell'originale (mappa.html), solo
+        // con vocabolario neutro ("monitoraggio trend di mercato" invece
+        // di scouting calcistico) e dati incorporati invece di un backend.
+        // ============================================================
+
+        const ASSETS = [
+            { name: "Nimbus Core",     category: "SaaS",       origin: "niche sector newsletter",   phase: 5, signal_score: 92, exit_pressure: null, watchlisted: false, climbing: false, is_takeoff: false },
+            { name: "Vertex Flow",     category: "Deep Tech",  origin: "specialist forum thread",    phase: 5, signal_score: 88, exit_pressure: null, watchlisted: true,  climbing: false, is_takeoff: false },
+            { name: "Atlas Grid",      category: "Hardware",   origin: "regional trade press",       phase: 4, signal_score: 81, exit_pressure: null, watchlisted: false, climbing: true,  is_takeoff: false },
+            { name: "Helios Signal",   category: "Consumer",   origin: "local industry report",      phase: 4, signal_score: 77, exit_pressure: null, watchlisted: false, climbing: false, is_takeoff: false },
+            { name: "Quanta Loop",     category: "Deep Tech",  origin: "conference sideline talk",    phase: 3, signal_score: 74, exit_pressure: 81, watchlisted: true,  climbing: true,  is_takeoff: true  },
+            { name: "Meridian Stack",  category: "SaaS",       origin: "internal analyst note",      phase: 3, signal_score: 69, exit_pressure: 66, watchlisted: false, climbing: false, is_takeoff: true  },
+            { name: "Origin Pulse",    category: "Hardware",   origin: "niche sector newsletter",     phase: 3, signal_score: 61, exit_pressure: 54, watchlisted: false, climbing: true,  is_takeoff: false },
+            { name: "Drift Analytics", category: "SaaS",       origin: "regional trade press",       phase: 2, signal_score: 58, exit_pressure: null, watchlisted: false, climbing: false, is_takeoff: false },
+            { name: "Lumen Bridge",    category: "Consumer",   origin: "specialist forum thread",    phase: 2, signal_score: 52, exit_pressure: null, watchlisted: false, climbing: false, is_takeoff: false },
+            { name: "Solace Systems",  category: "Deep Tech",  origin: "local industry report",      phase: 2, signal_score: 47, exit_pressure: null, watchlisted: false, climbing: false, is_takeoff: false },
+            { name: "Ferrum Labs",     category: "Hardware",   origin: "conference sideline talk",    phase: 1, signal_score: 41, exit_pressure: null, watchlisted: false, climbing: false, is_takeoff: false },
+            { name: "Coral Depth",     category: "Consumer",   origin: "niche sector newsletter",     phase: 1, signal_score: 38, exit_pressure: null, watchlisted: false, climbing: false, is_takeoff: false },
+            { name: "Halcyon Works",   category: "SaaS",       origin: "internal analyst note",      phase: 1, signal_score: 33, exit_pressure: null, watchlisted: false, climbing: false, is_takeoff: false },
+            { name: "Ember Cast",      category: "Deep Tech",  origin: "regional trade press",       phase: 0, signal_score: 24, exit_pressure: null, watchlisted: false, climbing: false, is_takeoff: false },
+            { name: "Tundra Point",    category: "Hardware",   origin: "specialist forum thread",    phase: 0, signal_score: 19, exit_pressure: null, watchlisted: false, climbing: false, is_takeoff: false },
+            { name: "Vantage Reef",    category: "Consumer",   origin: "local industry report",      phase: 0, signal_score: 12, exit_pressure: null, watchlisted: false, climbing: false, is_takeoff: false },
+        ];
+        const NOT_YET_COUNT = 342;          // ancora sotto la soglia minima di osservazioni
+        const VALIDATION = { crossings: 3, anticipated: 2 };  // "prova sui fatti" del rilevatore
+
+        // ---------- lingua: client-side, persistita in localStorage
+        // (nell'originale era risolta dal server via Jinja+cookie; qui non
+        // c'e' backend, quindi diventa un toggle locale come il tema) ----------
+        const LANG_KEY = "trendline-lang";
+        let IS_EN = (localStorage.getItem(LANG_KEY) || "en") === "en";
+
+        function I18N_FOR(isEn) {
+            return isEn ? {
+                eyebrow: "the map",
+                h1: "Where every asset stands on the path.",
+                sub: "Every dot is an asset being tracked. The further right, the more mainstream attention it has. Your edge is to the left of the acceleration zone — whatever's there is still off the radar, but about to move.",
+                loading: "loading the map…",
+                hotTag: "ACCELERATING", hotArrow: "← the acceleration zone",
+                axisLeft: "off the radar", axisRight: "mainstream",
+                svgAria: "Map of assets on the trend curve",
+                counts: (n, notYet) => `<b>${n}</b> asset${n === 1 ? "" : "s"} on the path · <b>${notYet}</b> still being profiled (below the minimum observation threshold).`,
+                validationDone: (v) => `Proof on the facts: ${v.crossings} reached mainstream coverage so far, ${v.anticipated} flagged early by this system.`,
+                validationEmpty: "The verification ledger is still empty: it fills up when an asset really crosses into mainstream coverage.",
+                hotNowTitle: "what's accelerating now",
+                hotNowEmpty: "Nothing in the acceleration zone right now. That's normal: it's the rarest, most valuable band. Keep scanning — as soon as signals converge on something, it'll show up here first.",
+                justClimbed: " · just climbed", originUnknown: "origin N/A", momentum: "momentum",
+                stagePrefix: (n) => `stage · ${n} asset${n === 1 ? "" : "s"}`,
+                stageEmpty: "No asset in this stage right now.",
+                signal: "signal",
+                hotTagShort: "accelerating",
+                justClimbedFull: " · just climbed a stage",
+                stage: "stage",
+                unknown: "unknown",
+                noneOnPathYet: (notYet) => `No asset placed on the path yet: it takes a minimum of repeated observations to know where each one stands. So far ${notYet} candidates have been seen, but not enough times. Come back after a few more scans.`,
+                flagged: "★ WATCHING", flag: "☆ WATCH",
+                legendH: "the six stages of the path",
+                legendHint: "tap a stage to see every asset inside it",
+                close: "CLOSE",
+                footnote: "Demo build — synthetic data, single self-contained HTML file, no build step, no external requests.",
+                phaseLabels: ["no signal yet", "niche sources only", "gaining mentions", "accelerating", "on mainstream radars", "fully mainstream"],
+            } : {
+                eyebrow: "la mappa",
+                h1: "Dove sta ogni asset sul percorso.",
+                sub: "Ogni pallino è un asset monitorato. Più è a destra, più ha attenzione mainstream. Il tuo vantaggio sta a sinistra della zona di accelerazione — ciò che è lì è ancora fuori dai radar, ma sta per muoversi.",
+                loading: "carico la mappa…",
+                hotTag: "IN ACCELERAZIONE", hotArrow: "← la zona di accelerazione",
+                axisLeft: "fuori dai radar", axisRight: "mainstream",
+                svgAria: "Mappa degli asset sulla curva di trend",
+                counts: (n, notYet) => `<b>${n}</b> asset${n === 1 ? "" : ""} sul percorso · <b>${notYet}</b> ancora da profilare (sotto la soglia minima di osservazioni).`,
+                validationDone: (v) => `Prova sui fatti: ${v.crossings} arrivati sulla copertura mainstream finora, ${v.anticipated} segnalati in anticipo da questo sistema.`,
+                validationEmpty: "Il registro di verifica è ancora vuoto: si riempie quando un asset attraversa davvero verso la copertura mainstream.",
+                hotNowTitle: "cosa sta accelerando ora",
+                hotNowEmpty: "Nessun asset in zona di accelerazione in questo momento. È normale: è la fascia più rara e più preziosa. Continua a scansionare — appena i segnali convergono su qualcosa, comparirà qui per primo.",
+                justClimbed: " · appena salito", originUnknown: "origine N/D", momentum: "spinta",
+                stagePrefix: (n) => `tappa · ${n} asset`,
+                stageEmpty: "Nessun asset in questa tappa ora.",
+                signal: "signal",
+                hotTagShort: "in accelerazione",
+                justClimbedFull: " · appena salito di tappa",
+                stage: "tappa",
+                unknown: "sconosciuto",
+                noneOnPathYet: (notYet) => `Ancora nessun asset collocato sul percorso: serve un minimo di osservazioni ripetute per capire dove si trova ciascuno. Finora ${notYet} candidati sono stati visti, ma non abbastanza volte. Torna dopo qualche altra scansione.`,
+                flagged: "★ IN WATCHLIST", flag: "☆ OSSERVA",
+                legendH: "le sei tappe del percorso",
+                legendHint: "tocca una tappa per vedere tutti gli asset che ci sono dentro",
+                close: "CHIUDI",
+                footnote: "Demo — dati sintetici, un solo file HTML autoportante, nessuna build, nessuna richiesta esterna.",
+                phaseLabels: ["nessun segnale", "solo fonti di nicchia", "se ne inizia a parlare", "in accelerazione", "sui radar principali", "trend consolidato"],
+            };
+        }
+
+        let I18N = I18N_FOR(IS_EN);
+        let PHASE_LABELS = I18N.phaseLabels;
+
+        // geometria della curva a S nel viewBox 100 x 62 (identica all'originale)
+        const CURVE_F = x => 50 - 40 / (1 + Math.exp(-(x - 50) / 9));
+        const PHASE_X = p => 6 + p * (88 / 5);
+
+        let state = { assets: [], selected: null };
+
+        function escapeHTML(s) {
+            if (s === null || s === undefined) return "";
+            return String(s).replace(/[&<>'"]/g, t => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[t]));
+        }
+
+        function buildMap(assets) {
+            const pts = [];
+            for (let x = 6; x <= 94; x += 1.5) pts.push(`${x},${CURVE_F(x).toFixed(2)}`);
+            const curve = pts.join(" ");
+
+            const bandX = PHASE_X(2.5), bandW = PHASE_X(3.5) - PHASE_X(2.5);
+
+            const byPhase = {};
+            assets.forEach((p, i) => { (byPhase[p.phase] = byPhase[p.phase] || []).push(i); });
+            let dots = "";
+            Object.entries(byPhase).forEach(([phase, idxs]) => {
+                const ph = +phase;
+                const cx0 = PHASE_X(ph);
+                const cap = 12;
+                const shown = idxs.slice(0, cap);
+                const span = 11;
+                shown.forEach((i, k) => {
+                    const t = shown.length === 1 ? 0.5 : k / (shown.length - 1);
+                    let cx = cx0 - span / 2 + t * span;
+                    cx = Math.max(6, Math.min(94, cx));
+                    const cy = CURVE_F(cx);
+                    const p = assets[i];
+                    const cls = ["dot", p.is_takeoff ? "takeoff" : "", p.watchlisted ? "watch" : ""].join(" ").trim();
+                    const r = p.is_takeoff ? 2.2 : 1.7;
+                    dots += `<circle class="${cls}" data-idx="${i}" cx="${cx.toFixed(2)}" cy="${cy.toFixed(2)}" r="${r}"/>`;
+                });
+                if (idxs.length > cap) {
+                    dots += `<text class="zone-label" x="${cx0.toFixed(1)}" y="${(CURVE_F(cx0) - 4).toFixed(1)}" text-anchor="middle">+${idxs.length - cap}</text>`;
+                }
+            });
+
+            const halfBand = (88 / 5) / 2;
+            const hits = [0, 1, 2, 3, 4, 5].map(p => {
+                const x = Math.max(0, PHASE_X(p) - halfBand);
+                const w = Math.min(100, PHASE_X(p) + halfBand) - x;
+                return `<rect class="phase-hit" data-phase="${p}" x="${x.toFixed(1)}" y="0" width="${w.toFixed(1)}" height="62"/>`;
+            }).join("");
+
+            return `
+                <div class="map-panel">
+                    <svg class="map-svg" viewBox="0 0 100 62" preserveAspectRatio="xMidYMid meet" role="img" aria-label="${I18N.svgAria}">
+                        <rect class="hot-band" x="${bandX.toFixed(1)}" y="0" width="${bandW.toFixed(1)}" height="56"/>
+                        <text class="hot-label" x="${PHASE_X(3).toFixed(1)}" y="5" text-anchor="middle">${I18N.hotTag}</text>
+                        <text class="zone-label" x="${PHASE_X(3).toFixed(1)}" y="8.6" text-anchor="middle">${I18N.hotArrow}</text>
+                        ${hits}
+                        <polyline class="curve" points="${curve}"/>
+                        <text class="zone-label" x="6" y="60" text-anchor="start">${I18N.axisLeft}</text>
+                        <text class="zone-label" x="94" y="60" text-anchor="end">${I18N.axisRight}</text>
+                        ${dots}
+                    </svg>
+                </div>
+                <p class="counts">${I18N.counts(assets.length, NOT_YET_COUNT)}</p>
+                ${VALIDATION.crossings > 0
+                    ? `<p class="validation">${I18N.validationDone(VALIDATION)}</p>`
+                    : `<p class="validation">${I18N.validationEmpty}</p>`}
+                ${shortlist(assets)}
+            `;
+        }
+
+        function shortlist(assets) {
+            const hot = assets.filter(p => p.phase === 3).sort((a, b) => (b.exit_pressure || 0) - (a.exit_pressure || 0));
+            if (hot.length === 0) {
+                return `<p class="section-h">${I18N.hotNowTitle}</p>
+                    <div class="empty-hot">${I18N.hotNowEmpty}</div>`;
+            }
+            const rows = hot.map(p => {
+                const i = assets.indexOf(p);
+                return `<button class="sl-row" data-idx="${i}">
+                    <div>
+                        <div class="sl-name">${escapeHTML(p.name || "—")}</div>
+                        <div class="sl-meta">${p.category ? escapeHTML(p.category) + " · " : ""}${escapeHTML(p.origin || I18N.originUnknown)}${p.climbing ? I18N.justClimbed : ""}</div>
+                    </div>
+                    <div class="sl-spinta"><div class="n">${p.exit_pressure != null ? p.exit_pressure : "–"}</div><div class="l">${I18N.momentum}</div></div>
+                </button>`;
+            }).join("");
+            return `<p class="section-h">${I18N.hotNowTitle} — ${hot.length}</p><div class="shortlist">${rows}</div>`;
+        }
+
+        function buildLegend(assets) {
+            const dist = {};
+            assets.forEach(p => { dist[p.phase] = (dist[p.phase] || 0) + 1; });
+            return PHASE_LABELS.map((label, p) => {
+                const hot = p === 3;
+                const color = hot ? "var(--signal)" : (p >= 4 ? "var(--verified)" : "var(--text-dim)");
+                const count = dist[p] || 0;
+                const tappable = count > 0 ? "tappable" : "";
+                return `<div class="lg-row ${tappable}" ${count > 0 ? `data-phase="${p}" role="button" tabindex="0"` : ""}>
+                    <span class="lg-dot" style="background:${color}"></span>
+                    <span class="lg-name ${hot ? "hot" : ""}">${escapeHTML(label)}</span>
+                    <span class="lg-count">${count}</span>
+                    ${count > 0 ? '<span class="lg-chev">›</span>' : ''}
+                </div>`;
+            }).join("");
+        }
+
+        function openPhaseList(phase) {
+            const items = state.assets
+                .map((p, i) => ({ p, i }))
+                .filter(x => x.p.phase === phase);
+            const label = PHASE_LABELS[phase] || "";
+            document.getElementById("phaseTitle").innerHTML =
+                `<span class="ph-eyebrow">${I18N.stagePrefix(items.length)}</span><span class="ph-name-big">${escapeHTML(label)}</span>`;
+            document.getElementById("phaseList").innerHTML = items.length
+                ? items.map(({ p, i }) => `<button class="ph-row" data-idx="${i}">
+                        <div>
+                            <div class="ph-name">${escapeHTML(p.name || "—")}${p.is_takeoff ? " ★" : ""}</div>
+                            <div class="ph-meta">${p.category ? escapeHTML(p.category) + " · " : ""}${escapeHTML(p.origin || I18N.originUnknown)}${p.climbing ? I18N.justClimbed : ""}</div>
+                        </div>
+                        <div class="ph-score">${p.signal_score != null ? p.signal_score : "–"}<span>${I18N.signal}</span></div>
+                    </button>`).join("")
+                : `<div class="ph-empty">${I18N.stageEmpty}</div>`;
+            document.querySelectorAll("#phaseList .ph-row").forEach(r =>
+                r.addEventListener("click", () => { closeSheets(); openDetail(+r.getAttribute("data-idx")); }));
+            document.getElementById("detailScrim").classList.add("open");
+            document.getElementById("phaseSheet").classList.add("open");
+        }
+
+        function openDetail(i) {
+            const p = state.assets[i];
+            if (!p) return;
+            state.selected = i;
+            const phaseName = PHASE_LABELS[p.phase] || "";
+            const hot = p.phase === 3;
+            document.getElementById("detailBody").innerHTML = `
+                ${hot ? `<span class="detail-tag">${I18N.hotTagShort}</span>` : ''}
+                <div class="detail-name">${escapeHTML(p.name || "—")}</div>
+                <div class="detail-meta">${p.category ? escapeHTML(p.category) + " · " : ""}${escapeHTML(p.origin || I18N.originUnknown)}${p.climbing ? I18N.justClimbedFull : ""}</div>
+                <div class="detail-grid">
+                    <div><div class="k">${I18N.stage}</div><div class="v ${hot ? "hot" : ""}" style="font-size:0.95rem;font-family:Georgia,serif">${escapeHTML(phaseName)}</div></div>
+                    <div><div class="k">${I18N.signal}</div><div class="v">${p.signal_score != null ? p.signal_score : "–"}</div></div>
+                    <div><div class="k">${I18N.momentum}</div><div class="v ${hot ? "hot" : ""}">${p.exit_pressure != null ? p.exit_pressure : "–"}</div></div>
+                </div>`;
+            const flag = document.getElementById("detailFlag");
+            flag.classList.toggle("active", !!p.watchlisted);
+            flag.textContent = p.watchlisted ? I18N.flagged : I18N.flag;
+            document.getElementById("detailScrim").classList.add("open");
+            document.getElementById("detail").classList.add("open");
+            document.querySelectorAll(".map-svg .dot.sel").forEach(d => d.classList.remove("sel"));
+            const dot = document.querySelector(`.map-svg .dot[data-idx="${i}"]`);
+            if (dot) dot.classList.add("sel");
+        }
+
+        function closeSheets() {
+            document.getElementById("detailScrim").classList.remove("open");
+            document.getElementById("detail").classList.remove("open");
+            document.getElementById("phaseSheet").classList.remove("open");
+            document.querySelectorAll(".map-svg .dot.sel").forEach(d => d.classList.remove("sel"));
+        }
+
+        // niente backend: il toggle aggiorna solo lo stato locale (in un
+        // progetto vero qui ci sarebbe un fetch verso l'API)
+        function toggleWatch() { /* no-op: demo autoportante, nessun server */ }
+
+        function bindDots() {
+            document.querySelectorAll(".map-svg .dot").forEach(d =>
+                d.addEventListener("click", () => openDetail(+d.getAttribute("data-idx"))));
+            document.querySelectorAll(".sl-row").forEach(r =>
+                r.addEventListener("click", () => openDetail(+r.getAttribute("data-idx"))));
+            document.querySelectorAll(".map-svg .phase-hit").forEach(h =>
+                h.addEventListener("click", () => openPhaseList(+h.getAttribute("data-phase"))));
+        }
+
+        function bindLegend() {
+            document.querySelectorAll("#legendRows .lg-row.tappable").forEach(r => {
+                const go = () => openPhaseList(+r.getAttribute("data-phase"));
+                r.addEventListener("click", go);
+                r.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
+            });
+        }
+
+        // helper difensivo: #loadingMsg vive dentro #content e sparisce alla
+        // prima buildMap() (che sovrascrive l'innerHTML del contenitore) - un
+        // getElementById diretto su un id non piu' presente lancerebbe e
+        // interromperebbe SILENZIOSAMENTE il resto di renderStaticText (e
+        // quindi anche il repaint di mappa/legenda dopo un cambio lingua,
+        // visto dal vivo in verifica). Meglio un no-op esplicito che un crash.
+        function setText(id, text) {
+            const el = document.getElementById(id);
+            if (el) el.textContent = text;
+        }
+
+        function renderStaticText() {
+            document.title = IS_EN ? "THE MAP — TRENDLINE (demo)" : "LA MAPPA — TRENDLINE (demo)";
+            document.documentElement.lang = IS_EN ? "en" : "it";
+            setText("eyebrow", I18N.eyebrow);
+            setText("h1", I18N.h1);
+            setText("sub", I18N.sub);
+            setText("loadingMsg", I18N.loading);
+            setText("legendH", I18N.legendH);
+            setText("legendHint", I18N.legendHint);
+            setText("footnote", I18N.footnote);
+            setText("detailClose", I18N.close);
+            setText("langToggle", IS_EN ? "IT" : "EN");
+        }
+
+        function renderAll() {
+            renderStaticText();
+            document.getElementById("content").innerHTML = buildMap(state.assets);
+            document.getElementById("legendRows").innerHTML = buildLegend(state.assets);
+            document.getElementById("legend").style.display = "block";
+            bindDots();
+            bindLegend();
+        }
+
+        // Simula un piccolo caricamento (come una vera fetch) pur restando
+        // 100% locale/offline: mostra lo skeleton "loading…" per un istante,
+        // poi popola dai dati incorporati - stessa UX di una API reale.
+        function load() {
+            renderStaticText();
+            setTimeout(() => {
+                state.assets = ASSETS;
+                renderAll();
+            }, 250);
+        }
+
+        document.getElementById("detailClose").addEventListener("click", closeSheets);
+        document.getElementById("phaseClose").addEventListener("click", closeSheets);
+        document.getElementById("detailScrim").addEventListener("click", closeSheets);
+        document.getElementById("detailFlag").addEventListener("click", () => {
+            const p = state.assets[state.selected];
+            if (!p) return;
+            p.watchlisted = !p.watchlisted;
+            const flag = document.getElementById("detailFlag");
+            flag.classList.toggle("active", p.watchlisted);
+            flag.textContent = p.watchlisted ? I18N.flagged : I18N.flag;
+            const dot = document.querySelector(`.map-svg .dot[data-idx="${state.selected}"]`);
+            if (dot) dot.classList.toggle("watch", p.watchlisted);
+            toggleWatch();
+        });
+
+        document.getElementById("langToggle").addEventListener("click", () => {
+            IS_EN = !IS_EN;
+            localStorage.setItem(LANG_KEY, IS_EN ? "en" : "it");
+            I18N = I18N_FOR(IS_EN);
+            PHASE_LABELS = I18N.phaseLabels;
+            closeSheets();
+            renderAll();
+        });
+
+        // tema: identico al pattern dell'app originale
+        const THEME_KEY = "trendline-theme";
+        function applyTheme(theme) {
+            const root = document.documentElement;
+            if (theme) root.setAttribute("data-theme", theme); else root.removeAttribute("data-theme");
+            const isLight = theme === "light" || (!theme && window.matchMedia("(prefers-color-scheme: light)").matches);
+            document.getElementById("themeToggle").textContent = isLight ? "☾" : "☀";
+            document.querySelector('meta[name="theme-color"]').setAttribute("content", isLight ? "#f3f5f6" : "#0a0e13");
+        }
+        document.getElementById("themeToggle").addEventListener("click", () => {
+            const current = document.documentElement.getAttribute("data-theme") ||
+                (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+            const next = current === "light" ? "dark" : "light";
+            localStorage.setItem(THEME_KEY, next);
+            applyTheme(next);
+        });
+        applyTheme(localStorage.getItem(THEME_KEY) || null);
+
+        load();
+    </script>
+</body>
+
+</html>
