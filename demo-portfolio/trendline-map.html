@@ -6,6 +6,30 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="theme-color" content="#0a0e13">
     <title>THE MAP — TRENDLINE (demo)</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" href="icon-192.png">
+    <link rel="apple-touch-icon" href="icon-192.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="TRENDLINE">
+    <script>
+        if ("serviceWorker" in navigator) { window.addEventListener("load", function () { navigator.serviceWorker.register("sw.js").catch(function () { }); }); }
+        // catturo l'evento di installabilita' PRESTO (puo' scattare prima che
+        // parta lo script principale): Chrome su Android non mostra piu' il
+        // pop-up automatico, serve un pulsante nostro che lo richiami.
+        window.__deferredInstall = null;
+        window.addEventListener("beforeinstallprompt", function (e) {
+            e.preventDefault();
+            window.__deferredInstall = e;
+            var b = document.getElementById("installBtn");
+            if (b) b.style.display = "";
+        });
+        window.addEventListener("appinstalled", function () {
+            window.__deferredInstall = null;
+            var b = document.getElementById("installBtn");
+            if (b) b.style.display = "none";
+        });
+    </script>
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
@@ -165,6 +189,13 @@
             font-size: 0.68rem; color: var(--text-faint); line-height: 1.6; text-align: center;
             border-top: 1px solid var(--line); margin-top: 30px; padding-top: 16px;
         }
+        .install-btn {
+            display: none; width: 100%; margin-top: 22px; padding: 13px 20px;
+            background: none; border: 1px solid var(--line); color: var(--text-dim);
+            font-family: inherit; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.04em;
+            cursor: pointer;
+        }
+        .install-hint { font-size: 0.72rem; color: var(--text-faint); line-height: 1.5; margin-top: 10px; text-align: center; display: none; }
     </style>
 </head>
 
@@ -183,6 +214,9 @@
             <p class="legend-hint" id="legendHint"></p>
             <div id="legendRows"></div>
         </div>
+
+        <button class="install-btn" id="installBtn"></button>
+        <p class="install-hint" id="iosInstallHint"></p>
 
         <p class="demo-footnote" id="footnote"></p>
     </div>
@@ -267,7 +301,9 @@
                 legendH: "the six stages of the path",
                 legendHint: "tap a stage to see every asset inside it",
                 close: "CLOSE",
-                footnote: "Demo build — synthetic data, single self-contained HTML file, no build step, no external requests.",
+                footnote: "Demo build — synthetic data, no build step, no external requests, installable as an app.",
+                installBtn: "⬇ INSTALL THIS DEMO",
+                iosInstallHint: "On iPhone: tap Share ⬆ at the bottom, then \"Add to Home Screen\" to install it as an app.",
                 phaseLabels: ["no signal yet", "niche sources only", "gaining mentions", "accelerating", "on mainstream radars", "fully mainstream"],
             } : {
                 eyebrow: "la mappa",
@@ -295,7 +331,9 @@
                 legendH: "le sei tappe del percorso",
                 legendHint: "tocca una tappa per vedere tutti gli asset che ci sono dentro",
                 close: "CHIUDI",
-                footnote: "Demo — dati sintetici, un solo file HTML autoportante, nessuna build, nessuna richiesta esterna.",
+                footnote: "Demo — dati sintetici, nessuna build, nessuna richiesta esterna, installabile come app.",
+                installBtn: "⬇ INSTALLA QUESTA DEMO",
+                iosInstallHint: "Su iPhone: tocca Condividi ⬆ in basso, poi «Aggiungi a Home» per installarla come app.",
                 phaseLabels: ["nessun segnale", "solo fonti di nicchia", "se ne inizia a parlare", "in accelerazione", "sui radar principali", "trend consolidato"],
             };
         }
@@ -507,6 +545,8 @@
             setText("footnote", I18N.footnote);
             setText("detailClose", I18N.close);
             setText("langToggle", IS_EN ? "IT" : "EN");
+            setText("installBtn", I18N.installBtn);
+            setText("iosInstallHint", I18N.iosInstallHint);
         }
 
         function renderAll() {
@@ -570,6 +610,32 @@
             applyTheme(next);
         });
         applyTheme(localStorage.getItem(THEME_KEY) || null);
+
+        // Installazione PWA. Su Android: se Chrome ha gia' segnalato che e'
+        // installabile (window.__deferredInstall, catturato in testa alla
+        // pagina), mostro il pulsante e al tap lancio il prompt nativo. Su
+        // iPhone non esiste quell'evento: mostro le istruzioni (Condividi ->
+        // Aggiungi a Home). Se e' gia' installata (aperta come app), non
+        // mostro niente - stesso pattern dell'app originale (turno.html).
+        (function () {
+            const installBtn = document.getElementById("installBtn");
+            const iosHint = document.getElementById("iosInstallHint");
+            const standalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+            if (standalone) return; // gia' installata: nulla da mostrare
+
+            if (window.__deferredInstall) installBtn.style.display = "";
+            installBtn.addEventListener("click", async () => {
+                const ev = window.__deferredInstall;
+                if (!ev) return;
+                ev.prompt();
+                await ev.userChoice;
+                window.__deferredInstall = null;
+                installBtn.style.display = "none";
+            });
+
+            const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+            if (isIOS) iosHint.style.display = "block";
+        })();
 
         load();
     </script>
