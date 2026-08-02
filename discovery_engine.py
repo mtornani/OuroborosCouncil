@@ -26,6 +26,7 @@ from pathlib import Path
 import yaml
 
 from monitor.web_monitor import search_google_news
+from news_reader import build_club_lexicon, extract_club_observations
 from openrouter_client import call_openrouter, get_available_models
 from nvidia_client import call_nvidia, get_available_models as get_available_nvidia_models
 from gemini_client import call_gemini, get_available_models as get_available_gemini_models
@@ -909,9 +910,16 @@ def buzz_score(candidate: dict, history: dict, cfg: dict) -> dict:
                      "publishers": publishers, "tier1_present": 1 in tiers_seen,
                      "tier1_hits": _tier1_hits_from_results(results, cfg)}
 
+    # I titoli grezzi escono dal buzz check ma NON entrano nello snapshot
+    # persistito: servono al lettore "news" del grafo (news_reader) dentro
+    # questo stesso run, e basta. Metterli nello snapshot gonfierebbe
+    # buzz_history - che e' un blob JSON riscritto per intero a ogni
+    # salvataggio - di 8 titoli x candidato x 20 run, per un dato che non
+    # si rilegge mai.
     if is_cold_start:
         return {"score": None, "available": False, "reason": "primo run, nessuno storico",
-                "mention_count": mention_count, "snapshot": run_snapshot}
+                "mention_count": mention_count, "snapshot": run_snapshot,
+                "news_items": results}
 
     bw = cfg["buzz_weights"]
     sub_scores = {}
@@ -940,7 +948,8 @@ def buzz_score(candidate: dict, history: dict, cfg: dict) -> dict:
     score = sum(sub_scores[k] * bw[k] for k in sub_scores) / total_weight if total_weight else 0.0
 
     return {"score": score, "available": True, "sub_scores": sub_scores,
-            "mention_count": mention_count, "snapshot": run_snapshot}
+            "mention_count": mention_count, "snapshot": run_snapshot,
+            "news_items": results}
 
 
 # ============================================================
@@ -1576,11 +1585,36 @@ def detect_state_change(
     current_dossier = current_dossier or {}
     giudice = current_dossier.get("giudice") or {}
 
-    # 1. club aggiornato - solo se il Cronista l'ha davvero verificato via
-    # ricerca web in QUESTO run, mai su un sospetto non confermato
-    club_aggiornato = giudice.get("club_aggiornato")
+    # 1. club aggiornato. Due sorgenti, in ordine di affidabilita':
+    #    a) il GRAFO DELLE FONTI - il risolutore ha un club diverso da quello
+    #       d'archivio, perche' news_reader ha letto un trasferimento nei
+    #       titoli di stampa (deterministico, datato, con URL). Questa strada
+    #       vale per l'INTERA pool e non costa una chiamata AI: prima il
+    #       cambio club si scopriva solo per gli 8 candidati che arrivavano
+    #       al dossier, e solo se il modello aveva davvero cercato.
+    #    b) il Giudice, quando swarm.web_search_grounding e' riattivato.
+    prov = candidate.get("club_provenienza") or {}
+    club_aggiornato = None
+    fonte_club = None
+    gia_segnalato = candidate.get("_club_risolto_precedente")
+    if (prov.get("fonte") == "news" and prov.get("valore")
+            and prov["valore"] != candidate.get("club")
+            # gia' segnalato in un giro precedente e ancora non confermato a
+            # mano: e' un evento puntuale, si mostra una volta. Resta comunque
+            # visibile sulla card come provenienza del club ("secondo la
+            # stampa, dal ..."), non sparisce - smette solo di rioccupare il
+            # turno di revisione ogni scansione.
+            and prov["valore"] != gia_segnalato):
+        club_aggiornato = prov["valore"]
+        fonte_club = prov
+    elif giudice.get("club_aggiornato"):
+        club_aggiornato = giudice["club_aggiornato"]
     if club_aggiornato:
         old_club = candidate.get("club") or "N/D"
+        prova = ""
+        if fonte_club:
+            quando = f" del {fonte_club['datato_al'][:10]}" if fonte_club.get("datato_al") else ""
+            prova = f" Fonte: un titolo di stampa{quando}, agli atti nel grafo delle fonti."
         # Se i due nomi si assomigliano (es. "RCD Mallorca" / "RCD Mallorca
         # B") il cambio sembra irrilevante a prima vista, mentre spesso e'
         # proprio la differenza che conta (prima squadra vs riserve) - il
@@ -1592,9 +1626,10 @@ def detect_state_change(
             # che registra l'osservazione fonte=umano nel grafo delle fonti
             "club_vecchio": old_club,
             "club_nuovo": club_aggiornato,
+            "club_fonte_url": (fonte_club or {}).get("url"),
             "lead": (
-                f"Attenzione: negli archivi risultava a \"{old_club}\", ma la ricerca web piu' recente dice "
-                f"\"{club_aggiornato}\". Controlla di persona se e' un cambio di squadra vero (es. da prima "
+                f"Attenzione: negli archivi risultava a \"{old_club}\", ma la stampa piu' recente dice "
+                f"\"{club_aggiornato}\".{prova} Controlla di persona se e' un cambio di squadra vero (es. da prima "
                 f"squadra a squadra riserve/giovanile, o viceversa) prima di scartarlo o promuoverlo - "
                 f"i due nomi possono sembrare uguali a colpo d'occhio ma indicare un livello molto diverso."
             ),
@@ -1781,7 +1816,26 @@ _PLAIN_LANGUAGE_RULE = (
 )
 
 _ROLES = {
+    # Variante usata quando il grounding e' deterministico (default): la
+    # squadra corrente arriva GIA' risolta dal grafo delle fonti, letta dai
+    # titoli di stampa da news_reader. Al Cronista si chiede di riferirla,
+    # non di cercarla - chiedergli di usare uno strumento che non ha e' cio'
+    # che produceva markup di tool call spacciato per risposta (vedi
+    # _looks_like_tool_markup: "<function=openrouter_web_search>" comparso
+    # parola per parola sulla card di Leandro Santos).
     "cronista": (
+        "Sei il Cronista. Riferisci i fatti grezzi disponibili su questo giocatore (squadra, ruolo, eta', "
+        "fonti che lo citano) usando ESCLUSIVAMENTE i dati del contesto qui sotto. La squadra indicata "
+        "arriva dal grafo delle fonti con la sua provenienza (chi lo dice e da quando): riportala con "
+        "quella provenienza, e se il contesto segnala un disaccordo tra fonti dillo esplicitamente invece "
+        "di sceglierne una in silenzio. NON hai strumenti di ricerca: non tentare di cercare sul web e non "
+        "emettere sintassi di chiamata a strumenti. Se un dato manca, scrivi che manca. Nessuna opinione, "
+        "solo fatti, in italiano, conciso. " + _PLAIN_LANGUAGE_RULE
+    ),
+    # Variante per swarm.web_search_grounding: true - il vecchio percorso a
+    # pagamento, tenuto per poterlo riattivare, non piu' il default (vedi
+    # ARCHITETTURA_PRODUZIONE.md §3).
+    "cronista_grounded": (
         "Sei il Cronista. Raccogli i fatti grezzi disponibili su questo giocatore (squadra, ruolo, eta', "
         "fonti che lo citano). Se hai uno strumento di ricerca web, USALO per verificare la squadra "
         "ATTUALE del giocatore (cerca il nome + 'transfer'/'trasferimento'/'firma con' nell'anno corrente): "
@@ -1972,28 +2026,51 @@ def run_swarm_dossier(candidate: dict, score_result: dict) -> dict:
     # guardia anti-doppione in refresh_radar (blocca prima di spendere la
     # chiamata, non dopo). Deciso con Mirko 2026-07 proprio per non bruciare
     # le quote AI free raddoppiandole silenziosamente col bilinguismo.
+    cfg = load_config()
     model_pool = _candidate_models()
     component_names = [_COMPONENT_LABELS_IT.get(k, k) for k in score_result.get("components", {})]
+    # La provenienza del club entra nel contesto: cosi' il Cronista puo'
+    # riferire "secondo chi, da quando" invece di presentare un club nudo, e
+    # non ha nessun motivo per andarselo a cercare altrove.
+    prov = candidate.get("club_provenienza") or {}
+    club_line = candidate.get("club_risolto") or candidate.get("club") or "N/D"
+    if prov.get("spiegazione"):
+        club_line += f" (provenienza: {prov['spiegazione']})"
+    if prov.get("conflitto") and prov.get("alternativa"):
+        club_line += f" — ATTENZIONE, fonti in disaccordo: un'altra fonte dice \"{prov['alternativa']}\""
     context = (
-        f"Giocatore: {candidate['name']}\nSquadra: {candidate.get('club', 'N/D')}\n"
+        f"Giocatore: {candidate['name']}\nSquadra: {club_line}\n"
         f"Tier competizione: {candidate.get('tier', 'N/D')}\n"
         f"Signal Score: {score_result.get('signal_score', 'N/D')}\n"
         f"Componenti disponibili: {', '.join(component_names) if component_names else 'nessuno'}"
     )
 
-    # Il Cronista prova prima la pool con ricerca web reale (solo OpenRouter
-    # la supporta): se quella e' irraggiungibile (nessuna chiave, rate limit
-    # su tutti i modelli), retrocede alla pool normale senza ricerca invece
-    # di far fallire l'intero dossier - ma "grounded" resta False, cosi' il
-    # resto del dossier non spaccia per verificata un'informazione che non
-    # lo e'. I ruoli successivi riusano la stessa coppia provider/modello
-    # del Cronista per coerenza nel dossier.
-    try:
-        cronista, call_fn, model = _call_with_fallback(_grounded_cronista_pool(), _ROLES["cronista"], context)
-        grounded = True
-    except Exception:
+    # Grounding: dal 2026-08 il club arriva GIA' risolto dal grafo delle
+    # fonti (news_reader legge i titoli stampa che il buzz check scarica
+    # comunque) - deterministico, gratuito e ispezionabile. La vecchia strada
+    # (server tool openrouter:web_search) resta dietro
+    # swarm.web_search_grounding perche' e' fatturata a parte anche sui
+    # modelli ":free" ed e' capped a 50 richieste/giorno sul tier free: era
+    # la prima funzione a spegnersi sotto carico. Vedi ARCHITETTURA_PRODUZIONE.md §3.
+    use_web_search = bool(cfg["swarm"].get("web_search_grounding", False))
+    grounded = False
+    cronista = call_fn = model = None
+    if use_web_search:
+        # se la pool grounded e' irraggiungibile (nessuna chiave, rate limit
+        # su tutti i modelli) si retrocede alla pool normale invece di far
+        # fallire l'intero dossier - ma "grounded" resta False, cosi' il
+        # resto del dossier non spaccia per verificata un'informazione che
+        # non lo e'
+        try:
+            cronista, call_fn, model = _call_with_fallback(
+                _grounded_cronista_pool(), _ROLES["cronista_grounded"], context)
+            grounded = True
+        except Exception:
+            pass
+    if cronista is None:
         cronista, call_fn, model = _call_with_fallback(model_pool, _ROLES["cronista"], context)
-        grounded = False
+    # I ruoli successivi riusano la stessa coppia provider/modello del
+    # Cronista, per coerenza dentro il dossier.
     # _reject_tool_markup su OGNI voce: i ruoli dopo il Cronista riusano lo
     # stesso modello senza ripassare dal fallback, quindi un modello che
     # "risponde" con sintassi di tool call va intercettato anche qui - la
@@ -2029,6 +2106,12 @@ def run_swarm_dossier(candidate: dict, score_result: dict) -> dict:
         # avvenuta per davvero: quel dettaglio sta in
         # giudice.club_verificato_via_ricerca, letto dal report del Cronista.
         "web_search_tool_available": grounded,
+        # Come e' stato messo a terra il club di questo dossier. "grafo_fonti"
+        # e' il default dal 2026-08: il club NON viene da cio' che un modello
+        # dice di aver cercato, ma da un'osservazione datata nel grafo, con
+        # URL - verificabile senza fidarsi del modello. Vedi news_reader.
+        "club_grounding": "ricerca_web_modello" if grounded else "grafo_fonti",
+        "club_provenienza": candidate.get("club_provenienza"),
         "cronista": cronista,
         "verificatore": verificatore,
         "scettico": scettico,
@@ -2147,6 +2230,43 @@ def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> di
                                  "publishers": [], "tier1_present": False},
                 }
 
+    # Stage 2b: GROUNDING DETERMINISTICO del club, gratis, dai titoli appena
+    # scaricati. Prima questo lavoro lo faceva solo il Cronista dello swarm
+    # con `openrouter:web_search` - un tool fatturato a parte anche sui
+    # modelli ":free" e limitato a 50 richieste/giorno sul tier free, cioe'
+    # la prima funzione a spegnersi sotto carico. Qui non serve rete
+    # aggiuntiva (i titoli sono gia' in memoria), non serve AI, e il
+    # risultato e' ispezionabile riga per riga invece di essere la parola di
+    # un modello su cosa dice di aver cercato. Vedi news_reader.
+    _progress("leggo i titoli stampa per il club aggiornato")
+    club_lexicon = build_club_lexicon(candidates, observations)
+    news_observations = 0
+    for c in candidates:
+        items = (buzz_results.get(c["candidate_id"]) or {}).get("news_items") or []
+        if not items:
+            continue
+        known = {c.get("club_risolto"), c.get("club"), c.get("club_alternativo")}
+        for obs in extract_club_observations(items, known, club_lexicon):
+            if record_observation(observations, c["candidate_id"], "club", obs["valore"],
+                                  "news", cfg, datato_al=obs["datato_al"],
+                                  url=obs["url"], nota=obs["nota"]):
+                news_observations += 1
+
+    # ri-risoluzione dopo le osservazioni di stampa: senza questo passaggio
+    # un trasferimento letto oggi comparirebbe in UI solo al run successivo
+    # (il club_risolto era stato calcolato prima del buzz check). La query
+    # buzz di QUESTO giro resta quella vecchia - e' inevitabile, i titoli
+    # arrivano dopo - ma la card e il dossier vedono subito il dato fresco.
+    if news_observations:
+        for c in candidates:
+            resolution = resolve_field(observations, c["candidate_id"], "club", cfg,
+                                       fallback=c.get("club"))
+            if resolution:
+                c["club_risolto"] = resolution["valore"]
+                c["club_provenienza"] = resolution
+                c["club_alternativo"] = (resolution["alternativa"]
+                                         if resolution["conflitto"] else None)
+
     ranked = []
     for candidate in candidates:
         buzz = buzz_results.get(candidate["candidate_id"])
@@ -2200,6 +2320,15 @@ def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> di
         entry["_previous_last_entry"] = record["history"][-1] if record["history"] else None
         entry["_previous_dossier"] = record.get("dossier")
 
+        # il club che il grafo risolveva PRIMA di questo run: serve alla sonda
+        # per distinguere una correzione NUOVA (da mostrare) da una gia'
+        # segnalata nei giri scorsi e non ancora confermata a mano. Senza
+        # questo confronto "CLUB DA CORREGGERE" si ripresenterebbe identico a
+        # ogni scansione finche' Wikidata non si aggiorna - un evento
+        # puntuale trasformato in rumore permanente.
+        entry["candidate"]["_club_risolto_precedente"] = (
+            (record.get("club_provenienza") or {}).get("valore"))
+
         record["identity"] = entry["candidate"]
         # provenienza del club dal risolutore del grafo: la card puo' dire
         # "secondo chi, da quando" invece di presentare un club nudo - e un
@@ -2246,12 +2375,48 @@ def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> di
             ledger_changed = _update_flag_ledger(
                 ledger, entry["candidate"], curve_phase, run_at, prova=prova) or ledger_changed
 
+        # SONDA SENZA AI. Kalman + CUSUM sono pura matematica sullo storico:
+        # costano zero chiamate e ora girano sull'INTERA classifica, non piu'
+        # solo sui candidati che avevano gia' vinto un posto nel dossier.
+        # Due conseguenze, entrambe volute:
+        #  - il CUSUM (deriva lenta) puo' finalmente accumulare per chi non e'
+        #    mai stato nel top-N: prima veniva aggiornato solo dentro
+        #    _finalize_dossier, quindi per quei candidati non scattava mai;
+        #  - il risultato diventa il GATE d'ingresso allo swarm (fase 2),
+        #    invece di essere calcolato dopo aver gia' speso il dossier.
+        # Chiamare detect_state_change con i due argomenti "dossier" a None
+        # da' esattamente la parte di sonda che non dipende dall'AI: i motivi
+        # 1b (club dal Giudice) e 3 (verdetto ribaltato) si autoescludono,
+        # tutti gli altri (decollo, finestre, dati completati, shock, deriva,
+        # nuovo ingresso) restano. Nessuna logica duplicata, nessun riordino.
+        bayes = bayesian_estimate(record["history"], cfg)
+        z = (bayes or {}).get("last_innovation_z")
+        cusum_state = record.get("cusum", {"pos": 0.0, "neg": 0.0})
+        if z is not None:
+            cusum_state = _update_cusum(cusum_state, z, cfg)
+        record["cusum"] = cusum_state
+        entry["_bayes"] = bayes
+        entry["_cusum"] = cusum_state
+        entry["_ai_free_change"] = detect_state_change(
+            candidate=entry["candidate"],
+            previous_last_entry=entry["_previous_last_entry"],
+            previous_dossier=None,
+            current_dossier=None,
+            current_partial_data=entry["signal"]["partial_data"],
+            bayes=bayes,
+            cusum_state=cusum_state,
+            cfg=cfg,
+            buzz_detail=entry["signal"].get("buzz_detail"),
+            curve=entry["signal"].get("curve"),
+        )
+
         # stato provvisorio SENZA dossier: le finestre aperte si portano
         # avanti o si chiudono gia' ora (niente sparisce in silenzio nel
         # frattempo); per chi ricevera' un dossier fresco in fase 2 lo stato
         # viene ricalcolato con il giudice alla mano, come sempre
         record["history"][-1]["state_change"] = _carry_or_close(
-            entry["_previous_last_entry"], None, entry["signal"].get("curve"))
+            entry["_previous_last_entry"], entry["_ai_free_change"],
+            entry["signal"].get("curve"))
 
     _progress("salvo i punteggi (gia' consultabili)")
     _save_json(FEED_FILE, feed)
@@ -2276,15 +2441,39 @@ def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> di
     # AI su un verdetto gia' prevedibile.
     swarm_candidates = [e for e in ranked if not _needs_more_signal(e["signal"])]
 
-    # Un candidato in fase "decollo imminente" (Layer E) compra SEMPRE un
-    # posto nella finestra swarm, anche fuori dal top_n del fit score: e' il
-    # caso per cui il radar esiste, e lasciarlo in archivio silenzioso
-    # perche' il suo punteggio contestuale non era tra i primi 15 sarebbe il
-    # falso negativo peggiore possibile per lo scopo dichiarato.
-    swarm_window = swarm_candidates[:top_n]
-    for e in swarm_candidates[top_n:]:
-        if (e["signal"].get("curve") or {}).get("phase") == 3:
-            swarm_window.append(e)
+    # ------------------------------------------------------------------
+    # GATE: il dossier costa una chiamata AI, quindi si spende su chi e'
+    # CAMBIATO, non sui primi N di una classifica che al giro dopo e' quasi
+    # identica. La sonda senza AI (fase 1) ha gia' detto chi ha un motivo
+    # oggettivo per essere riguardato: decollo imminente, finestra precoce,
+    # salto anomalo, deriva sostenuta, dati completati, nuovo ingresso.
+    #
+    # E' la modifica che rende il costo AI proporzionale agli EVENTI invece
+    # che alla dimensione della pool: con 5.000 candidati o con 50.000 il
+    # numero di dossier per giro non cambia, cambia solo quanti giocatori si
+    # sono davvero mossi. Vedi ARCHITETTURA_PRODUZIONE.md §2 leva A.
+    #
+    # Il tetto max_dossiers_per_run resta obbligatorio e non e' una
+    # ridondanza: al PRIMO run di un candidato la sonda risponde "nuovo
+    # ingresso" per tutti (motivo 6), quindi senza tetto una pool fredda
+    # bruciherebbe l'intera quota giornaliera in un colpo.
+    if cfg["swarm"].get("require_state_change", True):
+        changed = [e for e in swarm_candidates if e.get("_ai_free_change")]
+        # ordine di spesa: prima "sta per esplodere" (il caso per cui il
+        # radar esiste), poi il resto per fit score - la classifica torna
+        # utile come criterio di PRIORITA', non piu' come criterio di
+        # ammissione
+        changed.sort(key=lambda e: (
+            0 if (e["signal"].get("curve") or {}).get("phase") == 3 else 1,
+            -(e["fit"]["fit_score"] or 0),
+        ))
+        swarm_window = changed[:cfg["swarm"]["max_dossiers_per_run"]]
+    else:
+        # comportamento storico (top-N), tenuto per poterci tornare
+        swarm_window = swarm_candidates[:top_n]
+        for e in swarm_candidates[top_n:]:
+            if (e["signal"].get("curve") or {}).get("phase") == 3:
+                swarm_window.append(e)
 
     # Misurato dal vivo: un ciclo sequenziale su top_n=15 (4 chiamate AI
     # ciascuno) ha superato i 9 minuti senza finire, troncato da Cloud Run
@@ -2357,12 +2546,13 @@ def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> di
                                   "news", cfg, datato_al=run_at[:10],
                                   nota="Cronista via ricerca web"):
                 record["club_provenienza"] = resolve_field(observations, cid, "club", cfg)
-        bayes = bayesian_estimate(record["history"], cfg)
-        z = (bayes or {}).get("last_innovation_z")
-        cusum_state = record.get("cusum", {"pos": 0.0, "neg": 0.0})
-        if z is not None:
-            cusum_state = _update_cusum(cusum_state, z, cfg)
-        record["cusum"] = cusum_state
+        # Kalman e CUSUM sono gia' stati calcolati e persistiti in fase 1 per
+        # TUTTA la classifica (sono gratis, e servivano al gate d'ingresso):
+        # qui si riusano invece di rifarli. Rifarli sarebbe anche sbagliato,
+        # non solo inutile - _update_cusum e' cumulativo, applicarlo due
+        # volte allo stesso z farebbe scattare la deriva prima del dovuto.
+        bayes = entry.get("_bayes")
+        cusum_state = entry.get("_cusum", record.get("cusum", {"pos": 0.0, "neg": 0.0}))
         fresh_change = detect_state_change(
             candidate=entry["candidate"],
             previous_last_entry=entry["_previous_last_entry"],

@@ -399,13 +399,38 @@ Le due proprietà da leggere nel diagramma:
 
 Ogni tappa consegna valore da sola e non richiede la successiva.
 
-| # | Tappa | Effetto | Rischio |
-|---|---|---|---|
-| 1 | **Grounding deterministico** (§3): lettore `news` → grafo delle fonti | elimina la dipendenza da OpenRouter e la voce di spesa reale; niente cambio di schema | basso |
-| 2 | **Gate su `state_change` + dossier pigro** (leva A) | l'AI esce dal percorso critico: da qui la pool può crescere a costo costante | basso |
-| 3 | **1 chiamata invece di 4 + cache a impronta** (leve B, C) | −75% sulle chiamate, poi −alto% sul residuo per riuso | medio (cambia il testo dei dossier) |
-| 4 | **Persistenza a tabelle** (blocco 2) | rimuove il last-write-wins e la riscrittura di blob da MB | medio (migrazione dati) |
-| 5 | **Worker separato + gateway/LiteLLM + floor locale** (blocco 1, leve D, E) | scala orizzontale reale e comportamento definito a quote esaurite | alto |
+| # | Tappa | Effetto | Rischio | Stato |
+|---|---|---|---|---|
+| 1 | **Grounding deterministico** (§3): lettore `news` → grafo delle fonti | elimina la dipendenza da OpenRouter e la voce di spesa reale; niente cambio di schema | basso | ✅ fatto |
+| 2 | **Gate su `state_change`** (leva A) | l'AI esce dal percorso critico: da qui la pool può crescere a costo costante | basso | ✅ fatto |
+| 2b | **Dossier pigro all'apertura** (leva A) | lega il costo residuo all'attenzione umana reale | basso | da fare |
+| 3 | **1 chiamata invece di 4 + cache a impronta** (leve B, C) | −75% sulle chiamate, poi −alto% sul residuo per riuso | medio (cambia il testo dei dossier) | da fare |
+| 4 | **Persistenza a tabelle** (blocco 2) | rimuove il last-write-wins e la riscrittura di blob da MB | medio (migrazione dati) | da fare |
+| 5 | **Worker separato + gateway/LiteLLM + floor locale** (blocco 1, leve D, E) | scala orizzontale reale e comportamento definito a quote esaurite | alto | da fare |
+
+### Cosa è già in produzione dopo le tappe 1 e 2
+
+- `news_reader.py` legge il club dai titoli che il buzz check scarica comunque,
+  a **vocabolario chiuso** (mai un club inventato) e con indizio esplicito di
+  trasferimento richiesto. Le osservazioni entrano nel grafo a livello `news`
+  con data e URL, e il risolutore le fa vincere sui claim Wikidata non datati.
+- `swarm.web_search_grounding: false` — il server tool a pagamento è spento.
+  Il codice resta dietro il flag per poterci tornare.
+- `swarm.require_state_change: true` — il dossier si spende su chi è cambiato.
+  `max_dossiers_per_run` è il tetto di sicurezza, e **non è ridondante**: al
+  primo run di un candidato la sonda risponde "nuovo ingresso" per tutti.
+- Kalman e CUSUM girano ora sull'**intera classifica**, non più solo sui
+  candidati già ammessi al dossier. Effetto collaterale voluto: la deriva lenta
+  (CUSUM) può finalmente accumularsi per chi non è mai stato nel top-N — prima
+  veniva aggiornata solo dentro `_finalize_dossier`, quindi per quei candidati
+  non scattava mai.
+- `CLUB DA CORREGGERE` ora nasce dal **grafo** e vale per l'intera pool a costo
+  zero, non più solo per gli 8 candidati che arrivavano al dossier e solo se il
+  modello aveva davvero cercato.
+
+Verificato con uno smoke test a rete simulata su tre run consecutivi: il
+trasferimento viene letto e risolto al run 1 **senza nessuna chiamata AI**;
+al run 3, senza cambiamenti, i dossier generati sono **zero**.
 
 **Dimensionamento atteso dopo la tappa 3.** Con pool 5.000 e un tasso di
 cambiamento di stato del 5% al giorno: ~250 dossier/giorno × 1 chiamata =
