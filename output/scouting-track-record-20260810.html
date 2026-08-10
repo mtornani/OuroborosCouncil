@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Scouting Track Record — 10 agosto 2026</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0b0d12; --card:#141822; --elevated:#1c2130;
+  --ink:#e7e9ee; --ink-2:#a7aebb; --ink-3:#6d7383;
+  --accent:#2fd374; --accent-dim:#1f9c58; --accent-wash:rgba(47,211,116,.1);
+  --amber:#e0b84a; --red:#e0685a;
+  --border:#242938; --border-soft:#1b202c;
+  --font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  --mono:'SF Mono','Fira Code',ui-monospace,Consolas,monospace;
+}
+body{font-family:var(--font);background:var(--bg);color:var(--ink);line-height:1.6;font-size:15px;-webkit-font-smoothing:antialiased}
+.wrap{max-width:880px;margin:0 auto;padding:0 20px 80px}
+a{color:var(--accent)}
+.mono{font-family:var(--mono)}
+
+/* ===== masthead ===== */
+.masthead{padding:56px 0 36px;border-bottom:1px solid var(--border)}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:14px}
+h1{font-size:30px;font-weight:800;letter-spacing:-.01em;margin-bottom:10px}
+.subtitle{color:var(--ink-2);font-size:15.5px;max-width:60ch}
+.addressee{margin-top:22px;padding-top:18px;border-top:1px solid var(--border-soft);font-size:13.5px;color:var(--ink-3)}
+.addressee b{color:var(--ink-2);font-weight:600}
+
+/* ===== intro ===== */
+.intro{padding:34px 0;font-size:15.5px;color:var(--ink-2);max-width:66ch}
+.intro strong{color:var(--ink)}
+
+/* ===== section blocks ===== */
+.block-label{display:flex;align-items:baseline;gap:10px;margin:52px 0 6px}
+.block-label .num{font-family:var(--mono);color:var(--accent);font-size:13px}
+.block-label h2{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-2);font-weight:700}
+.block-note{font-size:13.5px;color:var(--ink-3);margin-bottom:28px;max-width:62ch}
+
+.case{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:26px 26px 24px;margin-bottom:22px}
+.case-h{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:6px}
+.case-title{font-size:19px;font-weight:700}
+.case-tag{font-family:var(--mono);font-size:11px;color:var(--accent);background:var(--accent-wash);border:1px solid rgba(47,211,116,.25);padding:3px 9px;border-radius:20px;white-space:nowrap}
+.case-kicker{color:var(--ink-3);font-size:13px;margin-bottom:18px}
+.case-body p{color:var(--ink-2);margin-bottom:12px;font-size:14.5px}
+.case-body p:last-child{margin-bottom:0}
+
+/* timeline */
+.timeline{display:flex;align-items:center;gap:0;margin:20px 0;font-family:var(--mono);font-size:12.5px}
+.tl-point{text-align:center;flex-shrink:0;width:120px}
+.tl-dot{width:10px;height:10px;border-radius:50%;background:var(--accent);margin:0 auto 8px}
+.tl-point.muted .tl-dot{background:var(--ink-3)}
+.tl-date{color:var(--ink);font-weight:700}
+.tl-label{color:var(--ink-3);font-size:11px;margin-top:2px;line-height:1.4}
+.tl-line{flex:1;height:1px;background:linear-gradient(90deg,var(--accent),var(--accent) 40%,var(--border) 40%,var(--border));position:relative;min-width:40px}
+.tl-lead{position:absolute;top:-22px;left:50%;transform:translateX(-50%);color:var(--accent);font-weight:700;white-space:nowrap}
+
+table.data{width:100%;border-collapse:collapse;font-size:13.5px;margin-top:8px}
+table.data th{text-align:left;padding:9px 10px;color:var(--ink-3);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--border)}
+table.data td{padding:10px 10px;border-bottom:1px solid var(--border-soft);color:var(--ink-2)}
+table.data td.mono{font-family:var(--mono);font-size:13px}
+table.data tr:last-child td{border-bottom:none}
+table.data .lead{color:var(--accent);font-weight:700}
+
+.note{background:var(--elevated);border-left:3px solid var(--amber);border-radius:0 8px 8px 0;padding:14px 18px;font-size:13.5px;color:var(--ink-2);margin-top:16px}
+.note b{color:var(--ink)}
+.note.method{border-left-color:var(--ink-3)}
+
+/* contraddittorio (verdetto vs scettico) */
+.duel{display:grid;grid-template-columns:1fr;gap:0;margin-top:16px;border:1px solid var(--border);border-radius:10px;overflow:hidden}
+@media(min-width:640px){.duel{grid-template-columns:1fr 1fr}}
+.duel > div{padding:16px 18px}
+.duel .verdict{background:rgba(47,211,116,.06)}
+.duel .skeptic{background:rgba(224,104,90,.06);border-top:1px solid var(--border)}
+@media(min-width:640px){.duel .skeptic{border-top:none;border-left:1px solid var(--border)}}
+.duel h4{font-size:11px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}
+.duel .verdict h4{color:var(--accent)}
+.duel .skeptic h4{color:var(--red)}
+.duel p{font-size:13px;color:var(--ink-2);line-height:1.55}
+.duel .stamp{font-family:var(--mono);font-size:11px;color:var(--ink-3);margin-top:8px}
+
+.cases-mini{display:grid;grid-template-columns:1fr;gap:10px;margin-top:16px}
+.mini-row{display:flex;justify-content:space-between;gap:14px;padding:10px 0;border-bottom:1px solid var(--border-soft);font-size:13.5px}
+.mini-row:last-child{border-bottom:none}
+.mini-name{color:var(--ink);font-weight:600}
+.mini-meta{color:var(--ink-3);font-size:12px}
+.mini-verdict{font-family:var(--mono);font-size:12px;white-space:nowrap}
+.mini-verdict.yes{color:var(--accent)}
+.mini-verdict.no{color:var(--red)}
+
+/* profile grid (OB1 Global) */
+.profiles{display:grid;grid-template-columns:1fr;gap:14px;margin-top:18px}
+@media(min-width:640px){.profiles{grid-template-columns:1fr 1fr}}
+.profile{background:var(--elevated);border:1px solid var(--border);border-radius:10px;padding:16px 18px}
+.profile-h{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px}
+.profile-name{font-weight:700;font-size:14.5px}
+.profile-score{font-family:var(--mono);font-size:12px;color:var(--accent)}
+.profile-meta{color:var(--ink-3);font-size:12px;margin-bottom:10px}
+.profile ul{list-style:none;font-size:12.5px;color:var(--ink-2)}
+.profile li{padding-left:14px;position:relative;margin-bottom:4px}
+.profile li.pro::before{content:"+";position:absolute;left:0;color:var(--accent);font-weight:700}
+.profile li.caution::before{content:"–";position:absolute;left:0;color:var(--amber);font-weight:700}
+.profile-src{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);margin-top:10px}
+
+/* stat tiles */
+.stats-row{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:16px 0}
+@media(min-width:520px){.stats-row{grid-template-columns:repeat(4,1fr)}}
+.stat{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px 12px;text-align:center}
+.stat-v{font-family:var(--mono);font-size:22px;font-weight:800;color:var(--accent)}
+.stat-l{font-size:11px;color:var(--ink-3);margin-top:4px;line-height:1.3}
+
+/* infra (muted) */
+.infra-sys{margin-bottom:26px}
+.infra-sys h3{font-size:14px;font-weight:700;color:var(--ink-2);margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.infra-sys h3 .dot{width:7px;height:7px;border-radius:50%;background:var(--accent-dim)}
+.kv{display:grid;grid-template-columns:1fr;gap:0;font-size:13px}
+.kv-row{display:flex;justify-content:space-between;gap:16px;padding:7px 0;border-bottom:1px solid var(--border-soft)}
+.kv-row:last-child{border-bottom:none}
+.kv-k{color:var(--ink-3)}
+.kv-v{font-family:var(--mono);color:var(--ink-2);text-align:right}
+
+/* provenance footer per source */
+.src{font-family:var(--mono);font-size:11px;color:var(--ink-3);margin-top:14px;padding-top:12px;border-top:1px dashed var(--border)}
+
+/* closing */
+.closing{margin-top:64px;padding:40px 0 10px;border-top:1px solid var(--border)}
+.closing p{color:var(--ink-2);font-size:15.5px;max-width:58ch;margin-bottom:16px}
+.closing .final{color:var(--ink);font-size:17px;font-weight:600;font-style:italic;margin-top:10px}
+
+.footer{margin-top:60px;padding-top:24px;border-top:1px solid var(--border-soft);font-size:11.5px;color:var(--ink-3);font-family:var(--mono);line-height:1.7}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="masthead">
+    <div class="eyebrow">Ouroboros · Track record di scouting</div>
+    <h1>Scouting Track Record — 10 agosto 2026</h1>
+    <p class="subtitle">Dati reali estratti oggi dai sistemi live che compongono l'ecosistema Ouroboros. Nessuna stima, nessun dato segnaposto: dove un numero non era recuperabile in modo pulito, è segnato esplicitamente come non disponibile.</p>
+    <div class="addressee">Preparato per <b>Antonio Piazza</b> — Responsabile Scouting Attività di Base, Bologna FC.</div>
+  </div>
+
+  <div class="intro">
+    <p>Questo non è un portfolio tecnico. È una fotografia di quello che questi sistemi hanno effettivamente colto — e di quando l'hanno colto — mentre lavorano <strong>prima e sopra</strong> l'osservazione diretta, non al posto suo. Non guardano una partita: guardano dove l'attenzione si sposta prima che diventi notizia, e tengono la memoria di percorsi che altrimenti si perderebbero tra un cambio di club e l'altro. Decidono su chi vale la pena spendere l'occhio di chi sa cosa guardare in campo — non decidono nulla su un giocatore senza vederlo giocare.</p>
+  </div>
+
+  <!-- ================= BLOCCO A — GIUDIZIO ================= -->
+  <div class="block-label"><span class="num">A</span><h2>Giudizio — cosa hanno colto, e perché conta</h2></div>
+  <p class="block-note">Quattro casi, quattro sistemi. Ognuno risponde a una domanda diversa su cosa un radar può fare che un taccuino da tribuna non può, e su cosa resta comunque fuori dalla sua portata.</p>
+
+  <!-- A1 — João Costa / Snowball -->
+  <div class="case">
+    <div class="case-h">
+      <div class="case-title">João Costa — 17 giorni prima che diventasse notizia</div>
+      <div class="case-tag">Ouroboros Snowball</div>
+    </div>
+    <div class="case-kicker">Retrodizione verificata · Roma Primavera → esordio in Europa League</div>
+    <div class="case-body">
+      <p>Il 6 luglio il pool di candidati per nazionalità (fonte pubblica, Wikidata) segnala João Costa come flag nel sistema. Nessuna partita vista, nessun articolo sportivo: solo un profilo che entra nel radar. Il 23 luglio RomaToday pubblica "Chi è Joao Costa, il funambolo della Roma Primavera che ha debuttato in Europa League" — la stampa generalista lo scopre. Il sistema di retrodizione quotidiano incrocia automaticamente il nome contro le notizie del giorno e registra l'anticipo: <strong>17 giorni</strong>.</p>
+      <div class="timeline">
+        <div class="tl-point"><div class="tl-dot"></div><div class="tl-date">6 lug</div><div class="tl-label">primo segnale<br>nel radar</div></div>
+        <div class="tl-line"><span class="tl-lead">17 giorni</span></div>
+        <div class="tl-point"><div class="tl-dot"></div><div class="tl-date">23 lug</div><div class="tl-label">RomaToday<br>ne scrive</div></div>
+      </div>
+      <p>Questo è il tipo di segnale che non è mancanza di occhio da parte di un osservatore sul campo — è che il sistema guarda un posto diverso: media locali, pattern di menzione, non la partita. Sono due fonti complementari, non in competizione: una vede il giocatore, l'altra vede quando il mondo ha iniziato a parlarne.</p>
+    </div>
+    <div class="src">fonte: github.com/mtornani/ouroboros-snowball · docs/radar/cards.json · commit 4ed51e6 · estratto 2026-08-10T12:22Z</div>
+  </div>
+
+  <div class="case">
+    <div class="case-h">
+      <div class="case-title">Altri hit confermati nella stessa finestra</div>
+      <div class="case-tag">Ouroboros Snowball</div>
+    </div>
+    <table class="data">
+      <thead><tr><th>Giocatore</th><th>Primo segnale</th><th>Conferma</th><th>Fonte conferma</th><th>Anticipo</th></tr></thead>
+      <tbody>
+        <tr><td>Christian Torres</td><td class="mono">2026-07-06</td><td class="mono">2026-07-24</td><td>AreaNapoli.it — cessione al Catania</td><td class="lead mono">18 gg</td></tr>
+        <tr><td>Gustavo Varela</td><td class="mono">2026-07-06</td><td class="mono">2026-08-05</td><td>zazoom.it — acquisto ufficiale Monza</td><td class="lead mono">30 gg</td></tr>
+      </tbody>
+    </table>
+    <div class="note method"><b>Nota di metodo.</b> Il ledger interno registrava un quarto hit, "Gustavo Sá", risolto sullo stesso articolo e la stessa data di Gustavo Varela. È quasi certamente una collisione del match fuzzy sul nome ("Gustavo…"), non un secondo giocatore confermato — è stato escluso da questo report. Lo stesso principio con cui il sistema pubblica un "sta per esplodere" solo se verificabile vale anche qui: un dato dubbio si scarta, non si conta.</div>
+    <div class="src">soglia di match: 88/100 · anticipo minimo per pubblicare: 14 giorni · config.json, ouroboros-snowball · estratto 2026-08-10T12:22Z</div>
+  </div>
+
+  <!-- A2 — SENTINEL / Il Turno -->
+  <div class="case">
+    <div class="case-h">
+      <div class="case-title">Il contraddittorio prima del contraddittorio umano</div>
+      <div class="case-tag">SENTINEL — IL TURNO</div>
+    </div>
+    <div class="case-kicker">3 casi con qualcosa di cambiato, su 3.518 candidati tracciati — il resto resta silenzioso</div>
+    <div class="case-body">
+      <p>SENTINEL non manda in rassegna tutto quello che segue: <span class="mono">IL TURNO</span> mostra solo i profili su cui è cambiato qualcosa oggi (un club aggiornato, un salto di punteggio) o che hanno una finestra di attenzione ancora aperta. Alla scansione più recente, di 3.518 candidati ne restano 3 — gli altri 3.515 sono stati filtrati perché non c'è nulla su cui agire ora. È un prioritizzatore, non un elenco: dice su chi guardare questa settimana, non quanti nomi esistono in totale.</p>
+      <p>Il più istruttivo dei tre non è quello con il punteggio più alto — è quello che il sistema stesso ha respinto nonostante il punteggio fosse alto:</p>
+    </div>
+    <div class="duel">
+      <div class="verdict">
+        <h4>Segnale grezzo</h4>
+        <p><b>Jhafets Reyes</b>, portiere 2006, CONMEBOL U20, FC Cartagena. Signal Score 88,7/100 — tra i più alti della scansione.</p>
+        <p class="stamp">componente unica: età vs livello di competizione</p>
+      </div>
+      <div class="skeptic">
+        <h4>Verdetto del sistema</h4>
+        <p><b>"Vale la pena seguirlo ora? No."</b> Confidence 70/100. Motivazione: il punteggio è eccessivo per un giocatore la cui attività di club è alla Tercera Federación, quinto livello spagnolo — la convocazione giovanile non basta a giustificarlo da sola.</p>
+      </div>
+    </div>
+    <p style="font-size:13px;color:var(--ink-3);margin-top:14px">Gli altri due casi aperti (Luke Vickery, portiere australiano legato all'U21 dell'AFC Bournemouth; Paul Smajlaj, difensore USA passato ai New York Red Bulls II) hanno ricevuto un "sì, vale la pena monitorarlo" — ma con la stessa riserva esplicita: dati incompleti, contesto competitivo debole, da verificare prima di fidarsi del numero.</p>
+    <div class="note"><b>Il tabellone (l'avvocato del diavolo).</b> Il sistema tiene il conto pubblico dei propri errori: su 12 scommesse "sta per esplodere" risolte finora, 0 sono esplose, 12 si sono sgonfiate — precisione 0%. Su 11 casi in cui un nome è arrivato ai grandi giornali, 1 era stato segnalato in anticipo — richiamo 9%. Campione ancora piccolo: il sistema stesso lo definisce "una tesi, non un fatto dimostrato" finché il tabellone non cresce.</div>
+    <div class="src">fonte: api live ob1-radar (Cloud Run), endpoint /api/radar/turno · /processo · /mappa · scansione più recente 2026-08-07T04:55Z · interrogato 2026-08-10T12:28Z</div>
+  </div>
+
+  <!-- A3 — OB1 Serie C -->
+  <div class="case">
+    <div class="case-h">
+      <div class="case-title">Memoria di un percorso, non di uno scatto</div>
+      <div class="case-tag">OB1 Serie C Scout</div>
+    </div>
+    <div class="case-body">
+      <p>Sergej Levak, centrocampista 2006, è nel radar ininterrottamente dal 1° marzo 2026: primavera della Roma, poi Atalanta U23, oggi svincolato. Cinque mesi di continuità in cui il suo status è cambiato più volte — esattamente il tipo di percorso che, affidato solo agli appunti di chi lo aveva osservato prima del passaggio, rischia di perdersi tra un club e l'altro. Il sistema non lo ha "scoperto": ha tenuto il filo di dove si trova adesso, cosa che un osservatore concentrato su un'altra squadra o un altro campionato non può fare da solo.</p>
+      <p>Sullo stesso principio, Andrea Rizzo Pinna (26, centrocampista) risulta in prestito al Cosenza dall'Ascoli con diritto di riscatto tracciato dal 3 marzo — il tipo di dettaglio contrattuale che rende una telefonata di verifica più mirata invece che partire da zero.</p>
+    </div>
+    <table class="data">
+      <thead><tr><th>Giocatore</th><th>Età</th><th>Ruolo</th><th>Percorso tracciato</th><th>Score</th></tr></thead>
+      <tbody>
+        <tr><td>Sergej Levak</td><td>20</td><td>Centrocampista</td><td>Roma Primavera → Atalanta U23 → svincolato</td><td class="mono lead">84</td></tr>
+        <tr><td>Andrea Rizzo Pinna</td><td>26</td><td>Tuttocampista</td><td>Cosenza → Ascoli (prestito, diritto di riscatto)</td><td class="mono lead">76</td></tr>
+      </tbody>
+    </table>
+    <div class="src">fonte: github.com/mtornani/ob1-serie-c · docs/data.json · last_update 2026-08-10T09:23:05Z · commit 159a537</div>
+  </div>
+
+  <!-- A4 — OB1 Global -->
+  <div class="case">
+    <div class="case-h">
+      <div class="case-title">Prima che sia notizia — chi sta entrando nel radar</div>
+      <div class="case-tag">OB1 Global Radar</div>
+    </div>
+    <div class="case-body">
+      <p>Il gate qui è deliberatamente stretto: un nome diventa pubblicabile solo con identità anagrafica completa e almeno due fonti indipendenti che si corroborano — la promessa del sistema è che "ogni nome che diamo regge una telefonata di verifica". Nessun profilo pubblicabile nuovo risulta nelle ultime 24-48 ore (l'ultimo lotto pubblicabile risale al 29 luglio); il lotto più recente in assoluto, del 6 agosto, è stato scartato dal filtro qualità stesso — fonte singola, club mancante, età fuori target. È lo stesso meccanismo che sopra ha bocciato Jhafets Reyes: il filtro tiene fuori il rumore anche quando vorrebbe far numero.</p>
+      <p>Quattro profili rappresentativi tra quelli attualmente pubblicabili, con il campo "perché / cosa manca" così come lo tiene il sistema:</p>
+    </div>
+    <div class="profiles">
+      <div class="profile">
+        <div class="profile-h"><span class="profile-name">Feder Luis Rivas Correa</span><span class="profile-score">17/100</span></div>
+        <div class="profile-meta">17 anni · difensore · Atlético Nacional · Colombia</div>
+        <ul>
+          <li class="pro">Molto giovane: ampio margine di sviluppo</li>
+          <li class="pro">Identità confermata da 2 fonti indipendenti</li>
+          <li class="caution">Nessuna statistica di rendimento documentata</li>
+        </ul>
+        <div class="profile-src">fonti: fcf.com.co (convocazione Sub-17) · besoccer.com</div>
+      </div>
+      <div class="profile">
+        <div class="profile-h"><span class="profile-name">Eidy Ruíz</span><span class="profile-score">18/100</span></div>
+        <div class="profile-meta">17 anni · attaccante · Dep. Cali (femminile) · Colombia</div>
+        <ul>
+          <li class="pro">Produzione documentata: 1 gol in 2 presenze</li>
+          <li class="pro">Identità confermata da 2 fonti indipendenti</li>
+        </ul>
+        <div class="profile-src">fonti: fcf.com.co (Sub-17 femminile CONMEBOL) · soccerway.com</div>
+      </div>
+      <div class="profile">
+        <div class="profile-h"><span class="profile-name">Carlos A. Rodríguez Herazo</span><span class="profile-score">17/100</span></div>
+        <div class="profile-meta">17 anni · Barranquilla FC · Colombia</div>
+        <ul>
+          <li class="pro">Molto giovane: ampio margine di sviluppo</li>
+          <li class="caution">Nessuna statistica di rendimento documentata</li>
+        </ul>
+        <div class="profile-src">fonti: fcf.com.co (convocazione Sub-17) · transfermarkt.co</div>
+      </div>
+      <div class="profile">
+        <div class="profile-h"><span class="profile-name">Kevin Angulo Angulo</span><span class="profile-score">17/100</span></div>
+        <div class="profile-meta">17 anni · América S.A. · Colombia</div>
+        <ul>
+          <li class="pro">Segnale persistente: 4 rilevamenti</li>
+          <li class="caution">Nessuna statistica di rendimento documentata</li>
+        </ul>
+        <div class="profile-src">fonti: fcf.com.co (convocazione Sub-17) · transfermarkt.com</div>
+      </div>
+    </div>
+    <div class="src">fonte: github.com/mtornani/ob1-scout · docs/data/players_v2.json + data/ob1_v2.db · generated_at 2026-08-10T08:26:16Z · commit 06072cf</div>
+  </div>
+
+  <!-- ================= BLOCCO B — INFRASTRUTTURA ================= -->
+  <div class="block-label"><span class="num">B</span><h2>Infrastruttura — i numeri di sistema, in secondo piano</h2></div>
+  <p class="block-note">Questa parte esiste solo per contesto tecnico: cosa gira, quanto spesso, con quale continuità. Non è il punto del report.</p>
+
+  <div class="infra-sys">
+    <h3><span class="dot"></span>Ouroboros Snowball</h3>
+    <div class="stats-row">
+      <div class="stat"><div class="stat-v">21/21</div><div class="stat-l">run giornaliere ok/partial<br>0 errori hard</div></div>
+      <div class="stat"><div class="stat-v">14gg</div><div class="stat-l">anticipo minimo<br>per pubblicare</div></div>
+      <div class="stat"><div class="stat-v">3</div><div class="stat-l">hit confermati<br>(1 escluso, vedi nota)</div></div>
+      <div class="stat"><div class="stat-v">88/100</div><div class="stat-l">soglia match<br>fuzzy nome↔notizia</div></div>
+    </div>
+    <div class="kv">
+      <div class="kv-row"><span class="kv-k">Cadenza</span><span class="kv-v">retrodizione giornaliera 06:xx UTC · digest settimanale lunedì</span></div>
+      <div class="kv-row"><span class="kv-k">Periodo osservato</span><span class="kv-v">2026-07-23 → 2026-08-10 (heartbeat.jsonl)</span></div>
+      <div class="kv-row"><span class="kv-k">Perimetro pubblico</span><span class="kv-v">Serie C / Lega Pro esclusi dall'output pubblico</span></div>
+    </div>
+  </div>
+
+  <div class="infra-sys">
+    <h3><span class="dot"></span>SENTINEL — OB1 Radar</h3>
+    <div class="stats-row">
+      <div class="stat"><div class="stat-v">3.518</div><div class="stat-l">candidati<br>tracciati</div></div>
+      <div class="stat"><div class="stat-v">107</div><div class="stat-l">posizionati sulla<br>curva di adozione</div></div>
+      <div class="stat"><div class="stat-v">0%</div><div class="stat-l">precisione tabellone<br>(0/12 risolti)</div></div>
+      <div class="stat"><div class="stat-v">9%</div><div class="stat-l">richiamo tabellone<br>(1/11 crossing)</div></div>
+    </div>
+    <div class="kv">
+      <div class="kv-row"><span class="kv-k">Persistenza</span><span class="kv-v">Postgres (Neon), durevole — 5 tabelle di stato</span></div>
+      <div class="kv-row"><span class="kv-k">Ultima scansione</span><span class="kv-v">2026-08-07T05:14Z (3 giorni prima dell'estrazione)</span></div>
+      <div class="kv-row"><span class="kv-k">Distribuzione curva</span><span class="kv-v">24 nessuno ne parla · 46 solo locali · 3 se ne parla · 0 sta esplodendo · 3 grandi giornali · 31 lo sanno tutti</span></div>
+    </div>
+  </div>
+
+  <div class="infra-sys">
+    <h3><span class="dot"></span>OB1 Serie C Scout</h3>
+    <div class="stats-row">
+      <div class="stat"><div class="stat-v">388</div><div class="stat-l">giocatori<br>in tracking</div></div>
+      <div class="stat"><div class="stat-v">114</div><div class="stat-l">pubblicabili<br>17 hot · 68 warm · 29 cold</div></div>
+      <div class="stat"><div class="stat-v">52</div><div class="stat-l">svincolati/rescissioni<br>14 classificati hot</div></div>
+      <div class="stat"><div class="stat-v">95</div><div class="stat-l">corroborati<br>da ≥2 fonti</div></div>
+    </div>
+    <div class="kv">
+      <div class="kv-row"><span class="kv-k">Cadenza</span><span class="kv-v">ogni 6 ore, GitHub Actions</span></div>
+      <div class="kv-row"><span class="kv-k">Variazione 7 giorni</span><span class="kv-v">dato non disponibile — nessuno storico daily aggregato affidabile</span></div>
+      <div class="kv-row"><span class="kv-k">Stato enrichment</span><span class="kv-v">rate limit su ricerche 5–10 ago, 0 nuovi fatti — dati pubblicati restano quelli già verificati</span></div>
+    </div>
+  </div>
+
+  <div class="infra-sys">
+    <h3><span class="dot"></span>OB1 Global Radar</h3>
+    <div class="stats-row">
+      <div class="stat"><div class="stat-v">233</div><div class="stat-l">profili<br>tracciati</div></div>
+      <div class="stat"><div class="stat-v">53</div><div class="stat-l">pubblicabili<br>(identità + ≥2 fonti)</div></div>
+      <div class="stat"><div class="stat-v">68</div><div class="stat-l">mostrati in dashboard<br>(53 + 15 in corroborazione)</div></div>
+      <div class="stat"><div class="stat-v">6h</div><div class="stat-l">cadenza<br>pipeline</div></div>
+    </div>
+  </div>
+
+  <!-- ================= CHIUSURA ================= -->
+  <div class="closing">
+    <p>Nessuno di questi quattro sistemi ha mai visto giocare uno di questi ragazzi. Sanno quando un nome ha iniziato a muoversi, da dove, con che margine di dubbio, e da quanto tempo lo stanno seguendo — non se quel nome sa giocare a calcio.</p>
+    <p>Cosa fa un club con un segnale così?</p>
+    <p class="final">Da qui in poi serve l'occhio di chi sa cosa guardare in campo.</p>
+  </div>
+
+  <div class="footer">
+    generato 2026-08-10T12:29Z · sorgenti: ouroboros-snowball@4ed51e6 · ob1-scout@06072cf · ob1-serie-c@159a537 · ob1-radar (live API)<br>
+    ogni cifra in questo documento è tracciabile alla query/file/endpoint citato nella riga "fonte" della sezione corrispondente · zero dati stimati o segnaposto<br>
+    Talenti RSM (CONS San Marino) escluso da questa versione su richiesta.
+  </div>
+
+</div>
+</body>
+</html>
