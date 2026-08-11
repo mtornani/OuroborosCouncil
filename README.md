@@ -236,7 +236,28 @@ gcloud run deploy ob1-radar --source . --region europe-west1 \
 > Le pagine escono con `Cache-Control: no-store` così ogni deploy si vede
 > subito, senza refresh forzati. Dopo il primo deploy con `DATABASE_URL`
 > impostata, apri `/api/radar/health` una volta per confermare che lo storico
-> sta davvero su Postgres (Neon) e non sul filesystem effimero.
+> sta davvero su Postgres (Neon) e non sul filesystem effimero — la stessa
+> risposta include anche `version`/`build` (vedi sotto), un solo GET copre
+> entrambi i check.
+
+### "È andato il deploy?" — versione visibile
+
+In fondo a ogni pagina (`/turno`, `/radar`, `/mappa`, `/processo`) c'è una
+riga tipo `SENTINEL v0.6.0 · ob1-radar-00042-abcd`:
+
+- **`v0.6.0`** viene dal file `VERSION` in root — bumpala a mano quando cambia
+  qualcosa che conta (non ad ogni commit): è per un umano che guarda il
+  footer, non un hash. `MAJOR.MINOR.PATCH` alla buona: PATCH per un fix,
+  MINOR per una feature, MAJOR se cambia qualcosa in modo incompatibile
+  (raro, per un tool personale).
+- **`ob1-radar-00042-abcd`** è la *revision* che Cloud Run assegna in automatico
+  a ogni deploy (env var `K_REVISION`, iniettata da Cloud Run stesso — zero
+  configurazione): cambia SEMPRE ad ogni deploy, anche quando `VERSION` resta
+  la stessa, quindi è la prova definitiva che il deploy nuovo è atterrato. In
+  locale (`K_REVISION` assente) mostra `locale`.
+
+Per uno script (Grok compreso) c'è `GET /api/version` → `{"version": "0.6.0",
+"build": "ob1-radar-00042-abcd"}`, più leggero di caricare `/turno` intera.
 
 ### Scansione automatica al mattino (consigliata)
 
@@ -277,6 +298,7 @@ gcloud scheduler jobs create http radar-scan-mattina \
 | `GET` | `/api/radar/processo` | Il tabellone (precisione/richiamo) |
 | `POST` | `/api/radar/watchlist` | Segna/togli un giocatore |
 | `GET` | `/api/radar/config` | Pesi/profili per il ricalcolo del Fit lato client |
+| `GET` | `/api/version` | `{version, build}` — il check "è andato il deploy?" senza caricare una pagina intera |
 
 ---
 

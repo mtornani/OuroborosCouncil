@@ -122,6 +122,11 @@
         .lg-row.tappable:hover, .lg-row.tappable:focus-visible { border-color: var(--line); outline: none; }
         .lg-row .lg-chev { color: var(--text-faint); margin-left: 8px; }
         .legend-hint { font-size: 0.7rem; color: var(--text-faint); margin: 0 0 10px; }
+        .version-tag {
+            text-align: center; font-family: 'JetBrains Mono', monospace;
+            font-size: 0.66rem; color: var(--text-faint); letter-spacing: 0.03em;
+            opacity: 0.6; padding: 22px 0 4px;
+        }
 
         /* ---------- lista di una tappa (drill-down) ---------- */
         .phase-sheet { padding-top: 16px; }
@@ -177,6 +182,7 @@
             <p class="legend-hint">{{ 'tap a stage to see every player inside it' if LANG == 'en' else 'tocca una tappa per vedere tutti i giocatori che ci sono dentro' }}</p>
             <div id="legendRows"></div>
         </div>
+        <p class="version-tag">SENTINEL v{{ APP_VERSION }} · {{ BUILD_ID }}</p>
     </div>
 
     <div class="detail-scrim" id="detailScrim"></div>

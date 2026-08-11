@@ -205,6 +205,11 @@
             padding: 18px 0 0; text-align: center; width: 100%;
         }
         .skip-note { font-size: 0.76rem; color: var(--text-faint); line-height: 1.6; margin-top: 18px; }
+        .version-tag {
+            text-align: center; font-family: 'JetBrains Mono', monospace;
+            font-size: 0.66rem; color: var(--text-faint); letter-spacing: 0.03em;
+            opacity: 0.6; padding: 22px 0 max(14px, env(safe-area-inset-bottom));
+        }
         .status-line { font-size: 0.78rem; color: var(--text-faint); margin-top: 12px; min-height: 1.2em; }
 
         /* ---------- CASE ---------- */
@@ -371,6 +376,7 @@
                 <button class="link-archive" id="archiveBtn2">{{ t('turno.link_archive') + ' →' if LANG == 'en' else 'vai all\'archivio completo →' }}</button>
             </div>
         </div>
+        <p class="version-tag">SENTINEL v{{ APP_VERSION }} · {{ BUILD_ID }}</p>
     </div>
 
     <script>
