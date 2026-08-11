@@ -96,6 +96,11 @@
 
         /* ---------- le obiezioni ---------- */
         .obj-intro { font-size: 0.82rem; color: var(--text-dim); line-height: 1.55; margin: 0 0 18px; }
+        .version-tag {
+            text-align: center; font-family: 'JetBrains Mono', monospace;
+            font-size: 0.66rem; color: var(--text-faint); letter-spacing: 0.03em;
+            opacity: 0.6; padding: 22px 0 4px;
+        }
         .obj { border: 1px solid var(--line); background: var(--panel); margin-bottom: 12px; }
         .accusa { display: flex; gap: 10px; padding: 13px 15px; border-bottom: 1px solid var(--line); }
         .accusa .q { color: var(--doubt); font-weight: 800; flex-shrink: 0; }
@@ -218,6 +223,7 @@
 
         <p class="closer">Un sistema che nasconde i suoi errori chiede fiducia. Questo chiede solo di guardare il tabellone — e di tornare a guardarlo tra sei mesi.</p>
         {% endif %}
+        <p class="version-tag">SENTINEL v{{ APP_VERSION }} · {{ BUILD_ID }}</p>
     </div>
 
     <script>

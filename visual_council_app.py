@@ -2,12 +2,34 @@ import hmac
 import os
 import time
 import threading
+from pathlib import Path
+
 from flask import Flask, render_template, request, redirect, jsonify, g
 
 import discovery_engine
 from translations import TRANSLATIONS, translate
 
 app = Flask(__name__)
+
+# ============================================================
+# VERSIONE - il check "e' andato il deploy?" a colpo d'occhio
+# ============================================================
+# APP_VERSION e' bumpata A MANO nel file VERSION quando cambia qualcosa che
+# conta (non a ogni commit) - e' per un umano che guarda il footer, non un
+# hash. BUILD_ID invece e' automatico: Cloud Run inietta K_REVISION in ogni
+# container (cambia ad OGNI deploy, anche se APP_VERSION resta la stessa),
+# quindi non serve incollare l'SHA di git nell'immagine per avere comunque
+# la prova che un deploy nuovo e' atterrato. In locale (nessun K_REVISION)
+# ripiega su "locale", cosi' resta ovvio che non sei su Cloud Run.
+def _read_version() -> str:
+    try:
+        return (Path(__file__).resolve().parent / "VERSION").read_text().strip() or "0.0.0-dev"
+    except Exception:
+        return "0.0.0-dev"
+
+
+APP_VERSION = _read_version()
+BUILD_ID = os.getenv("K_REVISION", "locale")
 
 # ============================================================
 # LINGUA - IT (default, invariato per chi gia' usa l'app) / EN
@@ -43,6 +65,13 @@ def _inject_lang_helpers():
         # di scansione, bottoni generati a runtime) - JSON piccolo, solo le
         # chiavi che servono lato client, non l'intero dizionario
     }
+
+
+@app.context_processor
+def _inject_version():
+    # disponibile in OGNI template senza passarlo route per route - vedi
+    # APP_VERSION/BUILD_ID piu' sopra
+    return {"APP_VERSION": APP_VERSION, "BUILD_ID": BUILD_ID}
 
 # ============================================================
 # ACCESSO - chiave condivisa opzionale
@@ -511,13 +540,25 @@ def radar_processo():
         return jsonify({"status": "error", "message": str(e)})
 
 
+@app.route("/api/version")
+def api_version():
+    """Il check "e' andato il deploy?" per script/smoke test, senza dover
+    caricare una pagina HTML intera: APP_VERSION (bumpata a mano, vedi VERSION)
+    + BUILD_ID (K_REVISION di Cloud Run, cambia ad ogni deploy anche a
+    APP_VERSION invariata)."""
+    return jsonify({"status": "success", "version": APP_VERSION, "build": BUILD_ID})
+
+
 @app.route("/api/radar/health")
 def radar_health():
     """Controllo di persistenza: dice se lo storico vive davvero su Postgres
     (durevole) o su file effimero - vedi discovery_engine.persistence_status.
-    Aprilo una volta dopo il deploy per confermare che Neon riceve i dati."""
+    Aprilo una volta dopo il deploy per confermare che Neon riceve i dati.
+    Versione/build inclusi cosi' un solo GET conferma sia "e' il deploy
+    giusto" sia "i dati vanno dove devono"."""
     try:
-        return jsonify({"status": "success", "persistence": discovery_engine.persistence_status()})
+        return jsonify({"status": "success", "version": APP_VERSION, "build": BUILD_ID,
+                        "persistence": discovery_engine.persistence_status()})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
 
