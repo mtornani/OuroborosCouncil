@@ -182,6 +182,12 @@ watchlist.json            # giocatori segnati a mano dalle schede
 curve_validation.json     # registro scommesse (esplosi/sgonfiati) + crossing
 
 # Legacy (non SENTINEL): Miss Minute — prioritizzazione progetti (miss_minute*.py, priorities.yaml)
+
+# Outreach: portfolio PDF (OB1 Global Radar, OB1 Serie C Scout, Sentinel, Match Analysis Pro)
+generate_portfolio.py      # CLI: python generate_portfolio.py --recipient "Nome" [--output path.pdf]
+portfolio/content.py       # unica sorgente del testo — il destinatario è l'unico campo parametrizzato
+templates/portfolio.html   # template Jinja2, stile Ouroboros (nero #0B0E0C, verde, monospace)
+outputs/                   # PDF generati (gitignored)
 ```
 
 ---

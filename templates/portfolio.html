@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<title>{{ cover.title }} — Prepared for {{ recipient }}</title>
+<style>
+    /* ===========================================================
+       Match Analysis Pro / Ouroboros design system, print edition.
+       Palette + type match matchanalysispro.online (ECOSYSTEM_BRIEFING.md):
+       near-black background, single green accent, monospace labels.
+       =========================================================== */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    @page {
+        size: A4;
+        margin: 0;
+        background: #0B0E0C;
+    }
+
+    :root {
+        --bg: #0B0E0C;
+        --bg-card: #121512;
+        --bg-card-alt: #151815;
+        --border: #262b26;
+        --border-soft: #1c201c;
+        --green: #00ff41;
+        --green-dim: #0f9c30;
+        --text: #e5e8e5;
+        --text-muted: #6b766e;
+        --text-dim: #45504a;
+        --font-sans: 'Liberation Sans', 'DejaVu Sans', Arial, sans-serif;
+        --font-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas',
+                     'Liberation Mono', 'DejaVu Sans Mono', monospace;
+    }
+
+    html, body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--font-sans);
+        font-size: 10.5pt;
+        line-height: 1.55;
+    }
+
+    .page {
+        position: relative;
+        width: 210mm;
+        min-height: 297mm;
+        padding: 20mm 18mm 16mm 18mm;
+        background: var(--bg);
+        page-break-after: always;
+    }
+    .page:last-child { page-break-after: auto; }
+
+    .eyebrow {
+        font-family: var(--font-mono);
+        color: var(--green);
+        font-size: 9.5pt;
+        letter-spacing: 0.06em;
+        margin-bottom: 4mm;
+    }
+
+    .label {
+        font-family: var(--font-mono);
+        color: var(--text-muted);
+        font-size: 7.5pt;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+    }
+
+    /* ---------- Cover page ---------- */
+    .cover { display: flex; flex-direction: column; height: 261mm; }
+
+    .cover-header { margin-bottom: 10mm; }
+    .cover-title {
+        font-family: var(--font-sans);
+        font-weight: 700;
+        font-size: 27pt;
+        line-height: 1.2;
+        color: #ffffff;
+        max-width: 140mm;
+    }
+    .cover-tagline {
+        font-family: var(--font-mono);
+        color: var(--text-muted);
+        font-size: 10pt;
+        margin-top: 6mm;
+    }
+
+    .loop-wrap { position: relative; display: flex; justify-content: center; margin: 10mm 0; }
+    .loop-center {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        text-align: center;
+    }
+    .loop-center .core { font-family: var(--font-mono); color: var(--green); font-size: 9.5pt; letter-spacing: 0.12em; opacity: 0.85; }
+    .loop-center .sub  { font-family: var(--font-mono); color: var(--text-muted); font-size: 6.5pt; letter-spacing: 0.1em; margin-top: 0.8mm; }
+
+    .cover-author {
+        margin-top: auto;
+        border-top: 1px solid var(--border);
+        padding-top: 6mm;
+    }
+    .author-name { font-size: 14pt; font-weight: 700; color: #ffffff; }
+    .author-role { font-family: var(--font-mono); color: var(--text-muted); font-size: 9pt; margin-top: 1.5mm; }
+
+    .prepared-for {
+        margin-top: 10mm;
+        padding-left: 5mm;
+        border-left: 2.5px solid var(--green);
+    }
+    .prepared-for .label { margin-bottom: 2mm; }
+    .prepared-for-value {
+        font-size: 17pt;
+        font-weight: 700;
+        color: var(--text);
+    }
+    .prepared-for-value::before {
+        content: "› ";
+        color: var(--green);
+    }
+
+    .cover-footer {
+        margin-top: 8mm;
+        display: flex;
+        justify-content: space-between;
+        font-family: var(--font-mono);
+        color: var(--text-dim);
+        font-size: 7.5pt;
+        letter-spacing: 0.04em;
+    }
+
+    /* ---------- Section / system pages ---------- */
+    .section-title {
+        font-family: var(--font-mono);
+        color: var(--green);
+        font-size: 12pt;
+        letter-spacing: 0.04em;
+        margin-bottom: 10mm;
+    }
+
+    .card {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 3mm;
+        padding: 8mm;
+        margin-bottom: 8mm;
+    }
+
+    .card-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 2mm;
+    }
+    .card-title {
+        font-family: var(--font-mono);
+        font-weight: 700;
+        font-size: 13pt;
+        color: #ffffff;
+        letter-spacing: 0.02em;
+    }
+    .card-subtitle {
+        font-style: italic;
+        color: var(--text-muted);
+        font-size: 9pt;
+        margin-top: 1.5mm;
+        margin-bottom: 4mm;
+    }
+
+    .badge {
+        font-family: var(--font-mono);
+        font-size: 7pt;
+        letter-spacing: 0.08em;
+        color: var(--green);
+        border: 1px solid var(--green-dim);
+        border-radius: 1mm;
+        padding: 1mm 2.5mm;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+
+    .card-body { color: var(--text); font-size: 9.5pt; margin-bottom: 5mm; }
+
+    .stats-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5mm;
+        margin-bottom: 5mm;
+    }
+    .stat { min-width: 42mm; }
+    .stat .label { margin-bottom: 1mm; }
+    .stat-value {
+        font-family: var(--font-mono);
+        color: var(--text);
+        font-size: 8.5pt;
+    }
+
+    .mini-table { width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 8pt; }
+    .mini-table th {
+        text-align: left;
+        color: var(--text-muted);
+        font-weight: 400;
+        letter-spacing: 0.06em;
+        border-bottom: 1px solid var(--border);
+        padding: 1.5mm 2mm;
+    }
+    .mini-table td { padding: 1.5mm 2mm; border-bottom: 1px solid var(--border-soft); }
+    .score-cell { color: var(--green); font-weight: 700; }
+    .status-pill {
+        font-size: 7pt;
+        letter-spacing: 0.06em;
+        color: var(--text-muted);
+        border: 1px solid var(--border);
+        border-radius: 1mm;
+        padding: 0.5mm 2mm;
+    }
+
+    .screens-list { display: flex; flex-direction: column; gap: 3mm; }
+    .screen-item { padding-left: 4mm; border-left: 2px solid var(--border); }
+    .screen-name { font-family: var(--font-mono); color: var(--green); font-size: 8.5pt; letter-spacing: 0.03em; }
+    .screen-desc { color: var(--text-muted); font-size: 8.5pt; margin-top: 0.8mm; }
+
+    .loop-stages {
+        font-family: var(--font-mono);
+        color: var(--text-muted);
+        font-size: 8pt;
+        letter-spacing: 0.02em;
+    }
+    .loop-stages .stage { color: var(--text); }
+
+    .card-link {
+        display: inline-block;
+        margin-top: 2mm;
+        font-family: var(--font-mono);
+        color: var(--green);
+        font-size: 8.5pt;
+    }
+    .card-link::before { content: "→ "; }
+
+    /* ---------- Closing / contact page ---------- */
+    .contact-line { display: flex; gap: 4mm; margin-bottom: 3mm; font-size: 9.5pt; }
+    .contact-label {
+        font-family: var(--font-mono);
+        color: var(--text-muted);
+        font-size: 8pt;
+        letter-spacing: 0.06em;
+        width: 24mm;
+        flex-shrink: 0;
+        padding-top: 0.5mm;
+    }
+    .contact-value { color: var(--text); }
+    .contact-note {
+        margin-top: 6mm;
+        color: var(--text-muted);
+        font-style: italic;
+        font-size: 9pt;
+        max-width: 130mm;
+    }
+
+    .closing { display: flex; flex-direction: column; height: 261mm; }
+
+    .closing-footer {
+        margin-top: auto;
+        border-top: 1px solid var(--border);
+        padding-top: 4mm;
+        display: flex;
+        justify-content: space-between;
+        font-family: var(--font-mono);
+        color: var(--text-dim);
+        font-size: 7.5pt;
+        letter-spacing: 0.04em;
+    }
+    .closing-footer .brand { color: var(--green-dim); }
+</style>
+</head>
+<body>
+
+<!-- ============ PAGE 1 — COVER ============ -->
+<div class="page cover">
+    <div class="cover-header">
+        <div class="eyebrow">{{ cover.eyebrow }}</div>
+        <div class="cover-title">{{ cover.title }}</div>
+        <div class="cover-tagline">"{{ cover.tagline }}"</div>
+    </div>
+
+    <div class="loop-wrap">
+        <svg width="180" height="180" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="200" cy="200" r="140" fill="none" stroke="#1c201c" stroke-width="1"/>
+            <circle cx="200" cy="200" r="140" fill="none" stroke="#262b26" stroke-width="1" stroke-dasharray="4 8"/>
+            <circle cx="200" cy="60"  r="6" fill="#00ff41"/>
+            <text x="200" y="38"  fill="#6b766e" font-size="9" text-anchor="middle" font-family="'DejaVu Sans Mono',monospace" letter-spacing="1">SCRAPE</text>
+            <circle cx="321" cy="130" r="6" fill="#00ff41"/>
+            <text x="338" y="126" fill="#6b766e" font-size="9" text-anchor="start" font-family="'DejaVu Sans Mono',monospace" letter-spacing="1">ANALYZE</text>
+            <circle cx="321" cy="270" r="6" fill="#00ff41"/>
+            <text x="338" y="274" fill="#6b766e" font-size="9" text-anchor="start" font-family="'DejaVu Sans Mono',monospace" letter-spacing="1">DETECT</text>
+            <circle cx="200" cy="340" r="6" fill="#00ff41"/>
+            <text x="200" y="368" fill="#6b766e" font-size="9" text-anchor="middle" font-family="'DejaVu Sans Mono',monospace" letter-spacing="1">REPORT</text>
+            <circle cx="79"  cy="270" r="6" fill="#00ff41"/>
+            <text x="62"  y="274" fill="#6b766e" font-size="9" text-anchor="end" font-family="'DejaVu Sans Mono',monospace" letter-spacing="1">VALIDATE</text>
+            <circle cx="79"  cy="130" r="6" fill="#00ff41"/>
+            <text x="62"  y="126" fill="#6b766e" font-size="9" text-anchor="end" font-family="'DejaVu Sans Mono',monospace" letter-spacing="1">CALIBRATE</text>
+        </svg>
+        <div class="loop-center">
+            <div class="core">OUROBOROS</div>
+            <div class="sub">PROTOCOL</div>
+        </div>
+    </div>
+
+    <div class="cover-author">
+        <div class="author-name">{{ cover.author }}</div>
+        <div class="author-role">{{ cover.role }} · {{ cover.location }}</div>
+
+        <div class="prepared-for">
+            <div class="label">Prepared for</div>
+            <div class="prepared-for-value">{{ recipient }}</div>
+        </div>
+    </div>
+
+    <div class="cover-footer">
+        <span>{{ generated_at }}</span>
+        <span>CONFIDENTIAL — PREPARED FOR {{ recipient | upper }} ONLY</span>
+    </div>
+</div>
+
+<!-- ============ SYSTEM PAGES (2 per page) ============ -->
+{% for pair in systems|batch(2) %}
+<div class="page">
+    <div class="section-title">&gt; SYSTEMS{% if loop.index0 == 0 %}_01-02{% else %}_03-04{% endif %}</div>
+
+    {% for system in pair %}
+    <div class="card">
+        <div class="card-head">
+            <div>
+                <div class="card-title">{{ system.title }}</div>
+                <div class="card-subtitle">{{ system.subtitle }}</div>
+            </div>
+            <div class="badge">{{ system.badge }}</div>
+        </div>
+
+        <div class="card-body">{{ system.description }}</div>
+
+        {% if system.stats %}
+        <div class="stats-row">
+            {% for k, v in system.stats %}
+            <div class="stat">
+                <div class="label">{{ k }}</div>
+                <div class="stat-value">{{ v }}</div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if system.evidence %}
+        <table class="mini-table">
+            <thead>
+                <tr><th>Player</th><th>Score</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+                {% for name, score, status in system.evidence %}
+                <tr>
+                    <td>{{ name }}</td>
+                    <td class="score-cell">{{ score }}</td>
+                    <td><span class="status-pill">{{ status }}</span></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+
+        {% if system.screens %}
+        <div class="screens-list">
+            {% for name, desc in system.screens %}
+            <div class="screen-item">
+                <div class="screen-name">{{ name }}</div>
+                <div class="screen-desc">{{ desc }}</div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if system.link %}
+        <a class="card-link" href="{{ system.link }}">{{ system.link_label }}</a>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+{% endfor %}
+
+<!-- ============ CLOSING PAGE ============ -->
+<div class="page closing">
+    <div class="section-title">&gt; CONTACT</div>
+
+    <div class="contact-line">
+        <div class="contact-label">EMAIL</div>
+        <div class="contact-value">{{ contact.email }}</div>
+    </div>
+    <div class="contact-line">
+        <div class="contact-label">LINKEDIN</div>
+        <div class="contact-value">{{ contact.linkedin }}</div>
+    </div>
+
+    <div class="contact-note">{{ contact.note }}</div>
+
+    <div class="closing-footer">
+        <span class="brand">&gt; MATCH_ANALYSIS_PRO</span>
+        <span>Prepared for {{ recipient }} — {{ generated_at }}</span>
+    </div>
+</div>
+
+</body>
+</html>

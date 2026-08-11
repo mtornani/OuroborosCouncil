@@ -9,3 +9,8 @@ buzz_history.json
 watchlist.json
 curve_validation.json
 radar_observations.json
+
+# generated portfolio exports (regenerate with generate_portfolio.py)
+outputs/*.pdf
+outputs/*.html
+!outputs/.gitkeep
