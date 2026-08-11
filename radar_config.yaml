@@ -34,8 +34,9 @@ piramide:
 # non ci siano ma perche' si cerca con l'approccio sbagliato per quel
 # contesto. Tre meccanismi diversi, ciascuno verificato live prima di essere
 # scritto (non per ipotesi):
-# - Serie C/D: ricerca PER LEGA - Wikidata ha rose strutturate interrogabili
-#   via SPARQL (club "in lega" P118 + membership P54 corrente).
+# - Leghe pro (IT B/C/D + 2a/3a di PT/FR/ES/NL/DE): ricerca PER LEGA -
+#   Wikidata ha rose strutturate interrogabili via SPARQL (club "in lega"
+#   P118 + membership P54 corrente). Una voce qui = una query, zero codice.
 # - Giovanili sudamericane: Wikidata NON ha dati strutturati per le rose dei
 #   tornei CONMEBOL (verificato: la pagina Wikidata e' solo un placeholder
 #   senza claim utili). I dati veri stanno nel testo della pagina Wikipedia
@@ -51,13 +52,53 @@ piramide:
 #   "biblioteca", non un errore: restano candidati validi con dati parziali.
 candidate_sources:
   wikidata_leagues:
-    # QID Wikidata delle leghe (stabili, non serve aggiornarli a stagione)
+    # QID Wikidata delle leghe (stabili, non serve aggiornarli a stagione).
+    # tier = chiave usata in age_reference / max_tier / label UI.
+    # --- Italia ---
+    serie_b:
+      qid: "Q194052"       # Serie B
+      tier: serie_b
     serie_c:
-      qid: "Q607965"
+      qid: "Q607965"       # Serie C
       tier: serie_c
     serie_d:
-      qid: "Q1141778"
+      qid: "Q1141778"      # Serie D
       tier: serie_d
+    # --- Portogallo ---
+    portugal_2:
+      qid: "Q754488"       # Liga Portugal 2
+      tier: portugal_2
+    portugal_3:
+      qid: "Q106597664"    # Liga 3
+      tier: portugal_3
+    # --- Francia ---
+    france_2:
+      qid: "Q217374"       # Ligue 2
+      tier: france_2
+    france_3:
+      qid: "Q864298"       # Championnat National / Ligue 3
+      tier: france_3
+    # --- Spagna ---
+    spain_2:
+      qid: "Q35615"        # LaLiga 2 (Segunda)
+      tier: spain_2
+    spain_3:
+      qid: "Q100146559"    # Primera Federación
+      tier: spain_3
+    # --- Olanda ---
+    netherlands_2:
+      qid: "Q610823"       # Eerste Divisie
+      tier: netherlands_2
+    netherlands_3:
+      qid: "Q2777436"      # Tweede Divisie
+      tier: netherlands_3
+    # --- Germania ---
+    germany_2:
+      qid: "Q152665"       # 2. Bundesliga
+      tier: germany_2
+    germany_3:
+      qid: "Q154069"       # 3. Liga
+      tier: germany_3
 
   wikipedia_youth_squads:
     # Titoli pagina Wikipedia esatti da aggiornare quando esce una nuova
@@ -174,12 +215,6 @@ candidate_sources:
     - "Pietro Saio"
     - "Louis Buffon"
 
-  # Watchlist oriundi FSGC: l'eleggibilita' per discendenza sammarinese non
-  # e' deducibile in automatico in modo affidabile (serve l'albero genealogico
-  # del giocatore, dato che nessuna fonte libera fornisce). Mirko la cura a
-  # mano qui - vuota finche' non la popola lui.
-  fsgc_oriundi_watchlist: []
-
 # --- Layer A: eta' di riferimento per tier di competizione ---------------
 # Non "il piu' giovane", ma "giovane rispetto al livello che sta gia' reggendo".
 # reference_age = eta' MEDIA REALE dei candidati attualmente in pool per quel
@@ -196,7 +231,13 @@ candidate_sources:
 # ATTENZIONE CAMPIONI PICCOLI: serie_d (n=5) e serie_c_riserve (n=7) sono
 # calcolati su pochissimi candidati - trattarli come provvisori, non come
 # verita' assodata, finche' il pool non cresce con altri run.
+# Le leghe aggiunte 2026-08 (Serie B + 2a/3a estere) partono con placeholder
+# allineati a C/D: ricalcolare al primo diagnose/refresh con copertura reale.
 age_reference:
+  serie_b:
+    # placeholder - ricalcolare al primo run con pool B reale
+    reference_age: 23.5
+    spread_years: 1.5
   serie_c:
     # n=19, media 23.0, std 1.27
     reference_age: 23.0
@@ -211,6 +252,9 @@ age_reference:
   # altre, es. Atalanta U23). La correzione principale per questo tier e'
   # nel peso (vedi signal_score_weights sotto): in queste squadre "giovane"
   # e' un requisito di regolamento (obbligo U21), non un segnale raro.
+  serie_b_riserve:
+    reference_age: 21.5
+    spread_years: 2.0
   serie_c_riserve:
     # n=7 - CAMPIONE PICCOLO, provvisorio
     reference_age: 22.0
@@ -221,6 +265,39 @@ age_reference:
     # se/quando una squadra riserve compare li'.
     reference_age: 23.3
     spread_years: 1.2
+  # 2a/3a estere: placeholder (stesso ordine di grandezza di C/D). Senza
+  # age_reference il Layer A eta' torna None per quel tier (dato mancante,
+  # non zero inventato) - meglio un punto di partenza esplicito e ricalcolo.
+  portugal_2:
+    reference_age: 23.0
+    spread_years: 1.5
+  portugal_3:
+    reference_age: 22.5
+    spread_years: 1.5
+  france_2:
+    reference_age: 23.0
+    spread_years: 1.5
+  france_3:
+    reference_age: 22.5
+    spread_years: 1.5
+  spain_2:
+    reference_age: 23.0
+    spread_years: 1.5
+  spain_3:
+    reference_age: 22.5
+    spread_years: 1.5
+  netherlands_2:
+    reference_age: 22.5
+    spread_years: 1.5
+  netherlands_3:
+    reference_age: 22.0
+    spread_years: 1.5
+  germany_2:
+    reference_age: 23.0
+    spread_years: 1.5
+  germany_3:
+    reference_age: 22.5
+    spread_years: 1.5
   conmebol_u20:
     # n=227, media 20.6, std 0.78 - campione solido
     reference_age: 20.6
@@ -251,6 +328,9 @@ signal_score_weights:
   default:
     age_vs_level: 0.5
     buzz: 0.5
+  serie_b_riserve:
+    age_vs_level: 0.15
+    buzz: 0.85
   serie_c_riserve:
     age_vs_level: 0.15
     buzz: 0.85
@@ -294,6 +374,8 @@ source_tiers:
 # --- Layer B: profili contestuali (Fit Score) -----------------------------
 # Nessun modello: solo filtri booleani + moltiplicatori applicati al
 # Signal Score. Selezionabili come chip rapidi in UI.
+# max_tier: IT B/C/D (+ riserve) + 2a/3a PT/FR/ES/NL/DE. CONMEBOL youth +
+# nationality_pool solo sui profili di scoperta ampia (non su "Rosa Serie C").
 purpose_profiles:
   resale_value:
     label: "Rivendita"
@@ -301,17 +383,24 @@ purpose_profiles:
     weight_multipliers:
       age_vs_level: 1.3
       buzz: 1.2
-    max_tier: [serie_c, serie_d, serie_c_riserve, serie_d_riserve, conmebol_u20, conmebol_u17, nationality_pool]
+    max_tier:
+      [serie_b, serie_c, serie_d, serie_b_riserve, serie_c_riserve, serie_d_riserve,
+       portugal_2, portugal_3, france_2, france_3, spain_2, spain_3,
+       netherlands_2, netherlands_3, germany_2, germany_3,
+       conmebol_u20, conmebol_u17, nationality_pool]
 
   first_team_need:
     label: "Rosa Serie C"
-    description: "Punta su conferme piu' solide, sconta l'hype puro del buzz."
+    description: "Punta su conferme piu' solide, sconta l'hype puro del buzz. Bacino: leghe pro IT + 2a/3a europee (no pool nazionalita' sparsa)."
     weight_multipliers:
       age_vs_level: 1.0
       buzz: 0.7
-    # esclude nationality_pool: qui serve chi puo' giocare in Serie C ORA,
-    # non un pool sparso ovunque nel mondo senza club noto
-    max_tier: [serie_c, serie_d, serie_c_riserve, serie_d_riserve]
+    # esclude nationality_pool e CONMEBOL youth: qui serve chi gioca gia'
+    # in un campionato pro/semi-pro "da rosa", non un pool sparso o U17
+    max_tier:
+      [serie_b, serie_c, serie_d, serie_b_riserve, serie_c_riserve, serie_d_riserve,
+       portugal_2, portugal_3, france_2, france_3, spain_2, spain_3,
+       netherlands_2, netherlands_3, germany_2, germany_3]
 
   tactical_profile:
     label: "Profilo tattico"
@@ -319,16 +408,11 @@ purpose_profiles:
     weight_multipliers:
       age_vs_level: 1.0
       buzz: 1.0
-    max_tier: [serie_c, serie_d, serie_c_riserve, serie_d_riserve, conmebol_u20, conmebol_u17, nationality_pool]
-
-  fsgc_oriundi:
-    label: "Oriundi FSGC"
-    description: "Bacino piccolo apposta: filtra solo la watchlist oriundi, non l'intera pool."
-    weight_multipliers:
-      age_vs_level: 0.8
-      buzz: 0.8
-    max_tier: [serie_c, serie_d, serie_c_riserve, serie_d_riserve, conmebol_u20, conmebol_u17, nationality_pool]
-    restrict_to_watchlist: fsgc_oriundi_watchlist
+    max_tier:
+      [serie_b, serie_c, serie_d, serie_b_riserve, serie_c_riserve, serie_d_riserve,
+       portugal_2, portugal_3, france_2, france_3, spain_2, spain_3,
+       netherlands_2, netherlands_3, germany_2, germany_3,
+       conmebol_u20, conmebol_u17, nationality_pool]
 
 # --- Swarm dossier ----------------------------------------------------------
 swarm:
@@ -350,7 +434,7 @@ swarm:
   rerun_threshold_points: 8
 
 # --- Performance ------------------------------------------------------------
-# La pool candidati e' nell'ordine delle centinaia (Serie C/D + CONMEBOL).
+# La pool candidati e' nell'ordine delle centinaia/migliaia (leghe IT+EU + CONMEBOL + nationality).
 # Il controllo buzz fa una chiamata di rete per candidato: farlo su tutti a
 # ogni "Aggiorna" significherebbe minuti di attesa da telefono. Si pre-filtra
 # per eta'-relativa-al-livello (gratis, zero rete) e si controlla il buzz

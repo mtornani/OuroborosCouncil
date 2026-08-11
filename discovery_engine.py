@@ -2,7 +2,7 @@
 
 Trova candidati PRIMA che diventino notizia (non fact-checka notizie gia'
 uscite). Due meccanismi di enumerazione verificati live (non ipotizzati):
-- Serie C/D italiana: Wikidata SPARQL (dati strutturati, rose correnti).
+- Leghe pro (IT B/C/D + 2a/3a PT/FR/ES/NL/DE): Wikidata SPARQL per lega.
 - Giovanili sudamericane CONMEBOL: parsing del testo Wikipedia delle rose
   (Wikidata non ha dati strutturati per queste pagine, verificato).
 Il segnale differenziante e' il Buzz Score: velocita' di menzione in fonti
@@ -482,7 +482,9 @@ def _normalize_role(raw: str) -> str | None:
 
 
 # ============================================================
-# CANDIDATE POOL - Serie C/D via Wikidata SPARQL (verificato live)
+# CANDIDATE POOL - leghe via Wikidata SPARQL (verificato live)
+# Italia B/C/D + 2a/3a di PT/FR/ES/NL/DE: elenco in radar_config.yaml
+# candidate_sources.wikidata_leagues (una voce = una query, zero codice).
 # ============================================================
 
 def _sparql_current_squad(league_qid: str) -> list[dict]:
@@ -547,14 +549,31 @@ def _sparql_current_squad(league_qid: str) -> list[dict]:
 
 
 def fetch_serie_players(cfg: dict) -> list[dict]:
-    """Candidati Serie C/D. Se Wikidata non risponde: lista vuota per
-    quella lega, mai un fallback silenzioso con dati inventati."""
+    """Candidati da tutte le leghe in wikidata_leagues (IT B/C/D + 2a/3a
+    estere). Se Wikidata non risponde: lista vuota per quella lega, mai un
+    fallback silenzioso con dati inventati. Query in parallelo (come le
+    nationality): con 13 leghe la sequenza allungava il refresh senza
+    guadagno (ogni SPARQL e' indipendente)."""
+    leagues = list((cfg["candidate_sources"].get("wikidata_leagues") or {}).items())
     candidates = []
-    for league_key, league_cfg in cfg["candidate_sources"]["wikidata_leagues"].items():
-        rows = _sparql_current_squad(league_cfg["qid"])
-        for row in rows:
-            row["tier"] = f"{league_cfg['tier']}_riserve" if row.pop("is_reserve", False) else league_cfg["tier"]
-            candidates.append(row)
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = {
+            executor.submit(_sparql_current_squad, league_cfg["qid"]): (league_key, league_cfg)
+            for league_key, league_cfg in leagues
+        }
+        for future in as_completed(futures):
+            league_key, league_cfg = futures[future]
+            try:
+                rows = future.result()
+            except Exception:
+                rows = []  # fonte non disponibile per questa lega in questo run
+            for row in rows:
+                row["tier"] = (
+                    f"{league_cfg['tier']}_riserve"
+                    if row.pop("is_reserve", False)
+                    else league_cfg["tier"]
+                )
+                candidates.append(row)
     return candidates
 
 
@@ -717,14 +736,10 @@ def fetch_watchlist_candidates(cfg: dict) -> list[dict]:
     Signal Score restera' marcato 'dati parziali' finche' non arriva
     almeno il segnale di buzz."""
     out = []
-    names = list(cfg["candidate_sources"]["manual_watchlist"])
-    oriundi = cfg["candidate_sources"].get("fsgc_oriundi_watchlist") or []
+    names = list(cfg["candidate_sources"].get("manual_watchlist") or [])
     for name in names:
         out.append({"candidate_id": f"watch-{slugify(name)}", "name": name, "club": "",
                      "dob": None, "tier": "watchlist", "source": "manual_watchlist"})
-    for name in oriundi:
-        out.append({"candidate_id": f"oriundi-{slugify(name)}", "name": name, "club": "",
-                     "dob": None, "tier": "watchlist", "source": "fsgc_oriundi_watchlist"})
     return out
 
 

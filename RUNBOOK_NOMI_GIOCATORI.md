@@ -31,7 +31,7 @@ python3 discovery_engine.py sample --limit 3 --profile tactical_profile \
 ```
 
 `--profile` è una delle chiavi in `radar_config.yaml` → `purpose_profiles`
-(`resale_value`, `first_team_need`, `tactical_profile`, `fsgc_oriundi`).
+(`resale_value`, `first_team_need`, `tactical_profile`).
 
 Con dossier AI (costa quota, richiede almeno una chiave API):
 
@@ -44,9 +44,9 @@ Senza `--out`, il JSON va su stdout invece che su file.
 
 ## Tempi attesi
 
-- `fetch_candidate_pool()` interroga Wikidata (rose Serie C/D italiane +
-  giovanili CONMEBOL) e da sola impiega **~60-90 secondi** — è il grosso
-  del tempo, indipendente da `--limit`.
+- `fetch_candidate_pool()` interroga Wikidata (rose IT B/C/D + 2ª/3ª di
+  PT/FR/ES/NL/DE + giovanili CONMEBOL) e da sola impiega **~90-180 secondi**
+  — è il grosso del tempo, indipendente da `--limit` (più leghe = più SPARQL).
 - Il check buzz (Google News) gira solo su una shortlist limitata
   (`radar_config.yaml` → `performance.buzz_check_pool_size`, default 60),
   non sull'intero pool: qualche decina di secondi in più.

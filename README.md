@@ -74,7 +74,7 @@ tunable in `radar_config.yaml`.
     delle menzioni (accelerazione, non volume), tier delle fonti (bonus alla
     nicchia, penalità a chi è già mainstream), diffusione geografica.
 - **Layer B — Fit Score contestuale.** Nessun modello: filtri + moltiplicatori
-  per profilo (rivendita / rosa Serie C / profilo tattico / oriundi FSGC).
+  per profilo (rivendita / rosa Serie C / profilo tattico).
 - **Layer C — Stima bayesiana.** Filtro alla Kalman 1D: *non prevede il futuro*,
   stima quanto fidarsi del punteggio attuale viste le osservazioni ripetute nel
   tempo. Banda stretta = segnale coerente; banda larga = poco da fidarsi.
@@ -123,8 +123,9 @@ Catena di fallback multi-provider genuina: **Gemini** (primario) → **OpenRoute
 
 ## Fonti dati (tutte pubbliche, zero budget, zero chiavi a pagamento)
 
-- **Wikidata (SPARQL)** — rose Serie C/D italiane (per lega) e pool per
-  nazionalità (per cittadinanza, con filtro genere obbligatorio).
+- **Wikidata (SPARQL)** — rose per lega (Serie B/C/D + 2ª/3ª di Portogallo,
+  Francia, Spagna, Olanda, Germania) e pool per nazionalità (per
+  cittadinanza, con filtro genere obbligatorio).
 - **Wikipedia** — rose dei tornei CONMEBOL U-17/U-20 (parsing del wikitext).
 - **Google News (RSS)** — segnale di buzz, cercando sempre *nome + squadra* per
   evitare le omonimie.
