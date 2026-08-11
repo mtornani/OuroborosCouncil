@@ -9,6 +9,15 @@ generate_portfolio.py) — everything in here is the same for every export.
 Sourced from the live copy at matchanalysispro.online, mtornani.github.io
 (ob1-scout, ob1-serie-c) and this repo's own README (Sentinel), so the
 portfolio never says anything the public sites don't already say.
+
+The SENTINEL evidence table is a dated, real snapshot pulled from the
+live "IL TURNO" queue (ob1-radar Cloud Run app, guest-key access) — not
+live data embedded in the PDF (a static file can't be live), just an
+honest point-in-time capture. To refresh it: open
+  https://ob1-radar-957169827556.europe-west1.run.app/turno?guest_key=<KEY>
+note today's cases from GET /api/radar/turno, and update SENTINEL_SNAPSHOT_DATE
++ the "sentinel" system's evidence/stats below. The guest key itself is
+never committed here.
 """
 
 COVER = {
@@ -17,10 +26,15 @@ COVER = {
     "author": "Mirko Tornani",
     "role": "UEFA B Coach · Football Data Developer",
     "location": "San Marino / Italy",
-    "tagline": "Costruisco sistemi che trovano talento prima del mercato.",
+    "tagline": "I build systems that find talent before the market does.",
 }
 
 LOOP_STAGES = ["SCRAPE", "ANALYZE", "DETECT", "REPORT", "VALIDATE", "CALIBRATE"]
+
+# Snapshot date for the live SENTINEL evidence below (IL TURNO queue).
+SENTINEL_SNAPSHOT_DATE = "2026-08-11"
+SENTINEL_CANDIDATES_TRACKED = "3,518"
+SENTINEL_IN_REVIEW = "3"
 
 SYSTEMS = [
     {
@@ -29,87 +43,97 @@ SYSTEMS = [
         "subtitle": "Asymmetric talent intelligence",
         "badge": "OPERATIONAL",
         "description": (
-            "Scansiona fonti a bassa visibilità ogni 6 ore e identifica giocatori "
-            "che il mercato non ha ancora prezzato — prima che diventino nomi noti. "
-            "Ogni candidato è cross-referenziato con Transfermarkt (Ghost Protocol) "
-            "per isolare chi è ancora totalmente invisibile al mercato strutturato."
+            "Scans low-visibility sources every 6 hours and identifies players the "
+            "market hasn't priced yet — before they become known names. Every "
+            "candidate is cross-referenced against Transfermarkt (Ghost Protocol) "
+            "to isolate who's still completely invisible to the structured market."
         ),
         "stats": [
-            ("Copertura", "100+ giocatori monitorati"),
-            ("Costo operativo", "$0–5 / mese"),
-            ("Ciclo", "6h, autonomo"),
+            ("Candidates tracked", f"{SENTINEL_CANDIDATES_TRACKED} (live)"),
+            ("Operating cost", "$0–5 / month"),
+            ("Cycle", "6h, autonomous"),
         ],
-        "evidence": [
-            ("Ryan Evaristo", "100", "GHOST"),
-            ("Andre Maia", "95", "TRACKING"),
-            ("Saviolo", "82", "TRACKING"),
-        ],
+        "evidence": [],
+        "evidence_note": None,
+        "screens": [],
         "link": "https://mtornani.github.io/ob1-scout/",
         "link_label": "mtornani.github.io/ob1-scout",
     },
     {
         "key": "ob1-serie-c",
         "title": "OB1 SERIE C SCOUT",
-        "subtitle": "Radar Lega Pro",
+        "subtitle": "Italian lower-league radar",
         "badge": "OPERATIONAL",
         "description": (
-            "Stessa pipeline di OB1 Global Radar, ricalibrata sulle divisioni "
-            "inferiori italiane. Intelligence mirata su Serie C e Serie D — "
-            "anomalie dove nessun radar istituzionale sta guardando."
+            "Same pipeline as OB1 Global Radar, recalibrated for Italy's lower "
+            "divisions. Targeted intelligence on Serie C and Serie D — anomalies "
+            "where no institutional radar is looking."
         ),
         "stats": [
             ("Focus", "Serie C / Serie D"),
-            ("Pipeline", "Asincrona · GitHub Actions"),
-            ("Ciclo", "6h · costo ~$0"),
+            ("Pipeline", "Asynchronous · GitHub Actions"),
+            ("Cycle", "6h · ~$0 cost"),
         ],
         "evidence": [],
+        "evidence_note": None,
+        "screens": [],
         "link": "https://mtornani.github.io/ob1-serie-c/",
         "link_label": "mtornani.github.io/ob1-serie-c",
     },
     {
         "key": "sentinel",
         "title": "SENTINEL",
-        "subtitle": "Un prioritizzatore di attenzione, non un motore di previsione",
+        "subtitle": "An attention prioritizer, not a prediction engine",
         "badge": "OPERATIONAL",
         "description": (
-            "Interfaccia solo-mobile che misura QUANDO l'attenzione su un giocatore "
-            "inizia a muoversi — dalla stampa di nicchia al mainstream — e prova a "
-            "segnalarlo prima che diventi notizia, nella finestra in cui costa ancora "
-            "poco e la concorrenza è bassa. Backend deliberatamente leggibile: "
-            "funzioni dirette, formule esplicite, zero ML/training."
+            "Mobile-only interface that measures WHEN attention on a player starts "
+            "moving — from niche press to mainstream — and tries to flag it before "
+            "it becomes news, in the window where it still costs little and "
+            "competition is low. Deliberately readable backend: direct functions, "
+            "explicit formulas, zero ML/training."
         ),
-        "screens": [
-            ("IL TURNO", "Un caso alla volta: solo ciò che è cambiato o ha una finestra ancora aperta."),
-            ("LA MAPPA", "Curva da sconosciuto a conosciuto, zona calda in evidenza."),
-            ("L'AVVOCATO DEL DIAVOLO", "Il sistema sotto processo dai suoi stessi numeri: precisione, richiamo, obiezioni oneste."),
-            ("ARCHIVIO", "Tutti i candidati filtrabili per profilo, ruolo, età, paese."),
-        ],
         "stats": [
-            ("Stack", "Python 3.12 · SQLite"),
-            ("Stima", "Filtro bayesiano (Kalman 1D)"),
-            ("Deploy", "GitHub Actions · PWA"),
+            ("Candidates tracked", SENTINEL_CANDIDATES_TRACKED),
+            ("In review today", SENTINEL_IN_REVIEW),
+            ("Stack", "Python 3.12 · SQLite · Bayesian (1D Kalman)"),
         ],
-        "evidence": [],
+        "screens": [
+            ("THE QUEUE", "One case at a time: only what changed, or a window still open."),
+            ("THE MAP", "Unknown-to-known adoption curve, hot zone highlighted."),
+            ("THE DEVIL'S ADVOCATE", "The system cross-examined by its own numbers: precision, recall, honest objections."),
+            ("ARCHIVE", "Every candidate filterable by profile, role, age, country."),
+        ],
+        # Real snapshot from the live "THE QUEUE" (IL TURNO) API — see module
+        # docstring for how to refresh. verdict.vale_la_pena: True -> TRACKING,
+        # False -> FLAGGED (the system calling a likely false positive on itself).
+        "evidence": [
+            ("Luke Vickery", "89.2", "TRACKING"),
+            ("Paul Smajlaj", "88.9", "TRACKING"),
+            ("Jhafets Reyes", "88.7", "FLAGGED"),
+        ],
+        "evidence_note": f"Live snapshot from THE QUEUE — {SENTINEL_SNAPSHOT_DATE}",
         "link": None,
         "link_label": None,
     },
     {
         "key": "match-analysis-pro",
         "title": "MATCH ANALYSIS PRO",
-        "subtitle": "L'hub — Ouroboros Protocol",
+        "subtitle": "The hub — Ouroboros Protocol",
         "badge": "LIVE",
         "description": (
-            "Il layer che orchestra tutto il resto. Più agenti AI dibattono su ogni "
-            "anomalia prima che arrivi a un umano: il consenso viene sfidato, il "
-            "rumore filtrato. Quello che sopravvive è segnale. Il metodo è "
-            "pubblico — il whitepaper Ship of Theseus Protocol spiega il perché, "
-            "l'Ouroboros Protocol il come."
+            "The layer that orchestrates everything else. Multiple AI agents debate "
+            "every anomaly before it reaches a human: consensus gets challenged, "
+            "noise gets filtered. What survives is signal. The method is public — "
+            "the Ship of Theseus Protocol whitepaper explains the why, the "
+            "Ouroboros Protocol the how."
         ),
         "stats": [
-            ("Ciclo", " → ".join(LOOP_STAGES) + " → LOOP"),
-            ("Filosofia", "Trasparenza radicale, non scarsità artificiale"),
+            ("Cycle", " → ".join(LOOP_STAGES) + " → LOOP"),
+            ("Philosophy", "Radical transparency, not artificial scarcity"),
         ],
         "evidence": [],
+        "evidence_note": None,
+        "screens": [],
         "link": "https://matchanalysispro.online",
         "link_label": "matchanalysispro.online",
     },
@@ -119,5 +143,5 @@ CONTACT = {
     "email": "mirkotornani@gmail.com",
     "linkedin": "linkedin.com/in/mirkotornani",
     "linkedin_url": "https://www.linkedin.com/in/mirkotornani/",
-    "note": "Non faccio chiamate commerciali. Mandami un problema, ti dico se posso risolverlo.",
+    "note": "I don't do sales calls. Send me a problem, I'll tell you if I can solve it.",
 }

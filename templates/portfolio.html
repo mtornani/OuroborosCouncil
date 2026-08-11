@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="it">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <title>{{ cover.title }} — Prepared for {{ recipient }}</title>
@@ -324,12 +324,15 @@
     </div>
 </div>
 
-<!-- ============ SYSTEM PAGES (2 per page) ============ -->
-{% for pair in systems|batch(2) %}
+<!-- ============ SYSTEM PAGES ============ -->
+<!-- Grouped by content length rather than a flat batch(2): SENTINEL carries a
+     live evidence table + 4 screens and doesn't fit next to another card. -->
+{% set page_groups = [[systems[0], systems[1]], [systems[2]], [systems[3]]] %}
+{% for group in page_groups %}
 <div class="page">
-    <div class="section-title">&gt; SYSTEMS{% if loop.index0 == 0 %}_01-02{% else %}_03-04{% endif %}</div>
+    <div class="section-title">&gt; SYSTEMS{% if loop.index0 == 0 %}_01-02{% elif loop.index0 == 1 %}_03{% else %}_04{% endif %}</div>
 
-    {% for system in pair %}
+    {% for system in group %}
     <div class="card">
         <div class="card-head">
             <div>
@@ -367,6 +370,9 @@
                 {% endfor %}
             </tbody>
         </table>
+        {% if system.evidence_note %}
+        <div class="label" style="margin-top:2mm;">{{ system.evidence_note }}</div>
+        {% endif %}
         {% endif %}
 
         {% if system.screens %}
