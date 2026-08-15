@@ -18,6 +18,19 @@
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
+        /* Feedback al tocco (stesso fix di turno.html): senza, con
+           l'highlight nativo spento sopra e nessun :active a sostituirlo,
+           toccare un chip o un bottone restava muto fino alla risposta del
+           server. :hover non aiuta, sul touch non scatta mai. */
+        button:not(:disabled):active, .chip:active, .filter-chip:active {
+            transform: scale(0.96);
+            opacity: 0.8;
+            transition: transform 0.05s ease, opacity 0.05s ease;
+        }
+        @media (prefers-reduced-motion: reduce) {
+            button:not(:disabled):active, .chip:active, .filter-chip:active { transform: none; }
+        }
+
         :root {
             --bg: #0b0c10;
             --panel: #14161b;

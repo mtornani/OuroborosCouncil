@@ -35,6 +35,22 @@
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
+        /* Feedback al tocco. Sopra si spegne l'highlight nativo del browser
+           (-webkit-tap-highlight-color) e nessun bottone qui aveva un
+           :active a sostituirlo, solo un :hover che sul touch non scatta
+           mai (verificato dal vivo: toccare un bottone restava muto fino
+           alla risposta del server - su rete lenta si legge come "non ha
+           funzionato" e invita al doppio tap, che in decide() poteva far
+           avanzare la sessione di due card invece di una). */
+        button:not(:disabled):active {
+            transform: scale(0.96);
+            opacity: 0.8;
+            transition: transform 0.05s ease, opacity 0.05s ease;
+        }
+        @media (prefers-reduced-motion: reduce) {
+            button:not(:disabled):active { transform: none; }
+        }
+
         :root {
             --ink: #0a0e13;
             --panel: #121922;
@@ -305,6 +321,7 @@
         .case-actions { position: sticky; bottom: 0; background: var(--ink); padding: 12px 0 20px; display: flex; flex-wrap: wrap; gap: 8px; border-top: 1px solid var(--line); margin-top: 12px; }
         .btn-look { flex: 1 1 100%; background: var(--text); color: var(--ink); border: none; padding: 15px 20px; font-size: 0.86rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; cursor: pointer; }
         .btn-look:hover { filter: brightness(1.1); }
+        .btn-look:disabled, .btn-side:disabled { opacity: 0.5; cursor: default; }
         .btn-side { flex: 1; background: none; border: 1px solid var(--line); color: var(--text-dim); padding: 12px 8px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; cursor: pointer; }
         .btn-out { border-color: var(--doubt); color: var(--doubt); }
         .handoff { font-size: 0.78rem; color: var(--text-dim); line-height: 1.5; margin: 14px 0 0; padding: 10px 12px; border-left: 3px solid var(--signal); background: var(--signal-dim); }
@@ -975,12 +992,24 @@
             showScreen(screenEnd);
         }
 
+        // Guardia di rientranza: senza, un doppio tap (o un tap su un
+        // bottone diverso mentre il primo fetch e' ancora in volo) lanciava
+        // due decide() in parallelo sulla STESSA card - idx++ scattava due
+        // volte e una card della sessione veniva saltata in silenzio, mai
+        // mostrata all'utente. Prima disabilitava solo lookBtn, lasciando
+        // passBtn/outBtn liberi per tutta la durata della richiesta.
+        let decideInFlight = false;
+
         async function decide(status) {
+            if (decideInFlight) return;
             const c = currentCase();
             if (!c) return;
+            decideInFlight = true;
+            const buttons = [document.getElementById("lookBtn"), document.getElementById("passBtn"),
+                             document.getElementById("outBtn")];
+            buttons.forEach(b => { b.disabled = true; });
             const noteEl = document.getElementById("noteLine");
             const note = (noteEl && noteEl.style.display !== "none") ? (noteEl.value || "").trim() : "";
-            document.getElementById("lookBtn").disabled = true;
             try {
                 await fetch("/api/radar/decisione", {
                     method: "POST",
@@ -994,7 +1023,8 @@
                     }),
                 });
             } catch (e) { /* resta in sessione anche se la rete balla */ }
-            document.getElementById("lookBtn").disabled = false;
+            buttons.forEach(b => { b.disabled = false; });
+            decideInFlight = false;
             state.sessionLog.push({ status, name: c.name, candidate_id: c.candidate_id, note });
             if (status === "in_verifica") {
                 if (!state.da_verificare.some(x => x.candidate_id === c.candidate_id))

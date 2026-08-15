@@ -18,6 +18,16 @@
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
+        /* Feedback al tocco (stesso fix di turno.html). */
+        button:not(:disabled):active {
+            transform: scale(0.96);
+            opacity: 0.8;
+            transition: transform 0.05s ease, opacity 0.05s ease;
+        }
+        @media (prefers-reduced-motion: reduce) {
+            button:not(:disabled):active { transform: none; }
+        }
+
         :root {
             --ink: #0a0e13; --panel: #121922; --line: rgba(231,235,238,0.14);
             --text: #e7ebee; --text-dim: rgba(231,235,238,0.64); --text-faint: rgba(231,235,238,0.40);
