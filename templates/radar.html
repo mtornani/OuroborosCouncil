@@ -754,9 +754,13 @@
             // il contraddittorio (motivi di dubbio dai dati) si mostra SEMPRE,
             // anche quando manca il dossier AI - e' calcolato a parte
             const contra = contraddittorioBlock(candidate);
+            // Il dossier AI si spende su chi e' CAMBIATO in questo giro, non
+            // sui primi N di una classifica: l'assenza di dossier significa
+            // "nulla di nuovo su di lui", non "escluso perche' meno buono".
+            // Il testo lo dice, altrimenti si legge come una bocciatura.
             if (!d) return contra + `<div class="dossier-error">${IS_EN
-                ? "No AI dossier for this candidate yet (outside this round's top N, or awaiting the next Refresh)."
-                : "Ancora nessun dossier AI per questo candidato (fuori dal top N di questo giro, o in attesa del prossimo Aggiorna)."}</div>`;
+                ? "No AI dossier yet: nothing changed for this player in the recent rounds. Scores, curve and objections above are always up to date."
+                : "Ancora nessun dossier AI: su questo giocatore non e' cambiato nulla nei giri recenti. Punteggi, curva e obiezioni qui sopra sono comunque aggiornati."}</div>`;
             if (d.skipped) return contra + `<div class="dossier-error">${escapeHTML(d.skipped)}</div>`;
             if (d.error) return contra + `<div class="dossier-error">${escapeHTML(d.error)}</div>`;
             const g = d.giudice || {};
@@ -767,13 +771,7 @@
                 ? (IS_EN
                     ? `<div class="club-update-flag" style="display:block;margin:6px 0;">⚠️ Wikidata club not up to date - now shows as ${escapeHTML(g.club_aggiornato)} (confirmed via web search)</div>`
                     : `<div class="club-update-flag" style="display:block;margin:6px 0;">⚠️ Squadra su Wikidata non aggiornata - risulta ora a ${escapeHTML(g.club_aggiornato)} (confermato via ricerca web)</div>`)
-                : g.club_verificato_via_ricerca
-                    ? (IS_EN
-                        ? `<div style="font-size:10px;color:var(--text-dim);margin:6px 0;">✓ club confirmed via web search</div>`
-                        : `<div style="font-size:10px;color:var(--text-dim);margin:6px 0;">✓ squadra confermata via ricerca web</div>`)
-                    : (IS_EN
-                        ? `<div style="font-size:10px;color:var(--text-dim);margin:6px 0;">club not re-verified via web search - Wikidata only</div>`
-                        : `<div style="font-size:10px;color:var(--text-dim);margin:6px 0;">squadra non riverificata via ricerca web - solo da Wikidata</div>`);
+                : groundingLine(d);
             return `
                 <div class="verdict-line">⚖️ ${escapeHTML(verdictText)}${g.confidence != null ? ` · confidence ${escapeHTML(g.confidence)}` : ""}<br>${escapeHTML(g.motivazione || "")}</div>
                 ${clubLine}
@@ -782,6 +780,42 @@
                 <div class="dossier-role"><div class="dossier-role-label">🔍 ${IS_EN ? "Verifier" : "Verificatore"}</div>${escapeHTML(d.verificatore || "N/D")}</div>
                 <div class="dossier-role"><div class="dossier-role-label">😈 ${IS_EN ? "Skeptic" : "Scettico"}</div>${escapeHTML(d.scettico || "N/D")}</div>
             `;
+        }
+
+        // Come e' stato messo a terra il club di questo dossier.
+        // Dal 2026-08 il default e' "grafo_fonti": la squadra viene da
+        // un'osservazione DATATA nel grafo, letta dai titoli di stampa
+        // (news_reader) - verificabile con un link, non la parola di un
+        // modello su cosa dice di aver cercato. La vecchia dicitura
+        // ("non riverificata via ricerca web") sarebbe ora falsa: il club
+        // puo' essere confermato dalla stampa senza che nessun modello
+        // abbia cercato niente.
+        function groundingLine(d) {
+            const dim = `font-size:10px;color:var(--text-dim);margin:6px 0;`;
+            if (d.club_grounding === "grafo_fonti") {
+                const p = d.club_provenienza || {};
+                if (p.fonte === "news") {
+                    const quando = p.datato_al ? ` (${escapeHTML(String(p.datato_al).slice(0, 10))})` : "";
+                    const testo = IS_EN
+                        ? `✓ club from a dated press headline${quando}`
+                        : `✓ squadra da un titolo di stampa datato${quando}`;
+                    return p.url
+                        ? `<div style="${dim}"><a href="${escapeHTML(p.url)}" target="_blank" rel="noopener noreferrer" style="color:inherit;">${testo} ↗</a></div>`
+                        : `<div style="${dim}">${testo}</div>`;
+                }
+                const fonte = p.fonte ? escapeHTML(p.fonte) : (IS_EN ? "archive" : "archivio");
+                return IS_EN
+                    ? `<div style="${dim}">club from ${fonte} - no press confirmation this round</div>`
+                    : `<div style="${dim}">squadra da ${fonte} - nessun riscontro di stampa in questo giro</div>`;
+            }
+            // percorso storico, attivo solo con swarm.web_search_grounding: true
+            return d.giudice && d.giudice.club_verificato_via_ricerca
+                ? (IS_EN
+                    ? `<div style="${dim}">✓ club confirmed via web search</div>`
+                    : `<div style="${dim}">✓ squadra confermata via ricerca web</div>`)
+                : (IS_EN
+                    ? `<div style="${dim}">club not re-verified via web search - Wikidata only</div>`
+                    : `<div style="${dim}">squadra non riverificata via ricerca web - solo da Wikidata</div>`);
         }
 
         // Il contraddittorio (motivi oggettivi di dubbio dai dati del

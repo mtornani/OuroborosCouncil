@@ -416,11 +416,35 @@ purpose_profiles:
 
 # --- Swarm dossier ----------------------------------------------------------
 swarm:
+  # GATE SUL CAMBIAMENTO DI STATO (default dal 2026-08).
+  # true  = il dossier si spende solo su chi la sonda senza AI ha segnalato
+  #         come CAMBIATO in questo giro (decollo imminente, finestra
+  #         precoce, salto anomalo, deriva sostenuta, dati completati, nuovo
+  #         ingresso). Il costo AI diventa proporzionale agli EVENTI, non
+  #         alla dimensione della pool: e' cio' che permette alla pool di
+  #         crescere senza che cresca la spesa.
+  # false = comportamento storico, i primi top_n della classifica.
+  # Vedi ARCHITETTURA_PRODUZIONE.md §2 leva A.
+  require_state_change: true
+  # Tetto di spesa per giro, sempre applicato quando il gate e' attivo.
+  # NON e' ridondante rispetto al gate: al primo run di un candidato la
+  # sonda risponde "nuovo ingresso" per tutti, quindi su una pool fredda
+  # senza tetto si brucerebbe l'intera quota giornaliera in una scansione.
+  max_dossiers_per_run: 8
+  # usato solo con require_state_change: false.
   # misurato dal vivo in produzione: 15 candidati sequenziali x 4 chiamate
   # AI ciascuno hanno superato i 9 minuti senza finire (503 da Cloud Run).
   # Abbassato a 8 e parallelizzato (swarm_workers) per stare comodi entro
   # il timeout del servizio.
   top_n_candidates_for_swarm: 8
+  # Grounding del club via server tool openrouter:web_search.
+  # false (default dal 2026-08): il club arriva dal GRAFO DELLE FONTI, letto
+  # dai titoli stampa che il buzz check scarica comunque (news_reader) -
+  # deterministico, gratuito, datato e con URL. Il vecchio percorso e'
+  # fatturato a parte anche sui modelli ":free" (~$0.005 a richiesta) ed e'
+  # limitato a 50 richieste/giorno sul tier free OpenRouter: era la prima
+  # funzione a spegnersi sotto carico. Vedi ARCHITETTURA_PRODUZIONE.md §3.
+  web_search_grounding: false
   # dossier in parallelo per candidato (ogni dossier resta 4 chiamate
   # sequenziali al suo interno, serve coerenza tra i 4 ruoli - solo i
   # candidati diversi tra loro corrono in parallelo). Tenuto basso per non
