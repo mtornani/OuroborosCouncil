@@ -501,9 +501,22 @@ def radar_turno():
                     "closed_crossed": 3, "closed_faded": 3, "closed_stale": 3,
                     "verdict": 4, "resolved": 5, "rising": 6, "falling": 6, "new": 7}
         cases.sort(key=lambda c: (priority.get(c["change"]["type"], 9), -(c["signal_score"] or 0)))
+        decisions = discovery_engine.get_human_decisions()
+        split = discovery_engine.split_human_workload(cases, decisions)
+        da_verificare = discovery_engine.da_verificare_cards(decisions, feed, cfg)
+        for card in da_verificare:
+            record = feed.get(card["candidate_id"]) or {}
+            identity = record.get("identity") or {}
+            last = (record.get("history") or [None])[-1] or {}
+            if last:
+                card["bayesian"] = discovery_engine.bayesian_estimate(record.get("history") or [], cfg)
+                card["caveats"] = discovery_engine.player_caveats(
+                    last, card["bayesian"], identity, cfg)
+                card["curve_trail"] = discovery_engine.phase_trail(record)
         return jsonify({
             "status": "success",
-            "cases": cases,
+            "cases": split["turno"],
+            "da_verificare": da_verificare,
             "skipped_count": skipped,
             "total_count": len(feed),
             # registro di validazione retroattiva: quanti passaggi al
@@ -559,6 +572,29 @@ def radar_health():
     try:
         return jsonify({"status": "success", "version": APP_VERSION, "build": BUILD_ID,
                         "persistence": discovery_engine.persistence_status()})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+
+@app.route("/api/radar/decisione", methods=["POST"])
+def radar_decisione():
+    """Il tap umano dopo il segnale: in_verifica / passo / scarto / tiene /
+    non_tiene. Senza questo il turno e' solo consumo: qui diventa lavoro."""
+    data = request.json or {}
+    candidate_id = data.get("candidate_id")
+    status = (data.get("status") or "").strip()
+    if not candidate_id or not status:
+        return jsonify({"status": "error", "message": "candidate_id e status sono obbligatori"})
+    try:
+        rec = discovery_engine.set_human_decision(
+            candidate_id, status,
+            name=data.get("name"),
+            club=data.get("club"),
+            note=data.get("note"),
+        )
+        return jsonify({"status": "success", "candidate_id": candidate_id, "decision": rec})
+    except ValueError as e:
+        return jsonify({"status": "error", "message": str(e)})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
 

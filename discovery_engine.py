@@ -42,6 +42,13 @@ FEED_FILE = BASE_DIR / "radar_feed.json"
 BUZZ_HISTORY_FILE = BASE_DIR / "buzz_history.json"
 WATCHLIST_FILE = BASE_DIR / "watchlist.json"
 OBSERVATIONS_FILE = BASE_DIR / "radar_observations.json"
+DECISIONS_FILE = BASE_DIR / "human_decisions.json"
+
+# Contratto umano: SENTINEL misura l'attenzione, l'occhio decide la qualita'.
+# in_verifica = lo prendi in carico; passo = non ora; scarto = questo segnale no;
+# tiene / non_tiene = hai chiuso la verifica tecnica.
+HUMAN_STATUSES = ("in_verifica", "passo", "scarto", "tiene", "non_tiene")
+_NOTE_MAX = 200
 
 # Se impostata (in produzione: Neon/Supabase, mai committata), lo storico
 # vive su Postgres invece che su disco locale - un host gratuito con
@@ -812,6 +819,44 @@ def _source_tier(publisher: str, cfg: dict) -> int:
     return 3  # default: fonte di nicchia, e' li' che nasce il segnale
 
 
+def _tier1_hits_from_results(results: list, cfg: dict) -> list[dict]:
+    """I colpi che fanno scattare la fase 4: testata + titolo + url, niente
+    di inventato. URL Google News e' un redirect (lo sappiamo): resta la
+    prova fisica 'quale titolo, quale testata', non un permalink pulito."""
+    hits = []
+    for r in results:
+        title = r.get("title")
+        if not title:
+            continue
+        publisher = _publisher_of(title)
+        if _source_tier(publisher, cfg) != 1:
+            continue
+        hits.append({
+            "publisher": publisher,
+            "title": title,
+            "url": r.get("url") or r.get("link"),
+        })
+    return hits
+
+
+def _proof_from_snapshot(snapshot: dict, cfg: dict) -> list[dict]:
+    """Prova del crossing da uno snapshot buzz. I run nuovi hanno
+    tier1_hits (titolo+url). I run vecchi hanno solo publishers: si
+    ricostruisce il nome della testata, senza inventare titolo o link."""
+    if not snapshot:
+        return []
+    stored = snapshot.get("tier1_hits")
+    if stored:
+        return stored
+    if not snapshot.get("tier1_present"):
+        return []
+    return [
+        {"publisher": p, "title": None, "url": None}
+        for p in (snapshot.get("publishers") or [])
+        if _source_tier(p, cfg) == 1
+    ]
+
+
 def _buzz_queries(candidate: dict) -> list[str]:
     """Le query news per un candidato. Il club viene dal RISOLUTORE del grafo
     (club_risolto), non dal fetch grezzo: una scheda Wikidata stantia non deve
@@ -861,7 +906,8 @@ def buzz_score(candidate: dict, history: dict, cfg: dict) -> dict:
     mention_count = len(results)
 
     run_snapshot = {"run_at": _now_iso(), "mention_count": mention_count,
-                     "publishers": publishers, "tier1_present": 1 in tiers_seen}
+                     "publishers": publishers, "tier1_present": 1 in tiers_seen,
+                     "tier1_hits": _tier1_hits_from_results(results, cfg)}
 
     if is_cold_start:
         return {"score": None, "available": False, "reason": "primo run, nessuno storico",
@@ -1226,7 +1272,8 @@ CURVE_VALIDATION_FILE = BASE_DIR / "curve_validation.json"
 # cento round-trip sequenziali verso Neon in una sola scansione, per un file
 # di pochi KB. Ritornano True se hanno modificato il ledger.
 
-def _record_curve_crossing(ledger: dict, record: dict, candidate: dict, run_at: str) -> bool:
+def _record_curve_crossing(ledger: dict, record: dict, candidate: dict, run_at: str,
+                           prova: list | None = None) -> bool:
     events = ledger.get("events", [])
     # un candidato attraversa una sola volta: mai duplicare l'evento se un
     # run successivo rilegge lo stesso stato
@@ -1237,13 +1284,16 @@ def _record_curve_crossing(ledger: dict, record: dict, candidate: dict, run_at: 
         for e in record["history"][:-1]
         if isinstance(e.get("curve"), dict)
     ]
-    events.append({
+    event = {
         "candidate_id": candidate["candidate_id"],
         "name": candidate.get("name"),
         "crossed_at": run_at,
         "anticipato": 3 in prior_phases,
         "fasi_precedenti": [p for p in prior_phases if p is not None][-5:],
-    })
+    }
+    if prova:
+        event["prova"] = prova
+    events.append(event)
     ledger["events"] = events  # preserva "flags", non sovrascrivere l'intero ledger
     return True
 
@@ -1259,7 +1309,8 @@ def _record_curve_crossing(ledger: dict, record: dict, candidate: dict, run_at: 
 # o sgonfiato (e' ricaduto senza attraversare). Un sistema che nasconde i
 # suoi errori e' marketing; questo li conta, davanti a chi lo vuole debunkare.
 
-def _update_flag_ledger(ledger: dict, candidate: dict, phase, run_at: str) -> bool:
+def _update_flag_ledger(ledger: dict, candidate: dict, phase, run_at: str,
+                        prova: list | None = None) -> bool:
     if phase is None:
         return False
     flags = ledger.get("flags", [])
@@ -1278,6 +1329,9 @@ def _update_flag_ledger(ledger: dict, candidate: dict, phase, run_at: str) -> bo
         # ricaduto senza sfondare = sgonfiato (falso positivo, contato)
         open_flag["outcome"] = "esploso" if phase >= 4 else "sgonfiato"
         open_flag["resolved_at"] = run_at
+        open_flag["close_phase"] = phase
+        if phase >= 4 and prova:
+            open_flag["prova"] = prova
         changed = True
     if changed:
         ledger["flags"] = flags
@@ -1298,16 +1352,81 @@ def track_record_summary() -> dict:
     esplosi, quanti avevamo segnalato). Nessun numero gonfiato: precision e
     recall restano None finche' non c'e' un caso risolto, cosi' su campione
     minuscolo il sistema dice 'non lo so ancora' invece di inventare una
-    percentuale."""
-    ledger = _load_json(CURVE_VALIDATION_FILE)
-    flags = ledger.get("flags", [])
-    events = ledger.get("events", [])
+    percentuale. I casi nominativi (liste) stanno in tabellone()."""
+    try:
+        cfg = load_config()
+    except Exception:
+        cfg = {}
+    return tabellone(
+        _load_json(CURVE_VALIDATION_FILE),
+        buzz_history=_load_json(BUZZ_HISTORY_FILE),
+        feed=_load_json(FEED_FILE),
+        cfg=cfg,
+    )
+
+
+def tabellone(ledger: dict, buzz_history: dict | None = None,
+              feed: dict | None = None, cfg: dict | None = None) -> dict:
+    """Fact-check nominativo: stessi conteggi di prima, piu' le liste di
+    chi e' (aperto / esploso / sgonfiato / scappato). Un numero senza nome
+    non si verifica - questa e' la forma auditabile del tabellone."""
+    flags = list((ledger or {}).get("flags") or [])
+    events = list((ledger or {}).get("events") or [])
+    buzz_history = buzz_history or {}
+    feed = feed or {}
+    cfg = cfg or {}
+
     esplosi = sum(1 for f in flags if f["outcome"] == "esploso")
     sgonfiati = sum(1 for f in flags if f["outcome"] == "sgonfiato")
     pending = sum(1 for f in flags if f["outcome"] == "pending")
     resolved = esplosi + sgonfiati
     crossings = len(events)
     anticipati = sum(1 for e in events if e.get("anticipato"))
+
+    events_by_id = {e["candidate_id"]: e for e in events}
+
+    def _club(cid):
+        return ((feed.get(cid) or {}).get("identity") or {}).get("club")
+
+    def _prova_di(item):
+        if item.get("prova"):
+            return item["prova"]
+        ev = events_by_id.get(item.get("candidate_id"))
+        if ev and ev.get("prova"):
+            return ev["prova"]
+        if not cfg:
+            return None
+        runs = (buzz_history.get(item.get("candidate_id")) or {}).get("runs") or []
+        for run in runs:
+            recovered = _proof_from_snapshot(run, cfg)
+            if recovered:
+                return recovered
+        return None
+
+    def _vista_flag(f):
+        vista = {
+            "candidate_id": f.get("candidate_id"),
+            "name": f.get("name"),
+            "club": _club(f.get("candidate_id")),
+            "flagged_at": f.get("flagged_at"),
+            "resolved_at": f.get("resolved_at"),
+            "outcome": f.get("outcome"),
+            "close_phase": f.get("close_phase"),
+            "prova": _prova_di(f),
+        }
+        return vista
+
+    def _vista_evento(e):
+        return {
+            "candidate_id": e.get("candidate_id"),
+            "name": e.get("name"),
+            "club": _club(e.get("candidate_id")),
+            "crossed_at": e.get("crossed_at"),
+            "anticipato": bool(e.get("anticipato")),
+            "prova": _prova_di(e),
+        }
+
+    esplosi_ids = {f["candidate_id"] for f in flags if f.get("outcome") == "esploso"}
     return {
         "flagged": len(flags),
         "esplosi": esplosi,
@@ -1317,6 +1436,11 @@ def track_record_summary() -> dict:
         "crossings": crossings,
         "anticipati": anticipati,
         "recall": round(100 * anticipati / crossings) if crossings else None,
+        "casi_aperti": [_vista_flag(f) for f in flags if f.get("outcome") == "pending"],
+        "casi_esplosi": [_vista_flag(f) for f in flags if f.get("outcome") == "esploso"],
+        "casi_sgonfiati": [_vista_flag(f) for f in flags if f.get("outcome") == "sgonfiato"],
+        "casi_scappati": [_vista_evento(e) for e in events
+                          if e.get("candidate_id") not in esplosi_ids],
     }
 
 
@@ -2107,13 +2231,20 @@ def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> di
         # candidato con snapshot fresco, indipendentemente da chi ha vinto il
         # posto nel turno di revisione
         curve_phase = (entry["signal"].get("curve") or {}).get("phase")
+        # prova fisica del crossing: i colpi tier-1 di QUESTO run, gia'
+        # persistiti nello snapshot buzz (titolo + testata + url). Senza
+        # questo il tabellone saprebbe solo "fase 4", non CHI ha scritto.
+        last_snap = ((history.get(cid) or {}).get("runs") or [None])[-1] or {}
+        prova = last_snap.get("tier1_hits") or _proof_from_snapshot(last_snap, cfg)
         if curve_phase == 4:
-            ledger_changed = _record_curve_crossing(ledger, record, entry["candidate"], run_at) or ledger_changed
+            ledger_changed = _record_curve_crossing(
+                ledger, record, entry["candidate"], run_at, prova=prova) or ledger_changed
         # tabellone precisione: apre/chiude la scommessa "sta per esplodere"
         # per ogni candidato con una fase fresca questo run (esploso vs
         # sgonfiato) - e' cio' che rende il rilevatore falsificabile sui fatti
         if curve_phase is not None:
-            ledger_changed = _update_flag_ledger(ledger, entry["candidate"], curve_phase, run_at) or ledger_changed
+            ledger_changed = _update_flag_ledger(
+                ledger, entry["candidate"], curve_phase, run_at, prova=prova) or ledger_changed
 
         # stato provvisorio SENZA dossier: le finestre aperte si portano
         # avanti o si chiudono gia' ora (niente sparisce in silenzio nel
@@ -2371,6 +2502,142 @@ def set_watchlisted(candidate_id: str, watchlisted: bool) -> set:
         ids.discard(candidate_id)
     _save_json(WATCHLIST_FILE, {"candidate_ids": sorted(ids)})
     return ids
+
+
+# ============================================================
+# DECISIONI UMANE - il passo dopo il radar
+# ============================================================
+# SENTINEL non e' Wyscout: dopo il segnale l'occhio deve scegliere.
+# Store {candidate_id: {status, updated_at, note, name, club, history}}.
+# split_human_workload decide chi resta nel turno e chi va nella coda
+# "da verificare". Le regole sono sul tempo: un scarto/passo/verdetto
+# vale per QUESTO segnale; una scan successiva (run_at piu' nuovo)
+# riapre il caso.
+
+def record_human_decision(store: dict, candidate_id: str, status: str, *,
+                          at: str, name: str | None = None, club: str | None = None,
+                          note: str | None = None) -> dict:
+    if status not in HUMAN_STATUSES:
+        raise ValueError(f"status umano non valido: {status}")
+    if not candidate_id:
+        raise ValueError("candidate_id mancante")
+    prev = store.get(candidate_id) or {}
+    history = list(prev.get("history") or [])
+    if prev.get("status"):
+        history.append({
+            "status": prev["status"],
+            "at": prev.get("updated_at"),
+            "note": prev.get("note"),
+        })
+        history = history[-20:]
+    clean_note = (note or "").strip()[:_NOTE_MAX] or None
+    rec = {
+        "status": status,
+        "updated_at": at,
+        "note": clean_note,
+        "name": name or prev.get("name"),
+        "club": club or prev.get("club"),
+        "history": history,
+    }
+    store[candidate_id] = rec
+    return rec
+
+
+def split_human_workload(cases: list, store: dict) -> dict:
+    """Separa i casi del turno da quelli gia' presi in carico.
+    Un segnale piu' nuovo della decisione (run_at > updated_at) riapre."""
+    turno = []
+    da_verificare_ids = [
+        cid for cid, rec in store.items()
+        if (rec or {}).get("status") == "in_verifica"
+    ]
+    held = set(da_verificare_ids)
+    for case in cases:
+        cid = case.get("candidate_id")
+        rec = store.get(cid) or {}
+        status = rec.get("status")
+        if not status:
+            turno.append(case)
+            continue
+        if status == "in_verifica":
+            continue
+        run_at = case.get("run_at") or ""
+        decided = rec.get("updated_at") or ""
+        if run_at > decided:
+            turno.append(case)
+            continue
+        # stesso segnale gia' deciso (passo / scarto / tiene / non_tiene)
+    return {"turno": turno, "da_verificare_ids": da_verificare_ids,
+            "in_carico": held}
+
+
+def da_verificare_cards(store: dict, feed: dict, cfg: dict | None = None) -> list:
+    """Schede per la coda 'il tuo occhio': snapshot della decisione, arricchito
+    dal feed se c'e' (anche senza state_change — l'hai gia' visto nel turno)."""
+    cards = []
+    for cid, rec in store.items():
+        if (rec or {}).get("status") != "in_verifica":
+            continue
+        record = (feed or {}).get(cid) or {}
+        identity = record.get("identity") or {}
+        last = (record.get("history") or [None])[-1] or {}
+        change = last.get("state_change") or {
+            "type": "verifica",
+            "tag": "DA VERIFICARE",
+            "lead": "L'hai preso in carico. Adesso l'occhio.",
+        }
+        cards.append({
+            "candidate_id": cid,
+            "name": identity.get("name") or rec.get("name"),
+            "club": identity.get("club") or rec.get("club"),
+            "club_provenienza": record.get("club_provenienza"),
+            "role": identity.get("role"),
+            "dob": identity.get("dob"),
+            "tier": identity.get("tier"),
+            "nationality_label": identity.get("nationality_label"),
+            "signal_score": last.get("signal_score"),
+            "components": last.get("components"),
+            "fit_score": last.get("fit_score"),
+            "partial_data": last.get("partial_data"),
+            "run_at": last.get("run_at") or rec.get("updated_at"),
+            "change": change,
+            "curve": last.get("curve"),
+            "curve_trail": phase_trail(record) if record else [],
+            "caveats": last.get("caveats") or [],
+            "scettico": (record.get("dossier") or {}).get("scettico"),
+            "verdict": {
+                "vale_la_pena": ((record.get("dossier") or {}).get("giudice") or {}).get("vale_la_pena"),
+                "confidence": ((record.get("dossier") or {}).get("giudice") or {}).get("confidence"),
+                "motivazione": ((record.get("dossier") or {}).get("giudice") or {}).get("motivazione"),
+            },
+            "decision": rec,
+        })
+    cards.sort(key=lambda c: c.get("run_at") or "", reverse=True)
+    return cards
+
+
+def get_human_decisions() -> dict:
+    raw = _load_json(DECISIONS_FILE)
+    # file puo' essere {} al primo uso
+    return raw if isinstance(raw, dict) else {}
+
+
+def set_human_decision(candidate_id: str, status: str, *,
+                       name: str | None = None, club: str | None = None,
+                       note: str | None = None) -> dict:
+    store = get_human_decisions()
+    rec = record_human_decision(
+        store, candidate_id, status,
+        at=_now_iso(), name=name, club=club, note=note,
+    )
+    _save_json(DECISIONS_FILE, store)
+    # LO GUARDO tiene il nome in evidenza; scarto / non tiene lo toglie
+    # dalla vecchia watchlist cosi' non restano due pile per la stessa cosa
+    if status == "in_verifica":
+        set_watchlisted(candidate_id, True)
+    elif status in ("scarto", "non_tiene"):
+        set_watchlisted(candidate_id, False)
+    return rec
 
 
 # ============================================================

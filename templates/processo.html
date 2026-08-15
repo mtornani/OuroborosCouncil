@@ -90,9 +90,22 @@
         .r .n { font-variant-numeric: tabular-nums; font-weight: 700; }
         .r.good .n { color: var(--verified); }
         .r.bad .n { color: var(--doubt); }
-        .board-note { font-size: 0.74rem; color: var(--text-faint); line-height: 1.6; background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--signal); padding: 12px 14px; margin-bottom: 34px; }
+        .board-note { font-size: 0.74rem; color: var(--text-faint); line-height: 1.6; background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--signal); padding: 12px 14px; margin-bottom: 22px; }
         .board-note b { color: var(--text-dim); }
         .loading { text-align: center; color: var(--text-faint); font-size: 0.8rem; padding: 26px 0; }
+
+        .roster { margin: 0 0 34px; }
+        .roster-h { font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-faint); margin: 18px 0 8px; }
+        .roster-h .n { color: var(--text-dim); font-weight: 700; }
+        .caso { background: var(--panel); border: 1px solid var(--line); padding: 12px 14px; margin-bottom: 8px; }
+        .caso .nm { font-family: 'Newsreader', serif; font-weight: 500; font-size: 1.05rem; line-height: 1.25; margin: 0 0 3px; }
+        .caso .meta { font-size: 0.7rem; color: var(--text-faint); line-height: 1.45; }
+        .caso .prova { margin-top: 8px; padding: 8px 10px; border-left: 3px solid var(--signal); background: var(--signal-dim); font-size: 0.74rem; line-height: 1.45; color: var(--text-dim); }
+        .caso .prova a { color: var(--signal); text-decoration: none; }
+        .caso .prova .miss { color: var(--text-faint); font-style: italic; }
+        .caso.good { border-left: 3px solid var(--verified); }
+        .caso.bad { border-left: 3px solid var(--doubt); }
+        .caso.miss { border-left: 3px solid var(--signal); }
 
         /* ---------- le obiezioni ---------- */
         .obj-intro { font-size: 0.82rem; color: var(--text-dim); line-height: 1.55; margin: 0 0 18px; }
@@ -284,6 +297,81 @@
                 </div>`;
         }
 
+        const PHASE = IS_EN ? {
+            0: "nobody talking", 1: "local press only", 2: "being talked about",
+            3: "about to break out", 4: "major papers", 5: "everybody knows",
+        } : {
+            0: "nessuno ne parla", 1: "solo fonti locali", 2: "se ne parla",
+            3: "sta per esplodere", 4: "sui grandi giornali", 5: "lo sanno tutti",
+        };
+
+        function fmtDate(iso) {
+            if (!iso) return "—";
+            return String(iso).slice(0, 10);
+        }
+
+        function renderProva(hits) {
+            if (!hits || !hits.length) {
+                return `<div class="prova"><span class="miss">${IS_EN
+                    ? "No physical proof stored — scan from before the roster. Name is real; the outlet wasn't kept."
+                    : "Prova fisica non registrata — scan precedente al roster. Il nome c'è; la testata non è stata tenuta."}</span></div>`;
+            }
+            return hits.map(h => {
+                const pub = escapeHTML(h.publisher || (IS_EN ? "unknown outlet" : "testata ignota"));
+                const title = h.title ? escapeHTML(h.title) : "";
+                const head = h.url
+                    ? `<a href="${escapeHTML(h.url)}" target="_blank" rel="noopener">${pub}</a>`
+                    : pub;
+                const missingBits = !h.title
+                    ? ` <span class="miss">${IS_EN ? "(outlet recovered from history, no headline)" : "(testata ricostruita dallo storico, senza titolo)"}</span>`
+                    : "";
+                return `<div class="prova">${head}${title ? `<br>${title}` : ""}${missingBits}</div>`;
+            }).join("");
+        }
+
+        function casoCard(c, kind) {
+            const cls = kind === "esploso" ? "good" : kind === "sgonfiato" ? "bad" : kind === "scappato" ? "miss" : "";
+            const club = c.club ? ` · ${escapeHTML(c.club)}` : "";
+            let meta = "";
+            if (kind === "aperto") {
+                meta = `${IS_EN ? "flagged" : "segnalato"} ${fmtDate(c.flagged_at)}`;
+            } else if (kind === "esploso") {
+                meta = `${IS_EN ? "flagged" : "segnalato"} ${fmtDate(c.flagged_at)} → ${IS_EN ? "crossed" : "attraversato"} ${fmtDate(c.resolved_at)}`;
+            } else if (kind === "sgonfiato") {
+                const phase = (c.close_phase !== null && c.close_phase !== undefined)
+                    ? PHASE[c.close_phase] || c.close_phase
+                    : (IS_EN ? "unknown phase" : "fase ignota");
+                meta = `${IS_EN ? "flagged" : "segnalato"} ${fmtDate(c.flagged_at)} → ${IS_EN ? "fell back to" : "ricaduto a"} ${phase} (${fmtDate(c.resolved_at)})`;
+            } else {
+                meta = `${IS_EN ? "crossed" : "attraversato"} ${fmtDate(c.crossed_at)} · ${IS_EN ? "not flagged first" : "non segnalato prima"}`;
+            }
+            const prova = (kind === "esploso" || kind === "scappato") ? renderProva(c.prova) : "";
+            return `<div class="caso ${cls}">
+                <p class="nm">${escapeHTML(c.name || c.candidate_id || "?")}</p>
+                <p class="meta">${escapeHTML(c.candidate_id || "")}${club}<br>${meta}</p>
+                ${prova}
+            </div>`;
+        }
+
+        function renderRoster(d) {
+            const blocks = [];
+            const section = (title, items, kind) => {
+                if (!items || !items.length) return;
+                blocks.push(`<p class="roster-h">${title} <span class="n">${items.length}</span></p>`);
+                blocks.push(items.map(c => casoCard(c, kind)).join(""));
+            };
+            section(IS_EN ? "open bets — still in the window" : "scommesse aperte — finestra ancora aperta",
+                    d.casi_aperti, "aperto");
+            section(IS_EN ? "crossed — the ones who hit the major papers" : "attraversati — chi è arrivato sui grandi giornali",
+                    d.casi_esplosi, "esploso");
+            section(IS_EN ? "deflated — flagged, then fell back" : "sgonfiati — segnalati, poi ricaduti",
+                    d.casi_sgonfiati, "sgonfiato");
+            section(IS_EN ? "slipped through — crossed without a prior flag" : "scappati — attraversati senza segnalazione prima",
+                    d.casi_scappati, "scappato");
+            if (!blocks.length) return "";
+            return `<div class="roster">${blocks.join("")}</div>`;
+        }
+
         function boardNote(d) {
             const resolved = d.esplosi + d.sgonfiati;
             if (d.flagged === 0) {
@@ -314,7 +402,7 @@
                 document.getElementById("board").innerHTML = `<div class="loading">${IS_EN ? "error" : "errore"}: ${escapeHTML(d.message || (IS_EN ? "unknown" : "sconosciuto"))}</div>`;
                 return;
             }
-            document.getElementById("board").innerHTML = renderBoard(d) + boardNote(d);
+            document.getElementById("board").innerHTML = renderBoard(d) + boardNote(d) + renderRoster(d);
         }
 
         document.getElementById("backBtn").addEventListener("click", () => { window.location.href = "/turno"; });

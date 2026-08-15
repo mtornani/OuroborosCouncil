@@ -302,11 +302,14 @@
         .contra-none { font-size: 0.8rem; color: var(--text-dim); line-height: 1.5; }
 
         .case-spacer { flex: 1; min-height: 12px; }
-        .case-actions { position: sticky; bottom: 0; background: var(--ink); padding: 14px 0 22px; display: flex; gap: 10px; border-top: 1px solid var(--line); margin-top: 12px; }
-        .btn-flag { flex-shrink: 0; background: none; border: 1px solid var(--line); color: var(--text-dim); padding: 0 16px; font-size: 0.78rem; cursor: pointer; }
-        .btn-flag.active { border-color: var(--signal); color: var(--signal); background: var(--signal-dim); }
-        .btn-advance { flex: 1; background: var(--text); color: var(--ink); border: none; padding: 15px 20px; font-size: 0.86rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; cursor: pointer; }
-        .btn-advance:hover { filter: brightness(1.1); }
+        .case-actions { position: sticky; bottom: 0; background: var(--ink); padding: 12px 0 20px; display: flex; flex-wrap: wrap; gap: 8px; border-top: 1px solid var(--line); margin-top: 12px; }
+        .btn-look { flex: 1 1 100%; background: var(--text); color: var(--ink); border: none; padding: 15px 20px; font-size: 0.86rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; cursor: pointer; }
+        .btn-look:hover { filter: brightness(1.1); }
+        .btn-side { flex: 1; background: none; border: 1px solid var(--line); color: var(--text-dim); padding: 12px 8px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; cursor: pointer; }
+        .btn-out { border-color: var(--doubt); color: var(--doubt); }
+        .handoff { font-size: 0.78rem; color: var(--text-dim); line-height: 1.5; margin: 14px 0 0; padding: 10px 12px; border-left: 3px solid var(--signal); background: var(--signal-dim); }
+        .handoff b { color: var(--text); font-weight: 600; }
+        .note-line { display: none; width: 100%; box-sizing: border-box; background: var(--panel); border: 1px solid var(--line); color: var(--text); padding: 10px 12px; font-family: inherit; font-size: 0.78rem; }
 
         /* ---------- END / EMPTY ---------- */
         .end-screen { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 32px 24px; }
@@ -330,10 +333,11 @@
                 <p class="intake-sub">{% if LANG == 'en' %}{{ t('turno.intake_sub_html')|safe }}{% else %}Qui trovi chi ha una novità o una <b>finestra ancora aperta</b> (un "sta per esplodere" resta finché non si chiude davvero). Quando una finestra si chiude — arrivato ai grandi giornali, o raffreddato — te lo mostra una volta, spiegato: <b>niente sparisce in silenzio</b>. Il resto è in archivio, fermo, finché non si muove.{% endif %}</p>
                 <div class="intake-stats">
                     <div><div class="stat-num" id="statCount">—</div><div class="stat-label">{{ t('turno.stat_cases') if LANG == 'en' else 'casi da rivedere' }}</div></div>
-                    <div><div class="stat-num" id="statMinutes">—</div><div class="stat-label">{{ t('turno.stat_minutes') if LANG == 'en' else 'min. di lettura' }}</div></div>
+                    <div><div class="stat-num" id="statMinutes">—</div><div class="stat-label">{{ 'to check' if LANG == 'en' else 'da verificare' }}</div></div>
                     <div><div class="stat-num" id="statSkipped">—</div><div class="stat-label">{{ t('turno.stat_archived') if LANG == 'en' else 'in archivio, quieti' }}</div></div>
                 </div>
                 <button class="btn-primary" id="startBtn">{{ t('turno.btn_start') if LANG == 'en' else 'INIZIA IL TURNO' }}</button>
+                <button class="btn-primary" id="verifyBtn" style="display:none;margin-top:10px;">{{ 'CHECK YOURS' if LANG == 'en' else 'VERIFICA I TUOI' }}</button>
                 <button class="btn-secondary" id="scanBtn">{{ t('turno.btn_scan') if LANG == 'en' else 'CERCA AGGIORNAMENTI PRIMA' }}</button>
                 <button class="link-archive" id="mapBtn">{% if LANG == 'en' %}🛰 {{ t('turno.link_map') }} →{% else %}🛰 la mappa — dove sta ogni giocatore sul percorso →{% endif %}</button>
                 <button class="link-archive" id="processBtn">{% if LANG == 'en' %}⚖ {{ t('turno.link_process') }} →{% else %}⚖ l'avvocato del diavolo — il tabellone e le obiezioni →{% endif %}</button>
@@ -356,8 +360,10 @@
                 <div id="caseBody"></div>
                 <div class="case-spacer"></div>
                 <div class="case-actions">
-                    <button class="btn-flag" id="flagBtn">{{ ('☆ ' + t('turno.btn_flag')) if LANG == 'en' else '☆ SEGNA' }}</button>
-                    <button class="btn-advance" id="advanceBtn">{{ t('turno.btn_next') if LANG == 'en' else 'AVANTI' }}</button>
+                    <input class="note-line" id="noteLine" maxlength="200" autocomplete="off" placeholder="">
+                    <button class="btn-look" id="lookBtn">{{ 'I\'LL CHECK' if LANG == 'en' else 'LO GUARDO' }}</button>
+                    <button class="btn-side" id="passBtn">{{ 'NOT NOW' if LANG == 'en' else 'PASSO' }}</button>
+                    <button class="btn-side btn-out" id="outBtn">{{ 'OUT' if LANG == 'en' else 'SCARTO' }}</button>
                 </div>
             </div>
         </div>
@@ -367,8 +373,9 @@
                 <p class="eyebrow">{{ 'shift over' if LANG == 'en' else 'turno concluso' }}</p>
                 <h1>{{ t('turno.end_title_prefix') if LANG == 'en' else 'Fine turno.' }} <span id="endTime"></span></h1>
                 <div class="end-stats">
-                    <div><div class="stat-num" id="endReviewed">—</div><div class="stat-label">{{ t('turno.end_stat_reviewed') if LANG == 'en' else 'casi rivisti' }}</div></div>
-                    <div><div class="stat-num" id="endFlagged">—</div><div class="stat-label">{{ t('turno.end_stat_flagged') if LANG == 'en' else 'segnati da approfondire' }}</div></div>
+                    <div><div class="stat-num" id="endLook">—</div><div class="stat-label" id="endLookLbl">{{ 'to check' if LANG == 'en' else 'da verificare' }}</div></div>
+                    <div><div class="stat-num" id="endPass">—</div><div class="stat-label" id="endPassLbl">{{ 'not now' if LANG == 'en' else 'passati' }}</div></div>
+                    <div><div class="stat-num" id="endOut">—</div><div class="stat-label" id="endOutLbl">{{ 'out' if LANG == 'en' else 'scartati' }}</div></div>
                 </div>
                 <div class="end-list" id="endList"></div>
                 <button class="btn-primary" id="restartBtn">{{ t('turno.btn_restart') if LANG == 'en' else '↺ TORNA ALLA HOME' }}</button>
@@ -402,8 +409,22 @@
             error_prefix: "error:",
             scan_btn: "CHECK FOR UPDATES FIRST",
             scan_btn_running: "SCAN IN PROGRESS...",
-            flag: "☆ FLAG",
-            flagged: "★ FLAGGED",
+            look: "I'LL CHECK",
+            pass: "NOT NOW",
+            out: "OUT",
+            holds: "IT HOLDS",
+            doesnt_hold: "IT DOESN'T",
+            handoff: "SENTINEL measured the attention. How good he is — that's on you.",
+            verify_btn: (n) => `CHECK YOURS (${n})`,
+            verify_headline: (n) => `Nothing new in the shift. ${n} name${n === 1 ? "" : "s"} waiting for your eye.`,
+            verify_note: (n) => `${n} player${n === 1 ? " is" : "s are"} in your check pile — that's the job SENTINEL cannot do.`,
+            note_ph: "one line, if you want — what you saw",
+            end_empty: "No calls this shift.",
+            end_look: "to check",
+            end_pass: "not now",
+            end_out: "out",
+            end_holds: "holds",
+            end_doesnt: "doesn't hold",
             contra_head: "the counter-argument",
             contra_sub: "before you trust it, here's what plays against this signal",
             contra_none: "No obvious structural flaw in this signal's data — rare. Still needs validating by eye: a clean counter-argument isn't a promise, it's an absence of alarms.",
@@ -446,8 +467,22 @@
             error_prefix: "errore:",
             scan_btn: "CERCA AGGIORNAMENTI PRIMA",
             scan_btn_running: "SCANSIONE IN CORSO...",
-            flag: "☆ SEGNA",
-            flagged: "★ SEGNATO",
+            look: "LO GUARDO",
+            pass: "PASSO",
+            out: "SCARTO",
+            holds: "TIENE",
+            doesnt_hold: "NON TIENE",
+            handoff: "SENTINEL ha misurato l'attenzione. Quanto è bravo, lo decidi tu.",
+            verify_btn: (n) => `VERIFICA I TUOI (${n})`,
+            verify_headline: (n) => `Niente di nuovo nel turno. ${n} nom${n === 1 ? "e aspetta" : "i aspettano"} il tuo occhio.`,
+            verify_note: (n) => `${n} giocator${n === 1 ? "e è" : "i sono"} nella coda da verificare — quello SENTINEL non può farlo.`,
+            note_ph: "una riga, se vuoi — cosa hai visto",
+            end_empty: "Nessuna chiamata in questo turno.",
+            end_look: "da verificare",
+            end_pass: "passati",
+            end_out: "scartati",
+            end_holds: "tiene",
+            end_doesnt: "non tiene",
             contra_head: "il contraddittorio",
             contra_sub: "prima di fidarti, ecco cosa gioca contro questo segnale",
             contra_none: "Nessun difetto strutturale evidente nei dati di questo segnale — raro. Resta comunque da validare con l'occhio: il contraddittorio pulito non è una promessa, è un'assenza di allarmi.",
@@ -478,6 +513,7 @@
         const COMPONENT_LABELS = { age_vs_level: "eta'-vs-livello", buzz: "buzz" };
         const CHANGE_LABELS = {
             club: "club", verdict: "verdetto", resolved: "dati", rising: "salita", falling: "discesa", new: "nuovo",
+            verifica: IS_EN ? "your eye" : "il tuo occhio",
         };
         const TIER_LABELS = IS_EN ? {
             serie_b: "Serie B", serie_c: "Serie C", serie_d: "Serie D",
@@ -503,7 +539,8 @@
             return TIER_LABELS[c.tier] || c.tier || "N/D";
         }
 
-        const state = { config: null, cases: [], skipped: 0, total: 0, scanning: false, pollGen: 0 };
+        const state = { config: null, cases: [], da_verificare: [], skipped: 0, total: 0,
+                        scanning: false, pollGen: 0, mode: "turno", queue: [], sessionLog: [] };
         let idx = 0;
         let startTime = null;
 
@@ -556,6 +593,7 @@
                 const data = await res.json();
                 if (data.status === "success") {
                     state.cases = data.cases;
+                    state.da_verificare = data.da_verificare || [];
                     state.skipped = data.skipped_count;
                     state.total = data.total_count;
                     state.validation = data.curve_validation;
@@ -571,7 +609,9 @@
 
         function renderIntake() {
             const n = state.cases.length;
+            const pending = state.da_verificare.length;
             const startBtn = document.getElementById("startBtn");
+            const verifyBtn = document.getElementById("verifyBtn");
             const headline = document.getElementById("intakeHeadline");
 
             // Tre stati onesti, mai un solo "tutto tranquillo" generico:
@@ -583,6 +623,10 @@
                 headline.textContent = I18N.scanning_headline;
                 startBtn.disabled = true;
                 startBtn.textContent = I18N.awaiting_scan;
+            } else if (n === 0 && pending > 0) {
+                headline.textContent = I18N.verify_headline(pending);
+                startBtn.disabled = true;
+                startBtn.textContent = I18N.start_btn;
             } else if (state.total === 0) {
                 headline.textContent = I18N.no_scan_headline;
                 startBtn.disabled = true;
@@ -598,13 +642,20 @@
             }
 
             document.getElementById("statCount").textContent = state.scanning ? "—" : n;
-            document.getElementById("statMinutes").textContent = state.scanning ? "—" : (n === 0 ? "0" : `~${Math.max(1, n * 2)}`);
+            document.getElementById("statMinutes").textContent = state.scanning ? "—" : pending;
             document.getElementById("statSkipped").textContent = state.scanning ? "—" : state.skipped.toLocaleString(IS_EN ? "en-GB" : "it-IT");
-            document.getElementById("skipNote").textContent = (!state.scanning && state.skipped > 0)
+            const minLbl = document.querySelector("#statMinutes")?.parentElement?.querySelector(".stat-label");
+            if (minLbl) minLbl.textContent = IS_EN ? "to check" : "da verificare";
+            verifyBtn.style.display = (!state.scanning && pending > 0) ? "" : "none";
+            verifyBtn.textContent = I18N.verify_btn(pending);
+            verifyBtn.disabled = state.scanning;
+            const archiveNote = (!state.scanning && state.skipped > 0)
                 ? (IS_EN
-                    ? `${state.skipped.toLocaleString("en-GB")} candidates are already in the archive and don't need attention now - some because they're genuinely quiet, others because the probe hasn't revisited them yet. You don't need to review them.`
-                    : `${state.skipped.toLocaleString("it-IT")} candidati sono gia' in archivio e non richiedono attenzione ora - alcuni perche' davvero fermi, altri perche' non ancora ripassati dalla sonda. Non li devi rivedere.`)
+                    ? `${state.skipped.toLocaleString("en-GB")} candidates are already in the archive and don't need attention now.`
+                    : `${state.skipped.toLocaleString("it-IT")} candidati sono gia' in archivio e non richiedono attenzione ora.`)
                 : "";
+            const eyeNote = (!state.scanning && pending > 0) ? I18N.verify_note(pending) : "";
+            document.getElementById("skipNote").textContent = [eyeNote, archiveNote].filter(Boolean).join(" ");
             document.getElementById("eyebrowDate").textContent = IS_EN
                 ? `shift of ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long" })}`
                 : `turno del ${new Date().toLocaleDateString("it-IT", { day: "numeric", month: "long" })}`;
@@ -628,6 +679,7 @@
             if (t === "mainstream") return "falling";
             if (t === "early") return "rising";
             if (t === "takeoff") return "takeoff";
+            if (t === "verifica") return "early";
             if (t === "closed_crossed") return "resolved";       // arrivato: chiusura "positiva" (teal)
             if (t === "closed_faded" || t === "closed_stale") return "falling";  // raffreddata/scaduta (rosso)
             return t;
@@ -769,12 +821,14 @@
                 </div>`;
         }
 
+        function currentCase() { return state.queue[idx]; }
+
         function renderCase() {
-            const c = state.cases[idx];
+            const c = currentCase();
             document.getElementById("caseIndex").textContent = idx + 1;
-            document.getElementById("caseTotal").textContent = state.cases.length;
-            document.getElementById("caseTime").textContent = `~${Math.max(1, (state.cases.length - idx) * 2)} ${I18N.min_left}`;
-            progressFill.style.width = `${Math.round((idx / state.cases.length) * 100)}%`;
+            document.getElementById("caseTotal").textContent = state.queue.length;
+            document.getElementById("caseTime").textContent = `~${Math.max(1, (state.queue.length - idx) * 2)} ${I18N.min_left}`;
+            progressFill.style.width = `${Math.round((idx / Math.max(1, state.queue.length)) * 100)}%`;
 
             const parts = componentBreakdown(c);
             const compLine = parts ? parts.map(p => `${escapeHTML(p.label)} <b>${p.valuePct}</b>${p.weightPct !== null ? ` (${I18N.weight} ${p.weightPct}%)` : ""}`).join(" + ") : "N/D";
@@ -801,10 +855,11 @@
 
             const age = computeAge(c.dob);
 
+            const ch = c.change || { type: "verifica", tag: IS_EN ? "YOUR EYE" : "DA VERIFICARE", lead: I18N.handoff };
             document.getElementById("caseBody").innerHTML = `
-                <div class="change-tag ${tagClass(c.change.type)}">${escapeHTML(c.change.tag)}</div>${c.change.carried ? `<span class="carried-note">${I18N.already_seen}</span>` : ''}
-                <p class="change-lead">${escapeHTML(c.change.lead)}</p>
-                ${c.change.club_nuovo ? `<button class="btn-confirm-club" id="confirmClubBtn" data-club="${escapeHTML(c.change.club_nuovo)}">${IS_EN ? `✓ CONFIRM: NOW PLAYING FOR «${escapeHTML(c.change.club_nuovo)}»` : `✓ CONFERMO: ORA GIOCA IN «${escapeHTML(c.change.club_nuovo)}»`}</button><div class="confirm-club-note" id="confirmClubNote"></div>` : ''}
+                <div class="change-tag ${tagClass(ch.type)}">${escapeHTML(ch.tag || "")}</div>${ch.carried ? `<span class="carried-note">${I18N.already_seen}</span>` : ''}
+                <p class="change-lead">${escapeHTML(ch.lead || "")}</p>
+                ${ch.club_nuovo ? `<button class="btn-confirm-club" id="confirmClubBtn" data-club="${escapeHTML(ch.club_nuovo)}">${IS_EN ? `✓ CONFIRM: NOW PLAYING FOR «${escapeHTML(ch.club_nuovo)}»` : `✓ CONFERMO: ORA GIOCA IN «${escapeHTML(ch.club_nuovo)}»`}</button><div class="confirm-club-note" id="confirmClubNote"></div>` : ''}
                 <div class="identity-row">
                     <div>
                         <div class="id-name">${escapeHTML(c.name)}</div>
@@ -824,10 +879,27 @@
                     <div class="verdict-text">${v.motivazione ? `"${escapeHTML(v.motivazione)}"` : I18N.no_motivation}</div>
                 </div>
                 ${contraddittorio(c)}
+                <p class="handoff">${I18N.handoff}</p>
             `;
-            const isWatchlisted = !!state.cases[idx].watchlisted;
-            document.getElementById("flagBtn").classList.toggle("active", isWatchlisted);
-            document.getElementById("flagBtn").textContent = isWatchlisted ? I18N.flagged : I18N.flag;
+            const lookBtn = document.getElementById("lookBtn");
+            const passBtn = document.getElementById("passBtn");
+            const outBtn = document.getElementById("outBtn");
+            const noteLine = document.getElementById("noteLine");
+            if (state.mode === "verifica") {
+                lookBtn.textContent = I18N.holds;
+                passBtn.style.display = "none";
+                outBtn.textContent = I18N.doesnt_hold;
+                noteLine.style.display = "block";
+                noteLine.value = "";
+                noteLine.placeholder = I18N.note_ph;
+            } else {
+                lookBtn.textContent = I18N.look;
+                passBtn.style.display = "";
+                passBtn.textContent = I18N.pass;
+                outBtn.textContent = I18N.out;
+                noteLine.style.display = "none";
+                noteLine.value = "";
+            }
 
             // conferma umana del club: entra nel grafo delle fonti come
             // osservazione fonte=umano - vince su tutto e sopravvive alle
@@ -861,8 +933,11 @@
             animateCurveDot();
         }
 
-        function startSession() {
-            if (state.cases.length === 0) return;
+        function startSession(mode) {
+            state.mode = mode === "verifica" ? "verifica" : "turno";
+            state.queue = state.mode === "verifica" ? state.da_verificare.slice() : state.cases.slice();
+            state.sessionLog = [];
+            if (state.queue.length === 0) return;
             startTime = Date.now();
             idx = 0;
             showScreen(screenCase);
@@ -873,15 +948,67 @@
             progressFill.style.width = "100%";
             const elapsedMin = Math.max(1, Math.round((Date.now() - startTime) / 60000));
             document.getElementById("endTime").textContent = `(${elapsedMin} min)`;
-            document.getElementById("endReviewed").textContent = state.cases.length;
-            const flaggedCases = state.cases.filter(c => c.watchlisted);
-            document.getElementById("endFlagged").textContent = flaggedCases.length;
-            const list = flaggedCases.map(c => `<div>★ <b>${escapeHTML(c.name)}</b> — ${escapeHTML((c.change.tag || "").toLowerCase())}</div>`).join("");
-            document.getElementById("endList").innerHTML = list || '<div style="color:var(--text-faint)">Nessun caso segnato per approfondire questa volta.</div>';
+            const of = (s) => state.sessionLog.filter(x => x.status === s);
+            const verifyMode = state.mode === "verifica";
+            const a = verifyMode ? of("tiene") : of("in_verifica");
+            const b = verifyMode ? of("non_tiene") : of("passo");
+            const c = verifyMode ? [] : of("scarto");
+            document.getElementById("endLook").textContent = a.length;
+            document.getElementById("endPass").textContent = verifyMode ? b.length : b.length;
+            document.getElementById("endOut").textContent = verifyMode ? "—" : c.length;
+            document.getElementById("endLookLbl").textContent = verifyMode ? I18N.end_holds : I18N.end_look;
+            document.getElementById("endPassLbl").textContent = verifyMode ? I18N.end_doesnt : I18N.end_pass;
+            document.getElementById("endOutLbl").textContent = I18N.end_out;
+            const rows = [];
+            const dump = (items, mark) => items.forEach(x => {
+                rows.push(`<div>${mark} <b>${escapeHTML(x.name)}</b>${x.note ? " — " + escapeHTML(x.note) : ""}</div>`);
+            });
+            if (verifyMode) {
+                dump(a, "●");
+                dump(b, "○");
+            } else {
+                dump(a, "→");
+                dump(b, "·");
+                dump(c, "×");
+            }
+            document.getElementById("endList").innerHTML = rows.join("") || `<div style="color:var(--text-faint)">${I18N.end_empty}</div>`;
             showScreen(screenEnd);
         }
 
-        document.getElementById("startBtn").addEventListener("click", startSession);
+        async function decide(status) {
+            const c = currentCase();
+            if (!c) return;
+            const noteEl = document.getElementById("noteLine");
+            const note = (noteEl && noteEl.style.display !== "none") ? (noteEl.value || "").trim() : "";
+            document.getElementById("lookBtn").disabled = true;
+            try {
+                await fetch("/api/radar/decisione", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        candidate_id: c.candidate_id,
+                        status,
+                        name: c.name,
+                        club: c.club,
+                        note: note || undefined,
+                    }),
+                });
+            } catch (e) { /* resta in sessione anche se la rete balla */ }
+            document.getElementById("lookBtn").disabled = false;
+            state.sessionLog.push({ status, name: c.name, candidate_id: c.candidate_id, note });
+            if (status === "in_verifica") {
+                if (!state.da_verificare.some(x => x.candidate_id === c.candidate_id))
+                    state.da_verificare.push(c);
+            } else if (status === "tiene" || status === "non_tiene" || status === "scarto") {
+                state.da_verificare = state.da_verificare.filter(x => x.candidate_id !== c.candidate_id);
+            }
+            idx++;
+            if (idx >= state.queue.length) endSession();
+            else renderCase();
+        }
+
+        document.getElementById("startBtn").addEventListener("click", () => startSession("turno"));
+        document.getElementById("verifyBtn").addEventListener("click", () => startSession("verifica"));
         document.getElementById("restartBtn").addEventListener("click", () => { showScreen(screenIntake); loadTurno(); });
         document.getElementById("archiveBtn").addEventListener("click", () => { window.location.href = "/radar"; });
         document.getElementById("archiveBtn2").addEventListener("click", () => { window.location.href = "/radar"; });
@@ -917,33 +1044,19 @@
             }
         })();
 
-        // Persistito sul server, non piu' solo nella sessione del browser -
-        // "segnare" durante il turno E' l'azione che crea/toglie dalla
-        // watchlist, sulla scheda del singolo giocatore.
-        async function toggleWatchlist(candidateId, watchlisted) {
-            try {
-                await fetch("/api/radar/watchlist", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ candidate_id: candidateId, watchlisted }),
-                });
-            } catch (e) { /* il toggle locale resta comunque visibile in questa sessione */ }
-        }
-        document.getElementById("flagBtn").addEventListener("click", () => {
-            const c = state.cases[idx];
-            c.watchlisted = !c.watchlisted;
-            renderCase();
-            toggleWatchlist(c.candidate_id, c.watchlisted);
+        document.getElementById("lookBtn").addEventListener("click", () => {
+            decide(state.mode === "verifica" ? "tiene" : "in_verifica");
         });
-        document.getElementById("advanceBtn").addEventListener("click", () => {
-            idx++;
-            if (idx >= state.cases.length) endSession();
-            else renderCase();
+        document.getElementById("passBtn").addEventListener("click", () => decide("passo"));
+        document.getElementById("outBtn").addEventListener("click", () => {
+            decide(state.mode === "verifica" ? "non_tiene" : "scarto");
         });
         document.addEventListener("keydown", (e) => {
             if (screenCase.style.display === "none") return;
-            if (e.key === "ArrowRight" || e.key === " ") { e.preventDefault(); document.getElementById("advanceBtn").click(); }
-            if (e.key === "f" || e.key === "F") document.getElementById("flagBtn").click();
+            if (e.target && e.target.id === "noteLine") return;
+            if (e.key === "1") { e.preventDefault(); document.getElementById("lookBtn").click(); }
+            if (e.key === "2" && state.mode !== "verifica") { e.preventDefault(); document.getElementById("passBtn").click(); }
+            if (e.key === "3") { e.preventDefault(); document.getElementById("outBtn").click(); }
         });
 
         // "cerca aggiornamenti prima": riusa lo stesso job di sfondo +

@@ -58,6 +58,11 @@ class TestAccessGate(unittest.TestCase):
                                json={"candidate_id": "Q1", "club": "X"})
         self.assertEqual(r.status_code, 403)
 
+    def test_chiave_ospite_NON_puo_registrare_decisione(self):
+        r = self.client().post("/api/radar/decisione?guest_key=ospite456",
+                               json={"candidate_id": "Q1", "status": "in_verifica"})
+        self.assertEqual(r.status_code, 403)
+
     def test_cookie_ospite_persiste_ma_resta_sola_lettura(self):
         c = self.client()
         c.get("/turno?guest_key=ospite456")  # imposta il cookie
