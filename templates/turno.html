@@ -173,6 +173,15 @@
             font-family: 'Newsreader', serif; font-size: 1.02rem; line-height: 1.55;
             color: var(--text-dim); margin: 0 0 28px; max-width: 42ch;
         }
+        /* La riga che dice cosa SENTINEL non è, non solo cosa fa - perché
+           chi apre l'app la prima volta, da solo, senza aver letto il
+           README, deve capirlo qui, non tre schermate più avanti. */
+        .positioning {
+            font-size: 0.86rem; line-height: 1.5; color: var(--text-dim);
+            border-left: 2px solid var(--signal); padding-left: 12px;
+            margin: 0 0 28px; max-width: 42ch;
+        }
+        .positioning b { color: var(--text); }
         .intake-stats {
             display: flex; gap: 24px; margin-bottom: 28px; padding: 18px 0;
             border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
@@ -331,6 +340,7 @@
                 <p class="eyebrow" id="eyebrowDate">{% if LANG == 'en' %}shift{% else %}turno{% endif %}</p>
                 <h1 id="intakeHeadline">{% if LANG == 'en' %}{{ t('turno.intake_title') }}{% else %}Non c'è una lista da scorrere. C'è un turno da fare.{% endif %}</h1>
                 <p class="intake-sub">{% if LANG == 'en' %}{{ t('turno.intake_sub_html')|safe }}{% else %}Qui trovi chi ha una novità o una <b>finestra ancora aperta</b> (un "sta per esplodere" resta finché non si chiude davvero). Quando una finestra si chiude — arrivato ai grandi giornali, o raffreddato — te lo mostra una volta, spiegato: <b>niente sparisce in silenzio</b>. Il resto è in archivio, fermo, finché non si muove.{% endif %}</p>
+                <p class="positioning">{% if LANG == 'en' %}{{ t('turno.positioning') }}{% else %}Non giudica il talento — <b>misura quando l'attenzione</b> su un nome comincia a muoversi.{% endif %}</p>
                 <div class="intake-stats">
                     <div><div class="stat-num" id="statCount">—</div><div class="stat-label">{{ t('turno.stat_cases') if LANG == 'en' else 'casi da rivedere' }}</div></div>
                     <div><div class="stat-num" id="statMinutes">—</div><div class="stat-label">{{ 'to check' if LANG == 'en' else 'da verificare' }}</div></div>
