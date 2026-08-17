@@ -34,6 +34,7 @@ TRANSLATIONS = {
         "turno.eyebrow_prefix": "SHIFT OF",
         "turno.intake_title": "There's no list to scroll. There's a shift to do.",
         "turno.intake_sub_html": "Here you'll find who has news or a <strong>window still open</strong> (a \"about to break out\" stays until it actually closes). When a window closes — reached the big papers, or cooled off — it's shown to you once, explained: <strong>nothing disappears in silence</strong>. The rest is in the archive, quiet, until it moves.",
+        "turno.positioning": "Doesn't judge talent — measures when attention on a name starts moving.",
         "turno.stat_cases": "CASES TO REVIEW",
         "turno.stat_minutes": "MIN. READ",
         "turno.stat_archived": "ARCHIVED, QUIET",
