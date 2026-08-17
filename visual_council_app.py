@@ -385,18 +385,26 @@ def radar_feed():
             last = record["history"][-1]
             identity = record.get("identity") or {}
             provenienza = record.get("club_provenienza")
+            # club/ruolo/nazionalita' mostrati sono quelli RISOLTI dal grafo
+            # delle fonti (una scheda Wikidata stantia, o un dato AI
+            # sbagliato, non devono vincere su una correzione datata o su
+            # una conferma umana) - l'identity resta il dato grezzo del
+            # fetch, mai perso, solo scavalcato quando il grafo sa di piu'.
+            # role_provenienza/nationality_label_provenienza possono mancare
+            # sui record scritti prima di questa generalizzazione (2026-08):
+            # .get() degrada da solo al grezzo, nessuna migrazione dati.
             results.append({
                 "candidate_id": candidate_id,
                 "name": identity.get("name"),
-                # il club mostrato e' quello RISOLTO dal grafo delle fonti
-                # (una scheda Wikidata stantia non deve piu' vincere sulla
-                # stampa datata); l'identity resta il dato grezzo del fetch
                 "club": (provenienza or {}).get("valore") or identity.get("club"),
                 "club_provenienza": provenienza,
-                "role": identity.get("role"),
+                "role": identity.get("role_risolto") or identity.get("role"),
+                "role_provenienza": identity.get("role_provenienza"),
                 "dob": identity.get("dob"),
                 "tier": identity.get("tier"),
-                "nationality_label": identity.get("nationality_label"),
+                "nationality_label": (identity.get("nationality_label_risolto")
+                                      or identity.get("nationality_label")),
+                "nationality_label_provenienza": identity.get("nationality_label_provenienza"),
                 "source": identity.get("source"),
                 "signal_score": last.get("signal_score"),
                 "components": last.get("components"),
@@ -460,15 +468,23 @@ def radar_turno():
                 continue
             identity = record.get("identity") or {}
             giudice = (record.get("dossier") or {}).get("giudice") or {}
+            club_provenienza = record.get("club_provenienza")
             cases.append({
                 "candidate_id": candidate_id,
                 "name": identity.get("name"),
-                "club": identity.get("club"),
-                "club_provenienza": record.get("club_provenienza"),
-                "role": identity.get("role"),
+                # club risolto dal grafo, non il grezzo - stessa correzione
+                # gia' applicata a /api/radar/feed (era rimasta indietro qui:
+                # IL TURNO mostrava il club vecchio anche quando il grafo
+                # aveva gia' la risposta giusta)
+                "club": (club_provenienza or {}).get("valore") or identity.get("club"),
+                "club_provenienza": club_provenienza,
+                "role": identity.get("role_risolto") or identity.get("role"),
+                "role_provenienza": identity.get("role_provenienza"),
                 "dob": identity.get("dob"),
                 "tier": identity.get("tier"),
-                "nationality_label": identity.get("nationality_label"),
+                "nationality_label": (identity.get("nationality_label_risolto")
+                                      or identity.get("nationality_label")),
+                "nationality_label_provenienza": identity.get("nationality_label_provenienza"),
                 "signal_score": last.get("signal_score"),
                 "components": last.get("components"),
                 "fit_score": last.get("fit_score"),
@@ -631,6 +647,39 @@ def radar_club_conferma():
     try:
         result = discovery_engine.confirm_club(candidate_id, club)
         return jsonify({"status": "success", "candidate_id": candidate_id, **result})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+
+@app.route("/api/radar/campo-conferma", methods=["POST"])
+def radar_campo_conferma():
+    """Conferma umana LIBERA di un campo dalla card (club/ruolo/
+    nazionalita'), non legata a una proposta gia' avanzata dal sistema come
+    /api/radar/club-conferma - qui l'umano scrive il valore giusto anche
+    quando ne' il grafo ne' il dossier AI l'avevano gia' suggerito.
+
+    Nato dal caso Robin Visser (2026-08): il dossier AI aveva sbagliato la
+    nazionalita' ("calciatore tedesco", era francese) e non esisteva alcun
+    modo di correggerla - solo il club aveva un bottone di conferma, e
+    pure quello solo quando il sistema stesso proponeva un cambio. campo e'
+    validato contro CAMPI_UMANO_CORREGGIBILI: un nome fuori lista (es. "dob",
+    non ancora correggibile qui, o una chiave inventata) e' rifiutato
+    esplicitamente, non silenziosamente ignorato ne' scritto a vuoto nel
+    grafo dove nessun lettore/UI lo rileggerebbe mai."""
+    data = request.json or {}
+    candidate_id = data.get("candidate_id")
+    campo = (data.get("campo") or "").strip()
+    valore = (data.get("valore") or "").strip()
+    if not candidate_id or not campo or not valore:
+        return jsonify({"status": "error",
+                        "message": "candidate_id, campo e valore sono obbligatori"})
+    if campo not in discovery_engine.CAMPI_UMANO_CORREGGIBILI:
+        return jsonify({"status": "error",
+                        "message": f"campo '{campo}' non correggibile qui "
+                                   f"(ammessi: {', '.join(discovery_engine.CAMPI_UMANO_CORREGGIBILI)})"})
+    try:
+        result = discovery_engine.confirm_field(candidate_id, campo, valore)
+        return jsonify({"status": "success", "candidate_id": candidate_id, "campo": campo, **result})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
 

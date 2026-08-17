@@ -269,6 +269,38 @@
             font-size: 0.72rem; color: var(--text-dim); margin: 0 0 16px; line-height: 1.5;
         }
 
+        /* Correzione libera (club/ruolo/nazionalita'): a differenza del
+           bottone CONFERMO sopra - che compare solo quando il sistema
+           stesso propone un cambio - questa e' sempre disponibile, per
+           quando un umano sa qualcosa che ne' il grafo ne' il dossier AI
+           avevano ancora trovato da soli (caso Robin Visser: nazionalita'
+           sbagliata dal dossier, nessun modo di correggerla prima di questo). */
+        .correct-toggle {
+            display: inline-flex; align-items: center; gap: 5px; background: none; border: none;
+            padding: 0; margin-top: 2px; font-family: 'JetBrains Mono', monospace; font-size: 0.68rem;
+            color: var(--text-faint); cursor: pointer; letter-spacing: 0.02em;
+        }
+        .correct-panel {
+            display: none; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line);
+        }
+        .correct-panel.open { display: block; }
+        .correct-field { margin-bottom: 10px; }
+        .correct-field label {
+            display: block; font-size: 0.64rem; letter-spacing: 0.05em; text-transform: uppercase;
+            color: var(--text-faint); margin-bottom: 4px;
+        }
+        .correct-field input, .correct-field select {
+            width: 100%; box-sizing: border-box; background: var(--ink); border: 1px solid var(--line);
+            color: var(--text); padding: 9px 10px; font-family: inherit; font-size: 0.82rem; border-radius: 0;
+        }
+        .correct-save {
+            width: 100%; padding: 11px; background: var(--verified-dim); color: var(--verified);
+            border: 1px solid var(--verified); font-size: 0.74rem; font-weight: 700; letter-spacing: 0.05em;
+            text-transform: uppercase; cursor: pointer;
+        }
+        .correct-save:disabled { opacity: 0.6; cursor: default; }
+        .correct-note { font-size: 0.7rem; color: var(--text-dim); margin-top: 8px; line-height: 1.5; }
+
         .identity-row { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 16px; margin-bottom: 16px; border-bottom: 1px solid var(--line); }
         .id-name { font-family: 'Newsreader', serif; font-weight: 600; font-size: 1.15rem; }
         .id-meta { font-size: 0.76rem; color: var(--text-faint); margin-top: 3px; }
@@ -450,6 +482,16 @@
             path_to_spotlight: "the path to the spotlight —",
             pressure_label: "pressure", checks_label: "checks",
             pressure_note: "pressure measures how many objective signals are pushing it toward breaking out (0–100)",
+            correct_toggle: "correct the data",
+            correct_club_label: "club",
+            correct_role_label: "role",
+            correct_role_unspecified: "unspecified",
+            correct_nationality_label: "nationality",
+            correct_save: "save the correction",
+            correct_saving: "saving...",
+            correct_saved: "✓ saved — the system now uses this, wherever it disagreed",
+            correct_error: "couldn't save, try again",
+            correct_nothing: "nothing changed to save",
         } : {
             loading: "carico il turno...",
             scanning_headline: "Scansione in corso. I numeri qui sotto sono ancora quelli del giro precedente.",
@@ -508,6 +550,16 @@
             path_to_spotlight: "il percorso verso la ribalta —",
             pressure_label: "spinta", checks_label: "controlli",
             pressure_note: "la spinta misura quanti segnali oggettivi lo stanno portando verso l'esplosione (0–100)",
+            correct_toggle: "correggi i dati",
+            correct_club_label: "club",
+            correct_role_label: "ruolo",
+            correct_role_unspecified: "non specificato",
+            correct_nationality_label: "nazionalità",
+            correct_save: "salva la correzione",
+            correct_saving: "salvo...",
+            correct_saved: "✓ salvato — d'ora in poi il sistema usa questo, dovunque diceva altro",
+            correct_error: "non sono riuscito a salvare, riprova",
+            correct_nothing: "nulla da salvare, non hai cambiato niente",
         };
 
         const COMPONENT_LABELS = { age_vs_level: "eta'-vs-livello", buzz: "buzz" };
@@ -863,13 +915,36 @@
                 <div class="identity-row">
                     <div>
                         <div class="id-name">${escapeHTML(c.name)}</div>
-                        <div class="id-meta">${c.role ? escapeHTML(roleLabel(c.role)) + " · " : ""}${age !== null ? Math.floor(age) + (IS_EN ? " yo · " : " anni · ") : ""}${escapeHTML(tierLabel(c))}</div>
-                        <div class="id-meta">${escapeHTML(c.club || (IS_EN ? "club N/A" : "club N/D"))}</div>
+                        <div class="id-meta" id="idMetaRole">${c.role ? escapeHTML(roleLabel(c.role)) + " · " : ""}${age !== null ? Math.floor(age) + (IS_EN ? " yo · " : " anni · ") : ""}${escapeHTML(tierLabel(c))}</div>
+                        <div class="id-meta" id="idMetaClub">${escapeHTML(c.club || (IS_EN ? "club N/A" : "club N/D"))}</div>
                     </div>
                     <div class="id-score">
                         <div class="num">${c.signal_score != null ? c.signal_score : "–"}</div>
                         <div class="lbl">signal score</div>
                     </div>
+                </div>
+                <button class="correct-toggle" id="correctToggle" type="button">✎ ${I18N.correct_toggle}</button>
+                <div class="correct-panel" id="correctPanel">
+                    <div class="correct-field">
+                        <label for="correctClub">${I18N.correct_club_label}</label>
+                        <input type="text" id="correctClub" value="${escapeHTML(c.club || '')}" autocomplete="off">
+                    </div>
+                    <div class="correct-field">
+                        <label for="correctRole">${I18N.correct_role_label}</label>
+                        <select id="correctRole">
+                            <option value="">${I18N.correct_role_unspecified}</option>
+                            <option value="Portiere">${roleLabel("Portiere")}</option>
+                            <option value="Difensore">${roleLabel("Difensore")}</option>
+                            <option value="Centrocampista">${roleLabel("Centrocampista")}</option>
+                            <option value="Attaccante">${roleLabel("Attaccante")}</option>
+                        </select>
+                    </div>
+                    <div class="correct-field">
+                        <label for="correctNationality">${I18N.correct_nationality_label}</label>
+                        <input type="text" id="correctNationality" value="${escapeHTML(c.nationality_label || '')}" autocomplete="off">
+                    </div>
+                    <button class="correct-save" id="correctSave" type="button">${I18N.correct_save}</button>
+                    <div class="correct-note" id="correctNote"></div>
                 </div>
                 <div class="breakdown-line">score = ${compLine}</div>
                 ${bayesHtml}
@@ -928,6 +1003,76 @@
                         confirmBtn.disabled = false;
                         confirmBtn.textContent = I18N.confirm_retry;
                     }
+                });
+            }
+
+            // correzione libera club/ruolo/nazionalita': a differenza del
+            // bottone sopra, qui non c'e' una proposta del sistema da
+            // confermare - l'umano scrive lui il valore, che entra nel
+            // grafo come osservazione fonte=umano esattamente come la
+            // conferma del club. Un campo alla volta: si manda al server
+            // solo cio' che e' STATO CAMBIATO rispetto al valore mostrato,
+            // non tutti e tre sempre - un campo lasciato vuoto o invariato
+            // non genera una chiamata ne' un'osservazione a vuoto.
+            const correctToggle = document.getElementById("correctToggle");
+            const correctPanel = document.getElementById("correctPanel");
+            const correctRoleSelect = document.getElementById("correctRole");
+            if (correctRoleSelect) correctRoleSelect.value = c.role || "";
+            if (correctToggle && correctPanel) {
+                correctToggle.addEventListener("click", () => {
+                    correctPanel.classList.toggle("open");
+                });
+            }
+            const correctSave = document.getElementById("correctSave");
+            if (correctSave) {
+                correctSave.addEventListener("click", async () => {
+                    const fields = [
+                        { campo: "club", val: (document.getElementById("correctClub").value || "").trim(), was: c.club || "" },
+                        { campo: "role", val: correctRoleSelect.value || "", was: c.role || "" },
+                        { campo: "nationality_label", val: (document.getElementById("correctNationality").value || "").trim(), was: c.nationality_label || "" },
+                    ].filter(f => f.val && f.val !== f.was);
+                    const noteEl = document.getElementById("correctNote");
+                    if (fields.length === 0) {
+                        noteEl.textContent = I18N.correct_nothing;
+                        return;
+                    }
+                    correctSave.disabled = true;
+                    correctSave.textContent = I18N.correct_saving;
+                    try {
+                        const results = await Promise.all(fields.map(f => fetch("/api/radar/campo-conferma", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ candidate_id: c.candidate_id, campo: f.campo, valore: f.val }),
+                        }).then(r => r.json())));
+                        const allOk = results.every(r => r.status === "success");
+                        if (allOk) {
+                            // aggiorna lo stato locale della card, cosi' un secondo
+                            // salvataggio nella stessa sessione confronta contro il
+                            // valore appena corretto, non quello vecchio
+                            fields.forEach(f => {
+                                if (f.campo === "club") c.club = f.val;
+                                if (f.campo === "role") c.role = f.val;
+                                if (f.campo === "nationality_label") c.nationality_label = f.val;
+                            });
+                            // tierLabel() dipende anche da nationality_label (per i
+                            // candidati "pool per nazionalita'"), non solo da tier:
+                            // si ricostruiscono entrambe le righe, non solo quella
+                            // del campo appena corretto
+                            document.getElementById("idMetaRole").textContent =
+                                `${c.role ? roleLabel(c.role) + " · " : ""}${age !== null ? Math.floor(age) + (IS_EN ? " yo · " : " anni · ") : ""}${tierLabel(c)}`;
+                            document.getElementById("idMetaClub").textContent =
+                                c.club || (IS_EN ? "club N/A" : "club N/D");
+                            noteEl.textContent = I18N.correct_saved;
+                            correctSave.textContent = I18N.correct_save;
+                        } else {
+                            noteEl.textContent = I18N.correct_error;
+                            correctSave.textContent = I18N.correct_save;
+                        }
+                    } catch (e) {
+                        noteEl.textContent = I18N.correct_error;
+                        correctSave.textContent = I18N.correct_save;
+                    }
+                    correctSave.disabled = false;
                 });
             }
             animateCurveDot();

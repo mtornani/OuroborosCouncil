@@ -412,18 +412,73 @@ def _reversed_ts(obs: dict) -> float:
         return 0.0
 
 
-def confirm_club(candidate_id: str, club: str) -> dict:
-    """Conferma umana dalla card: registra l'osservazione fonte=umano (che il
-    risolutore fa vincere su tutto) e la PERSISTE subito - e' il fix della
-    correzione che prima moriva alla riscrittura successiva da Wikidata."""
+# Campi del grafo delle fonti: alimentati dai lettori automatici (Wikidata/
+# Wikipedia) E correggibili a mano dalla card. Originariamente solo "club"
+# (audit staleness 2026-07); generalizzato dopo il caso Robin Visser
+# (2026-08): il dossier AI lo aveva detto "calciatore tedesco" (era
+# francese) e non esisteva NESSUN posto dove scrivere quello vero - la
+# correzione moriva prima ancora di poter essere fatta. "dob" resta fuori
+# di proposito: e' gia' pronto lato risolutore (piramide.regole_campo) ma
+# la correzione di un'anagrafica e' un intervento diverso, non ancora
+# scoperto qui.
+CAMPI_UMANO_CORREGGIBILI = ("club", "role", "nationality_label")
+
+
+def _sync_graph_fields(candidates: list[dict], observations: dict, cfg: dict) -> None:
+    """Fase 'grafo delle fonti', generalizzata: i lettori EMETTONO
+    un'osservazione per ciascun campo di CAMPI_UMANO_CORREGGIBILI che ha un
+    valore grezzo, poi il risolutore decide il valore corrente per ciascun
+    candidato - mai un fetch grezzo usato direttamente a valle. Muta i
+    candidate dict IN PLACE (stesso pattern del vecchio blocco solo-club):
+    aggiunge f"{campo}_risolto", f"{campo}_provenienza", e
+    f"{campo}_alternativo" quando le fonti sono in disaccordo."""
+    reader_fonte = {"wikidata": "wikidata", "wikipedia": "wikipedia_torneo"}
+    for c in candidates:
+        fonte = reader_fonte.get(c.get("source"))
+        if not fonte:
+            continue
+        for campo in CAMPI_UMANO_CORREGGIBILI:
+            valore = c.get(campo)
+            if valore:
+                record_observation(observations, c["candidate_id"], campo, valore, fonte, cfg)
+    for c in candidates:
+        for campo in CAMPI_UMANO_CORREGGIBILI:
+            resolution = resolve_field(observations, c["candidate_id"], campo, cfg,
+                                       fallback=c.get(campo))
+            if not resolution:
+                continue
+            c[f"{campo}_risolto"] = resolution["valore"]
+            c[f"{campo}_provenienza"] = resolution
+            if resolution["conflitto"] and resolution.get("alternativa"):
+                c[f"{campo}_alternativo"] = resolution["alternativa"]
+
+
+def confirm_field(candidate_id: str, campo: str, valore: str) -> dict:
+    """Conferma umana di un campo dalla card: registra l'osservazione
+    fonte=umano (che il risolutore fa vincere su tutto) e la PERSISTE
+    subito - e' il fix della correzione che prima moriva alla riscrittura
+    successiva da Wikidata. Generalizzazione di confirm_club a qualunque
+    campo di CAMPI_UMANO_CORREGGIBILI (sopra): il chiamante (la route HTTP)
+    valida che campo sia correggibile PRIMA di arrivare qui, questa
+    funzione non ripete il controllo - un campo non validato finirebbe
+    comunque nel grafo (record_observation non ha un suo allow-list),
+    silenzioso e mai piu' letto da nessun lettore/UI."""
     cfg = load_config()
     store = _load_json(OBSERVATIONS_FILE)
-    changed = record_observation(store, candidate_id, "club", club, "umano", cfg,
+    changed = record_observation(store, candidate_id, campo, valore, "umano", cfg,
                                  datato_al=_now_iso()[:10])
     if changed:
         _save_json(OBSERVATIONS_FILE, store)
-    resolution = resolve_field(store, candidate_id, "club", cfg)
-    return {"registrata": changed, "club_provenienza": resolution}
+    resolution = resolve_field(store, candidate_id, campo, cfg)
+    return {"registrata": changed, f"{campo}_provenienza": resolution}
+
+
+def confirm_club(candidate_id: str, club: str) -> dict:
+    """Alias storico di confirm_field per 'club' - la route esistente
+    (/api/radar/club-conferma, legata al bottone CONFERMO quando il sistema
+    stesso propone un cambio) continua a chiamare questo nome. Ritorna
+    esattamente la stessa forma di prima: {"registrata": ..., "club_provenienza": ...}."""
+    return confirm_field(candidate_id, "club", club)
 
 
 _BARE_QID_RE = re.compile(r"^Q\d+$")
@@ -2177,23 +2232,13 @@ def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> di
     candidates = fetch_candidate_pool(cfg)
 
     # Grafo delle fonti: i lettori EMETTONO osservazioni (non sovrascrivono),
-    # poi il risolutore decide il club corrente per ciascun candidato - e' lui
-    # che alimenta la query buzz, non il fetch grezzo. Vedi la sezione GRAFO
-    # DELLE FONTI in alto per il perche' (audit staleness 2026-07).
+    # poi il risolutore decide club/ruolo/nazionalita' per ciascun candidato
+    # - e' il club risolto ad alimentare la query buzz, non il fetch grezzo.
+    # Vedi la sezione GRAFO DELLE FONTI in alto per il perche' (audit
+    # staleness 2026-07, generalizzato oltre il club dopo il caso Robin
+    # Visser 2026-08 - vedi commento su CAMPI_UMANO_CORREGGIBILI).
     _progress("aggiorno il grafo delle fonti")
-    _READER_FONTE = {"wikidata": "wikidata", "wikipedia": "wikipedia_torneo"}
-    for c in candidates:
-        fonte = _READER_FONTE.get(c.get("source"))
-        if fonte and c.get("club"):
-            record_observation(observations, c["candidate_id"], "club", c["club"], fonte, cfg)
-    for c in candidates:
-        resolution = resolve_field(observations, c["candidate_id"], "club", cfg,
-                                   fallback=c.get("club"))
-        if resolution:
-            c["club_risolto"] = resolution["valore"]
-            c["club_provenienza"] = resolution
-            if resolution["conflitto"] and resolution.get("alternativa"):
-                c["club_alternativo"] = resolution["alternativa"]
+    _sync_graph_fields(candidates, observations, cfg)
 
     # Stage 1: eta'-relativa-al-livello, locale, zero chiamate di rete su
     # tutti i candidati (pool nell'ordine delle centinaia - vedi commento in
@@ -2624,11 +2669,15 @@ def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> di
             {
                 "candidate_id": e["candidate"]["candidate_id"],
                 "name": e["candidate"]["name"],
-                "club": e["candidate"].get("club"),
-                "role": e["candidate"].get("role"),
+                # preferisce il valore RISOLTO dal grafo (fonte piu' fresca o
+                # confermata a mano) al grezzo del fetch - stessa regola gia'
+                # applicata al club, estesa a ruolo/nazionalita'
+                "club": e["candidate"].get("club_risolto") or e["candidate"].get("club"),
+                "role": e["candidate"].get("role_risolto") or e["candidate"].get("role"),
                 "dob": e["candidate"].get("dob"),
                 "tier": e["candidate"].get("tier"),
-                "nationality_label": e["candidate"].get("nationality_label"),
+                "nationality_label": (e["candidate"].get("nationality_label_risolto")
+                                      or e["candidate"].get("nationality_label")),
                 "source": e["candidate"].get("source"),
                 "signal_score": e["signal"]["signal_score"],
                 "components": e["signal"]["components"],

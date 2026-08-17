@@ -21,6 +21,15 @@ class TestAccessGate(unittest.TestCase):
     def tearDown(self):
         os.environ.pop("RADAR_ACCESS_KEY", None)
         os.environ.pop("RADAR_GUEST_KEY", None)
+        # RADAR_ACCESS_KEY/RADAR_GUEST_KEY sono lette una volta a import e
+        # diventano costanti di MODULO (vedi visual_council_app.py) - solo
+        # rimuovere le env var non basta, il modulo resterebbe con la
+        # chiave vecchia in memoria per il resto del processo. Senza questo
+        # reload, qualunque test file ESTERNO a questa classe che tocchi
+        # visual_council_app.app.test_client() dopo di noi nella stessa
+        # sessione pytest trovava il gate ancora acceso (401 inaspettati,
+        # scoperto dal vivo aggiungendo test_campo_conferma_route.py).
+        importlib.reload(self.app_mod)
 
     def client(self):
         return self.app_mod.app.test_client()
@@ -56,6 +65,11 @@ class TestAccessGate(unittest.TestCase):
     def test_chiave_ospite_NON_puo_confermare_club(self):
         r = self.client().post("/api/radar/club-conferma?guest_key=ospite456",
                                json={"candidate_id": "Q1", "club": "X"})
+        self.assertEqual(r.status_code, 403)
+
+    def test_chiave_ospite_NON_puo_correggere_campi(self):
+        r = self.client().post("/api/radar/campo-conferma?guest_key=ospite456",
+                               json={"candidate_id": "Q1", "campo": "role", "valore": "Portiere"})
         self.assertEqual(r.status_code, 403)
 
     def test_chiave_ospite_NON_puo_registrare_decisione(self):
