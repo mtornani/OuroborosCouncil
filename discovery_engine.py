@@ -1607,7 +1607,16 @@ def detect_state_change(
             and prov["valore"] != gia_segnalato):
         club_aggiornato = prov["valore"]
         fonte_club = prov
-    elif giudice.get("club_aggiornato"):
+    # Guardia doppia (stesso motivo della scrittura nel grafo, vedi
+    # _finalize_dossier): senza web_search_tool_available il Cronista non
+    # aveva ricerca web in questa generazione, quindi club_aggiornato non e'
+    # fondato su nulla; e senza il confronto con il club attuale un modello
+    # che ripete lo stesso nome (invece di rispettare "altrimenti null")
+    # genera una card che confronta un valore con se stesso - visto dal
+    # vivo su Alex Marchal (2026-08): "risultava a X, la stampa dice X".
+    elif (giudice.get("club_aggiornato")
+          and current_dossier.get("web_search_tool_available")
+          and giudice["club_aggiornato"] != candidate.get("club")):
         club_aggiornato = giudice["club_aggiornato"]
     if club_aggiornato:
         old_club = candidate.get("club") or "N/D"
@@ -2539,8 +2548,19 @@ def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> di
         # successiva da Wikidata - ora e' agli atti, e il risolutore lo fa
         # vincere sui claim non datati gia' dal prossimo run (query buzz
         # compresa)
+        # Guardia doppia, non ridondante: senza web_search_tool_available il
+        # Cronista non aveva ricerca web in QUESTA generazione (default dal
+        # 2026-08: swarm.web_search_grounding: false) - qualunque
+        # club_aggiornato in quel caso e' il modello che ripete/inventa senza
+        # aver cercato nulla, mai qualcosa da scrivere come fonte=news
+        # ("Cronista via ricerca web" sarebbe letteralmente falso). Scoperto
+        # dal vivo (caso Alex Marchal, 2026-08): senza questa guardia un
+        # modello economico ripeteva lo STESSO club gia' in archivio come
+        # "aggiornato", e la card CLUB DA CORREGGERE confrontava un valore
+        # con se stesso.
         club_aggiornato = (dossier.get("giudice") or {}).get("club_aggiornato")
-        if club_aggiornato:
+        if (club_aggiornato and dossier.get("web_search_tool_available")
+                and club_aggiornato != entry["candidate"].get("club")):
             cid = entry["candidate"]["candidate_id"]
             if record_observation(observations, cid, "club", club_aggiornato,
                                   "news", cfg, datato_al=run_at[:10],

@@ -94,13 +94,62 @@ class TestMotiviCheRichiedonoAI(unittest.TestCase):
         self.assertIsNone(_probe())
 
     def test_club_dal_giudice_non_scatta_senza_dossier(self):
+        # web_search_tool_available: True -> il Cronista aveva davvero la
+        # ricerca in questa generazione, quindi il club_aggiornato del
+        # Giudice e' fondato (vedi anche TestClubDalGiudiceRichiedeGrounding
+        # sotto per il caso in cui NON lo e')
         acceso = detect_state_change(
+            candidate={"name": "X", "club": "FC Imabari"}, previous_last_entry=PREV,
+            previous_dossier=None,
+            current_dossier={"giudice": {"club_aggiornato": "Cerezo Osaka"},
+                             "web_search_tool_available": True},
+            current_partial_data=False, bayes=None, cusum_state=NO_CUSUM, cfg=CFG)
+        self.assertEqual(acceso["type"], "club")
+        self.assertIsNone(_probe())
+
+
+class TestClubDalGiudiceRichiedeGrounding(unittest.TestCase):
+    """Bug reale trovato dal vivo (Alex Marchal, 2026-08, config di default
+    swarm.web_search_grounding: false): il Cronista non aveva ricerca web in
+    quella generazione, ma il Giudice ha comunque ripetuto lo STESSO club
+    gia' in archivio come "club_aggiornato" (un modello economico che non
+    rispetta "altrimenti null") - la card CLUB DA CORREGGERE confrontava un
+    valore con se stesso ("risultava a X, la stampa dice X")."""
+
+    def test_giudice_senza_grounding_non_scatta_anche_se_diverso(self):
+        # senza web_search_tool_available, club_aggiornato non e' fondato su
+        # nulla - non conta nemmeno se propone un nome DIVERSO, l'assenza di
+        # ricerca vera lo rende un'invenzione, non una correzione
+        change = detect_state_change(
+            candidate={"name": "X", "club": "FC Imabari"}, previous_last_entry=PREV,
+            previous_dossier=None,
+            current_dossier={"giudice": {"club_aggiornato": "Cerezo Osaka"},
+                             "web_search_tool_available": False},
+            current_partial_data=False, bayes=None, cusum_state=NO_CUSUM, cfg=CFG)
+        self.assertIsNone(change)
+
+    def test_giudice_ripete_lo_stesso_club_non_scatta_anche_con_grounding(self):
+        # il caso esatto di Alex Marchal: grounding disponibile, ma il
+        # modello ha ripetuto lo stesso club invece di rispettare
+        # "altrimenti null" - vecchio e nuovo identici, nessuna correzione
+        change = detect_state_change(
+            candidate={"name": "X", "club": "Real Sociedad de Futbol B"},
+            previous_last_entry=PREV, previous_dossier=None,
+            current_dossier={"giudice": {"club_aggiornato": "Real Sociedad de Futbol B"},
+                             "web_search_tool_available": True},
+            current_partial_data=False, bayes=None, cusum_state=NO_CUSUM, cfg=CFG)
+        self.assertIsNone(change)
+
+    def test_giudice_senza_flag_dossier_non_scatta(self):
+        # dossier senza la chiave web_search_tool_available (dossier vecchi,
+        # generati prima di questa guardia): trattato come non fondato, non
+        # come "vero per default" - degrada al sicuro
+        change = detect_state_change(
             candidate={"name": "X", "club": "FC Imabari"}, previous_last_entry=PREV,
             previous_dossier=None,
             current_dossier={"giudice": {"club_aggiornato": "Cerezo Osaka"}},
             current_partial_data=False, bayes=None, cusum_state=NO_CUSUM, cfg=CFG)
-        self.assertEqual(acceso["type"], "club")
-        self.assertIsNone(_probe())
+        self.assertIsNone(change)
 
 
 class TestClubDalGrafo(unittest.TestCase):
