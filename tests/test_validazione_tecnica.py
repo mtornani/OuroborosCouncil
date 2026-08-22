@@ -461,6 +461,38 @@ class TestContraddittorio(unittest.TestCase):
 
 
 # ======================================================================
+class TestGateDossier(unittest.TestCase):
+    """Il filtro che decide chi merita un dossier AI diceva "serve un ALTRO
+    segnale, non solo un numero alto". Da quando esiste il Layer F
+    quell'altro segnale puo' esserci: se il gate lo ignorasse, scarterebbe
+    proprio il tesoro silenzioso - il caso per cui il layer e' stato scritto."""
+
+    def _sig(self, validazione):
+        # un candidato fuori dal pool buzz: unico componente, eta' satura
+        return {"components": {"age_vs_level": 0.97}, "validazione": validazione}
+
+    def test_solo_eta_satura_senza_validazione_resta_escluso(self):
+        from discovery_engine import _needs_more_signal
+        self.assertTrue(_needs_more_signal(self._sig(
+            _score(_giocatore(18.0), _carriera([_club(apps=None)])))))
+
+    def test_validato_entra_anche_con_un_solo_componente(self):
+        """IL TESORO SILENZIOSO: poco o nessun buzz, ma minuti veri in prima
+        squadra. Deve poter arrivare al dossier."""
+        from discovery_engine import _needs_more_signal
+        validato = _score(_giocatore(17.0), _carriera([_club(apps=25), _nazionale()]))
+        self.assertEqual(validato["stato"], "validato")
+        self.assertFalse(_needs_more_signal(self._sig(validato)),
+                         "un candidato validato dal segnale costoso e' stato escluso dal dossier")
+
+    def test_non_validabile_non_apre_la_porta(self):
+        """L'assenza di dati non deve diventare un lasciapassare: sarebbe
+        l'errore opposto, spendere chiamate AI su chi non ha nulla."""
+        from discovery_engine import _needs_more_signal
+        self.assertTrue(_needs_more_signal(self._sig(_score(_giocatore(18.0), None))))
+
+
+# ======================================================================
 class TestCacheCarriera(unittest.TestCase):
     """La cache non e' un'ottimizzazione, e' parte del contratto: la
     validazione e' un LUSSO che non deve mai far fallire una scansione.

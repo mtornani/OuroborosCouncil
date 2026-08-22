@@ -966,7 +966,19 @@ def _needs_more_signal(score_result: dict) -> bool:
     """Un solo componente disponibile E gia' saturo (>=0.9) non basta come
     evidenza per un dossier - lo dice il primo verdetto reale del Giudice
     (Deinner Ordonez, signal 100 basato solo su eta': 'punteggio 100 e' un
-    puro artefatto anagrafico... segnale vuoto ad alta rumorosita'')."""
+    puro artefatto anagrafico... segnale vuoto ad alta rumorosita'').
+
+    LAYER F. Questo gate diceva letteralmente "serve un ALTRO segnale prima di
+    spendere un dossier, non solo un numero alto". Da quando esiste il Layer F
+    quell'altro segnale puo' esserci - ed e' il piu' caro da falsificare che
+    il sistema sappia leggere. Senza questa riga il gate escluderebbe proprio
+    il TESORO SILENZIOSO: un candidato fuori dal pool buzz (quindi con il solo
+    componente eta', spesso saturo) che pero' ha minuti veri in prima squadra
+    o una convocazione. Sarebbe il caso per cui il layer e' stato scritto,
+    scartato dal filtro che lo precede - il tipo di bug che non da' errore e
+    si nota solo perche' il dossier "giusto" non arriva mai."""
+    if (score_result.get("validazione") or {}).get("stato") == "validato":
+        return False
     components = score_result.get("components", {})
     if len(components) != 1:
         return False
@@ -3282,8 +3294,10 @@ def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> di
     for entry in ranked:
         if "dossier" not in entry and _needs_more_signal(entry["signal"]):
             entry["dossier"] = {
-                "skipped": "Segnale singolo e gia' al tetto (es. solo eta'-relativa, senza buzz a corroborare): "
-                           "serve un altro segnale prima di spendere un dossier AI, non solo un numero alto."
+                "skipped": "Segnale singolo e gia' al tetto (es. solo eta'-relativa, senza buzz a corroborare) "
+                           "e nessun segnale costoso a validarlo (nessuna presenza in prima squadra ne' "
+                           "convocazione risulta registrata): serve un altro segnale prima di spendere un "
+                           "dossier AI, non solo un numero alto."
             }
 
     def _finalize_dossier(entry):

@@ -679,6 +679,22 @@ validazione_tecnica:
     Q63980269: seconda_divisione     # Super League Greece 2
     Q44763: prima_divisione          # Ekstraklasa (calcio - Q1345484 e' pallamano, Q2300526 hockey)
     Q217016: prima_divisione         # Czech First League
+    Q162604: prima_divisione         # Croatian Football League
+    Q235307: prima_divisione         # Serbian SuperLiga
+    Q202243: prima_divisione         # Allsvenskan (CALCIO - esistono omonime di bandy Q502828,
+                                     #   pallamano Q2649473 e floorball Q10406371)
+    # Fuori Europa: servono ai pool per cittadinanza (Giappone, Corea, Messico,
+    # USA, Africa), dove il candidato spesso gioca in patria e non in Europa.
+    # Stanno in "prima_divisione" perche' SONO prime divisioni: la scala qui
+    # misura quanto costa a chi decide, non la forza del campionato (vedi la
+    # nota sulla taratura sopra). Se un domani serve piu' granularita', si
+    # aggiunge una banda in "livelli" senza toccare una riga di codice.
+    Q206813: prima_divisione         # Campeonato Brasileiro Serie A
+    Q18543: prima_divisione          # Major League Soccer
+    Q764690: prima_divisione         # Liga MX (NON Q29613430, che e' la Liga MX Femenil)
+    Q2386334: prima_divisione        # K League 1 (Corea del Sud)
+    Q794235: prima_divisione         # Ligue Professionnelle 1 tunisina
+    Q647746: prima_divisione         # Ligue Professionnelle 1 algerina
 
   # Classi Wikidata per riconoscere una squadra NAZIONALE (verificate):
   # Q6979593 "squadra nazionale di calcio", Q1194951 "squadra sportiva
