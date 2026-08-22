@@ -679,6 +679,8 @@ validazione_tecnica:
     Q63980269: seconda_divisione     # Super League Greece 2
     Q44763: prima_divisione          # Ekstraklasa (calcio - Q1345484 e' pallamano, Q2300526 hockey)
     Q217016: prima_divisione         # Czech First League
+    Q201671: prima_divisione         # Eliteserien norvegese (CALCIO - Q1421206 e' hockey, Q3430157 bandy)
+    Q19510: seconda_divisione        # EFL Championship (2a inglese: stessa banda di Serie B/Ligue 2/2.Bundesliga)
     Q162604: prima_divisione         # Croatian Football League
     Q235307: prima_divisione         # Serbian SuperLiga
     Q202243: prima_divisione         # Allsvenskan (CALCIO - esistono omonime di bandy Q502828,
@@ -693,6 +695,7 @@ validazione_tecnica:
     Q18543: prima_divisione          # Major League Soccer
     Q764690: prima_divisione         # Liga MX (NON Q29613430, che e' la Liga MX Femenil)
     Q2386334: prima_divisione        # K League 1 (Corea del Sud)
+    Q276445: prima_divisione         # J1 League (Giappone - il pool per cittadinanza piu' grande)
     Q794235: prima_divisione         # Ligue Professionnelle 1 tunisina
     Q647746: prima_divisione         # Ligue Professionnelle 1 algerina
 
