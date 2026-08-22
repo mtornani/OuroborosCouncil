@@ -26,13 +26,16 @@ mano, anche al sole. Quattro schermate:
 | `/turno` | **IL TURNO** | Un caso alla volta: solo i giocatori su cui è cambiato qualcosa o che hanno una finestra ancora aperta. Finito l'ultimo, hai finito. |
 | `/mappa` | **LA MAPPA** | Colpo d'occhio d'insieme: ogni giocatore un pallino sulla curva "da sconosciuto a conosciuto", con la zona calda in evidenza. Tocca una tappa per la lista completa. |
 | `/processo` | **L'AVVOCATO DEL DIAVOLO** | Il sistema messo sotto processo dai suoi stessi numeri: precisione e richiamo (fallimenti compresi) + le obiezioni più dure con risposta onesta. |
-| `/radar` | **ARCHIVIO** | Tutti i candidati filtrabili per profilo/ruolo/età/paese, con la mini-curva e il dossier per scheda. |
+| `/radar` | **ARCHIVIO** | Tutti i candidati filtrabili per profilo/ruolo/età/paese **e per segnale costoso** (il filtro che rende cercabile il *tesoro silenzioso*), con la mini-curva e il dossier per scheda. |
 
 Ogni scheda giocatore porta con sé:
 - il suo **percorso** sulla curva di adozione (dove sta: *nessuno ne parla →
   solo fonti locali → se ne parla → sta per esplodere → sui grandi giornali →
   lo sanno tutti*);
 - il **verdetto** dello swarm di AI;
+- **chi ci ha già puntato**: i fatti *costosi* registrati su di lui — minuti veri
+  in prima squadra, convocazioni in nazionale — con la prova riga per riga. È
+  l'unico blocco della scheda che non misura attenzione;
 - **il contraddittorio**: le ragioni oggettive per dubitare di *quel* segnale,
   calcolate dai suoi dati (non dall'AI, così non si possono inventare).
 
@@ -60,7 +63,7 @@ un gradino per volta — la scalata dei tier delle fonti è il preavviso).
 
 ---
 
-## Come si costruisce il punteggio (i cinque layer)
+## Come si costruisce il punteggio (i sei layer)
 
 Backend deliberatamente leggibile ("alla Karpathy"): funzioni dirette, formule
 esplicite e ispezionabili in `discovery_engine.py`, zero ML/training, tutti i
@@ -85,6 +88,129 @@ tunable in `radar_config.yaml`.
   fasi) e i 4 fattori oggettivi di decollo (accelerazione, scalata dei tier,
   allargamento a testate distinte, persistenza). Quando ≥3 convergono e nessun
   grande giornale ne parla ancora → **STA PER ESPLODERE**.
+- **Layer F — VALIDAZIONE TECNICA (il segnale costoso).** L'unico layer che
+  *non* misura attenzione. Vedi la sezione dedicata qui sotto.
+
+---
+
+## Il Layer F: il segnale costoso
+
+I layer A–E misurano tutti la stessa cosa — **l'attenzione** — e hanno un
+difetto strutturale che questo README dichiarava già da sé: **scrivere un
+articolo non costa nulla**. Un procuratore, un ufficio stampa o un blog
+compiacente possono emetterlo a volontà. Un radar che ascolta solo quel canale
+è aggirabile per costruzione.
+
+Il Layer F legge una classe di segnali diversa: **gratis da leggere, costosi da
+emettere**.
+
+- un allenatore che manda in campo un 17enne in una lega professionistica ci
+  mette punti, classifica e alla lunga il posto di lavoro;
+- una federazione che lo convoca spende uno slot di rosa conteso, **ed è un
+  valutatore indipendente dal club** (il club ha interesse a gonfiare il
+  proprio asset, la federazione no);
+- un club che lo compra da una categoria inferiore ci mette soldi.
+
+Nessuno di questi atti è falsificabile dall'entourage del giocatore. Base
+teorica consolidata, non inventata qui: **signaling costoso** (Spence 1973) e
+**principio dell'handicap** (Zahavi 1975).
+
+> Continua a valere la frase di apertura: SENTINEL **non misura quanto è bravo
+> un giocatore**. Il Layer F misura *quanto qualcuno che rischiava qualcosa ha
+> già puntato su di lui*. È una misura di scommesse altrui, non un voto
+> tecnico. La qualità la decide sempre il tuo occhio.
+
+### I quadranti (perché non è un numero da sommare al Signal Score)
+
+Sommare validazione e buzz distruggerebbe informazione: un giocatore con
+buzz 80 / validazione 0 e uno con buzz 0 / validazione 80 finirebbero sullo
+stesso numero, e sono i due casi **più opposti** che esistano. Quindi i due
+assi restano separati e si incrociano:
+
+|  | validazione assente/debole | validazione forte |
+|---|---|---|
+| **buzz alto** | ⚠️ **NE PARLANO E BASTA** | ✅ **CONFERMATO** |
+| **buzz basso** | quiete | 💎 **TESORO SILENZIOSO** |
+
+**TESORO SILENZIOSO è il quadrante che il radar prima non poteva vedere.** Un
+17enne con minuti veri in una prima divisione di cui nessun giornalista ha
+ancora scritto ha buzz ≈ 0: usciva dal funnel come rumore. Il Layer F non
+aggiunge solo un controllo — **raddoppia lo spazio di ricerca** coprendo
+l'angolo cieco strutturale del sistema.
+
+**NE PARLANO E BASTA** è l'altro guadagno: è la firma del falso positivo che
+finora lo Scettico dello swarm poteva solo *indovinare*. Ed è la difesa contro
+l'attacco che questo README ammette (il buzz è aggirabile): chi pianta articoli
+muove il buzz e **non** muove la validazione, quindi finisce in un quadrante
+che si chiama da solo invece di passare per un vero positivo.
+
+### La regola cardinale: può solo confermare, mai condannare
+
+Le fonti libere sono incomplete per costruzione (audit di questo stesso repo:
+52% dei QID senza club su Wikidata). **L'assenza di un dato non è prova
+dell'assenza del fatto.** Quindi un componente entra nel calcolo *solo* con
+evidenza positiva: non esistono zeri "per dato mancante". Conseguenza,
+bloccata da test: **aggiungere un record non può mai abbassare il punteggio.**
+
+È anche il motivo per cui i componenti si combinano in **noisy-OR** invece che
+con la media pesata del Layer A. Là i componenti sono due viste dello stesso
+fenomeno latente e la media ha senso; qui ogni segnale costoso è una conferma
+*indipendente*, e non averne uno non è un voto contro. La media violerebbe la
+monotonia; il noisy-OR no, mai.
+
+Da qui i **tre stati**, che vanno tenuti distinti a ogni costo:
+
+| stato | significato |
+|---|---|
+| `validato` | evidenza costosa trovata → punteggio 0–100 leggibile |
+| `non_corroborato` | le fonti si sono lette **davvero**, non c'era nulla di costoso |
+| `non_validabile` | **non si è potuto guardare** (fonte muta/assente) |
+
+La differenza fra gli ultimi due è la differenza fra *"ho guardato e non c'era
+niente"* e *"non ho potuto guardare"*. Confonderle — o far somigliare la
+seconda a un voto basso — sarebbe esattamente il tipo di disonestà che questo
+progetto rifiuta altrove. Per questo un `non_validabile` con buzz alto resta
+**NON VALIDABILE**, e non diventa mai "NE PARLANO E BASTA".
+
+### Cosa cambia nel prodotto
+
+- **IL TURNO** ha un motivo nuovo, e apre la lista: **QUALCUNO CI HA PUNTATO** —
+  un fatto costoso *nuovo* (una prima convocazione, i primi minuti in un club).
+  È l'unico motivo del turno in cui a muoversi non è l'attenzione ma qualcosa
+  che qualcuno ha pagato. Non può inondare il turno: il confronto è sulle
+  *firme* (tipo+squadra), non sui punteggi, quindi le presenze che crescono
+  ogni settimana non generano nulla.
+- **STA PER ESPLODERE** porta ora la controprova: risponde alla domanda che un
+  uomo di campo fa per prima — *"sì, ma ha giocato davvero?"*.
+- **Il contraddittorio** smette di essere generico ("il buzz è fragile", vero
+  per tutti) e diventa specifico: *nessuno che rischiava qualcosa ha ancora
+  puntato su di lui*, oppure *la conferma c'è ma viene da un solo soggetto*.
+- **`/processo`** mette sotto processo anche questo layer, con la sua copertura
+  reale misurata (`validazione_copertura`).
+
+### Limiti misurati dal vivo (non stimati)
+
+Verificato durante lo sviluppo su Wikidata reale:
+
+- **`P1350` (presenze) è quasi non popolato per i giovani di Serie C.** Su un
+  campione reale di U22 di Serie C le presenze registrate erano nulle: quei
+  candidati risultano `non_corroborato`, non "scarsi". È il motivo per cui
+  quello stato esiste come stato a sé.
+- **Le convocazioni in nazionale sono invece ben popolate**, e non dipendono da
+  `P1350`: basta che la membership esista. Oggi è il canale più affidabile del
+  layer, ed è anche quello col peso più alto — coincidenza fortunata, ma
+  l'ordine dei pesi è motivato dal *costo dell'atto*, non dalla copertura.
+- Esempio reale end-to-end (dati live): un 17enne con 11 presenze in una prima
+  divisione top + 17 in nazionale U17 → **61.6/100, `validato`, 3
+  scommettitori distinti** → con buzz basso finisce in **TESORO SILENZIOSO**.
+- Una lega non mappata in `competizioni` non vale zero: vale **livello ignoto**,
+  finisce nella copertura e viene dichiarata sulla scheda.
+- Durante lo sviluppo l'endpoint SPARQL di Wikidata era **sotto outage
+  dichiarato** (`429 - aggressively rate-limiting to 1 req/min`). Per questo
+  cache e tetto di query per run non sono ottimizzazioni ma parte del
+  contratto: **la validazione è un lusso che non deve mai far fallire una
+  scansione.** Se la fonte tace, il radar torna esattamente a com'era prima
+  del Layer F.
 
 ---
 
@@ -162,7 +288,7 @@ Il repo `OuroborosCouncil` ospita più strumenti; **SENTINEL / OB1 Radar è quel
 principale e più sviluppato**.
 
 ```
-discovery_engine.py       # il motore: pool, scoring (Layer A–E), swarm, curva, tabellone
+discovery_engine.py       # il motore: pool, scoring (Layer A–F), swarm, curva, validazione, tabellone
 visual_council_app.py     # app Flask: rotte SENTINEL + il vecchio "Council"
 radar_config.yaml         # UNICO posto per pesi/soglie/fonti/profili (no codice da toccare)
 openrouter_client.py      # client swarm (+ ricerca web nativa per il Cronista)
@@ -181,6 +307,7 @@ radar_feed.json           # storico punteggi per candidato nel tempo
 buzz_history.json         # snapshot menzioni per candidato
 watchlist.json            # giocatori segnati a mano dalle schede
 curve_validation.json     # registro scommesse (esplosi/sgonfiati) + crossing
+career_records.json       # CACHE (non storico) dei dati di carriera per il Layer F — si può buttare, si rilegge
 
 # Legacy (non SENTINEL): Miss Minute — prioritizzazione progetti (miss_minute*.py, priorities.yaml)
 ```
@@ -307,12 +434,20 @@ gcloud scheduler jobs create http radar-scan-mattina \
 - Non esistono dati event-based gratuiti (xG, azioni progressive) a livello
   Serie C/D o giovanili sudamericane: SENTINEL **non sostituisce** Wyscout, è a
   monte. Il buzz è corroborazione, mai l'unica prova.
+- Il Layer F **non colma** quel vuoto e non ci prova: non misura la prestazione,
+  misura *chi ha già scommesso*. Un giocatore può avere 0 di validazione ed
+  essere fortissimo — vuol dire solo che nessuno l'ha ancora rischiato, o che la
+  fonte non lo sa. Per questo `non validabile` non è mai un voto basso.
 - Il segnale di buzz (Google News RSS + tier dedotto dal nome della testata) è la
   parte più fragile e potenzialmente aggirabile — per questo un solo segnale non
   porta mai un candidato in cima, e tutto sta in un file di config correggibile.
 - La qualità del segnale di velocità dipende dalla regolarità delle scansioni:
   con la scansione programmata (Cloud Scheduler, vedi deploy) la cadenza è
   regolare; a mano, dipende da quanto spesso premi "Aggiorna".
+- La copertura del segnale costoso sulle fonti libere è **parziale e misurata
+  in prodotto** (`/processo` → `validazione_copertura`): su Serie C/D le
+  presenze registrate su Wikidata sono rare, le convocazioni in nazionale molto
+  meno. Il layer si dichiara da solo, non promette più di quanto legge.
 - La validità del metodo è **una tesi, non un fatto dimostrato**. La prova è il
   tabellone del `/processo`, nel tempo: se batte il tasso base su un campione
   ampio, il metodo funziona; se no, il sistema lo dirà da solo.

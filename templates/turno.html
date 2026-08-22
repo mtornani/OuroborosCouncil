@@ -301,6 +301,24 @@
         .verdict-text { font-family: 'Newsreader', serif; font-style: italic; font-size: 0.95rem; line-height: 1.5; color: var(--text-dim); }
 
         /* IL CONTRADDITTORIO: le ragioni oggettive per dubitare, per giocatore */
+        /* LAYER F - le prove costose. Riquadro in --verified (non in
+           --signal): visivamente NON e' "un altro punteggio di attenzione",
+           e' un'altra categoria di fatto. La distinzione cromatica fa la
+           stessa cosa che i quadranti fanno nei dati - tenere separati i due
+           assi invece di lasciarli leggere come uno solo. */
+        .proof { border: 1px solid var(--verified); background: var(--verified-dim); padding: 13px 16px 14px; margin-bottom: 18px; }
+        .proof-head { font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--verified); margin-bottom: 4px; display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+        .proof-score { font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 0.82rem; }
+        .proof-sub { font-size: 0.72rem; color: var(--text-faint); margin-bottom: 10px; line-height: 1.4; }
+        .proof-item { display: flex; gap: 9px; font-size: 0.8rem; line-height: 1.5; padding: 4px 0; color: var(--text-dim); }
+        .proof-item .tick { color: var(--verified); flex-shrink: 0; font-weight: 700; }
+        .proof-none { font-size: 0.8rem; color: var(--text-dim); line-height: 1.5; }
+        .proof-quad { font-family: 'JetBrains Mono', monospace; font-size: 0.6rem; letter-spacing: 0.06em; text-transform: uppercase; border: 1px solid currentColor; padding: 2px 6px; }
+        .proof.is-muto { border-color: var(--line); background: transparent; }
+        .proof.is-muto .proof-head, .proof.is-muto .proof-quad { color: var(--text-faint); }
+        .proof.is-vuoto { border-color: var(--doubt); background: transparent; }
+        .proof.is-vuoto .proof-head, .proof.is-vuoto .proof-quad { color: var(--doubt); }
+
         .contra { border: 1px solid var(--doubt); padding: 13px 16px 14px; margin-bottom: 18px; }
         .contra-head { font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--doubt); margin-bottom: 4px; }
         .contra-sub { font-size: 0.72rem; color: var(--text-faint); margin-bottom: 10px; line-height: 1.4; }
@@ -435,6 +453,11 @@
             end_out: "out",
             end_holds: "holds",
             end_doesnt: "doesn't hold",
+            proof_head: "who has already bet on him",
+            proof_sub: "facts someone paid for — not press. This is the only block here that doesn't measure attention.",
+            proof_none_read: "Sources were actually read: no costly signal on record — no first-team appearances, no call-ups. That's an absence of confirmation, NOT evidence to the contrary: at these levels free databases are often behind.",
+            proof_none_mute: "No career data could be read for this player. This is not a low score, it's missing information — it counts neither for nor against him.",
+            proof_alone: "One bettor only: a real confirmation, but nobody independent has corroborated it yet.",
             contra_head: "the counter-argument",
             contra_sub: "before you trust it, here's what plays against this signal",
             contra_none: "No obvious structural flaw in this signal's data — rare. Still needs validating by eye: a clean counter-argument isn't a promise, it's an absence of alarms.",
@@ -493,6 +516,11 @@
             end_out: "scartati",
             end_holds: "tiene",
             end_doesnt: "non tiene",
+            proof_head: "chi ci ha gia' puntato",
+            proof_sub: "fatti che qualcuno ha pagato — non stampa. È l'unico blocco qui dentro che non misura attenzione.",
+            proof_none_read: "Le fonti sono state lette davvero: nessun segnale costoso registrato — nessuna presenza in prima squadra, nessuna convocazione. È un'assenza di conferme, NON una prova contraria: su questi livelli i database liberi sono spesso indietro.",
+            proof_none_mute: "Non è stato possibile leggere alcun dato di carriera per questo giocatore. Non è un voto basso, è assenza di informazione — non conta né a favore né contro.",
+            proof_alone: "Un solo scommettitore: è una conferma vera, ma nessuno di indipendente l'ha ancora corroborata.",
             contra_head: "il contraddittorio",
             contra_sub: "prima di fidarti, ecco cosa gioca contro questo segnale",
             contra_none: "Nessun difetto strutturale evidente nei dati di questo segnale — raro. Resta comunque da validare con l'occhio: il contraddittorio pulito non è una promessa, è un'assenza di allarmi.",
@@ -813,6 +841,42 @@
         // di QUESTO segnale, calcolate dai suoi dati (dal server, non
         // dall'AI). Se non ce n'e' nessuna, lo si dice: e' di per se' un
         // segnale (raro) di robustezza, non un silenzio.
+        // LAYER F: le prove costose. E' l'equivalente dei tier1_hits del buzz
+        // ("quale titolo, quale testata"): un punteggio senza la lista di cosa
+        // lo sostiene sarebbe il numero da prendere sulla fiducia che questo
+        // prodotto rifiuta ovunque.
+        //
+        // I tre stati restano VISIVAMENTE distinti, non solo nei dati: "non ho
+        // potuto guardare" (bordo grigio) non deve mai somigliare a "ho
+        // guardato e non c'era niente" (bordo rosso), ne' a un voto basso.
+        function provaCostosa(c) {
+            const v = c.validazione;
+            const q = c.quadrante || {};
+            const quadTag = q.tag ? `<span class="proof-quad">${escapeHTML(q.tag)}</span>` : "";
+            if (!v || v.stato === "non_validabile") {
+                return `<div class="proof is-muto">
+                    <div class="proof-head"><span>${I18N.proof_head}</span>${quadTag}</div>
+                    <div class="proof-none">${I18N.proof_none_mute}</div>
+                </div>`;
+            }
+            if (v.stato === "non_corroborato") {
+                return `<div class="proof is-vuoto">
+                    <div class="proof-head"><span>${I18N.proof_head}</span>${quadTag}</div>
+                    <div class="proof-none">${I18N.proof_none_read}</div>
+                </div>`;
+            }
+            const prove = (v.prove || []).map(p =>
+                `<div class="proof-item"><span class="tick">✓</span><span>${escapeHTML(p.testo || "")}</span></div>`).join("");
+            const ind = v.indipendenza || {};
+            const solo = (!ind.corroborato && (ind.scommettitori || 0) <= 1)
+                ? `<div class="proof-sub" style="margin:8px 0 0">${I18N.proof_alone}</div>` : "";
+            return `<div class="proof">
+                <div class="proof-head"><span>${I18N.proof_head}</span><span class="proof-score">${v.validation_score != null ? v.validation_score : "–"}/100</span>${quadTag}</div>
+                <div class="proof-sub">${I18N.proof_sub}</div>
+                ${prove}${solo}
+            </div>`;
+        }
+
         function contraddittorio(c) {
             const cav = c.caveats || [];
             const items = cav.map(t => `<div class="contra-item"><span class="x">✕</span><span>${escapeHTML(t)}</span></div>`).join("");
@@ -884,6 +948,7 @@
                 <div class="breakdown-line">score = ${compLine}</div>
                 ${bayesHtml}
                 ${curveStrip(c.curve, c.curve_trail)}
+                ${provaCostosa(c)}
                 <div class="verdict-box">
                     <div class="verdict-head"><span>${I18N.verdict_head}</span>${verdictLabel}</div>
                     <div class="verdict-text">${v.motivazione ? `"${escapeHTML(v.motivazione)}"` : I18N.no_motivation}</div>

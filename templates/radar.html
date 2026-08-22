@@ -500,6 +500,14 @@
 
         <div class="filter-label">{{ 'Country / competition' if LANG == 'en' else 'Paese / competizione' }}</div>
         <select class="filter-select" id="country-filter"></select>
+
+        <!-- LAYER F: il filtro che rende cercabile il quadrante per cui il
+             layer esiste. "Tesoro silenzioso" = qualcuno che rischiava
+             qualcosa ci ha gia' puntato E nessuno ne parla ancora: prima di
+             questo filtro erano invisibili per costruzione, perche' senza
+             buzz finivano in fondo a una classifica ordinata sul buzz. -->
+        <div class="filter-label">{{ 'Costly signal' if LANG == 'en' else 'Segnale costoso' }}</div>
+        <div class="filter-chip-row" id="quad-filters"></div>
     </div>
 
     <main id="results"></main>
@@ -572,7 +580,7 @@
             config: null,
             expanded: new Set(),
             filterPanelOpen: false,
-            filters: { roles: new Set(), maxAge: "all", country: "all" },
+            filters: { roles: new Set(), maxAge: "all", country: "all", quadrante: "all" },
             renderLimit: 60,   // quante schede disegnare per volta (mobile)
             totalCount: 0,     // totale reale, prima del cap del server
             scanning: false,   // c'e' una scansione in corso lanciata da qui?
@@ -827,12 +835,28 @@
             return `<div class="dossier-contra"><div class="dossier-contra-head">${IS_EN ? "the counter-argument — what plays against it" : "il contraddittorio — cosa gioca contro"}</div>${items}</div>`;
         }
 
+        // I quadranti come li vede l'archivio. L'ordine non e' alfabetico:
+        // e' l'ordine di INTERESSE per chi cerca: prima il caso che prima non
+        // si poteva vedere, poi la conferma, poi l'allarme.
+        const QUADRANTI = [
+            { key: "all", label: IS_EN ? "All" : "Tutti" },
+            { key: "tesoro_silenzioso", label: IS_EN ? "💎 silent treasure" : "💎 tesoro silenzioso" },
+            { key: "confermato", label: IS_EN ? "✅ confirmed" : "✅ confermato" },
+            { key: "solo_rumore", label: IS_EN ? "⚠️ press only" : "⚠️ ne parlano e basta" },
+            { key: "quiete", label: IS_EN ? "quiet" : "quiete" },
+            // "non validabile" resta un'opzione VISIBILE e separata: nasconderla
+            // farebbe sparire in silenzio i candidati su cui la fonte taceva,
+            // ed e' esattamente cio' che il progetto non fa mai.
+            { key: "indeterminato", label: IS_EN ? "not validatable" : "non validabile" },
+        ];
+
         function renderFilterPanel() {
             const panel = document.getElementById("filter-panel");
             panel.classList.toggle("open", state.filterPanelOpen);
 
             const toggle = document.getElementById("filter-toggle");
-            const filtersActive = state.filters.roles.size > 0 || state.filters.maxAge !== "all" || state.filters.country !== "all";
+            const filtersActive = state.filters.roles.size > 0 || state.filters.maxAge !== "all"
+                || state.filters.country !== "all" || state.filters.quadrante !== "all";
             toggle.classList.toggle("active", filtersActive);
             toggle.textContent = `${IS_EN ? "FILTERS" : "FILTRI"} ${state.filterPanelOpen ? "▴" : "▾"}`;
 
@@ -857,6 +881,18 @@
             ageEl.querySelectorAll(".filter-chip").forEach(el => {
                 el.addEventListener("click", () => {
                     state.filters.maxAge = el.dataset.age;
+                    state.renderLimit = 60;
+                    render();
+                });
+            });
+
+            const quadEl = document.getElementById("quad-filters");
+            quadEl.innerHTML = QUADRANTI.map(q =>
+                `<div class="filter-chip ${state.filters.quadrante === q.key ? "active" : ""}" data-quad="${q.key}">${q.label}</div>`
+            ).join("");
+            quadEl.querySelectorAll(".filter-chip").forEach(el => {
+                el.addEventListener("click", () => {
+                    state.filters.quadrante = el.dataset.quad;
                     state.renderLimit = 60;
                     render();
                 });
@@ -892,6 +928,13 @@
                     if (age === null || age > preset.max) return false;
                 }
                 if (state.filters.country !== "all" && groupKey(c) !== state.filters.country) return false;
+                if (state.filters.quadrante !== "all") {
+                    // un candidato mai valutato dal Layer F conta come
+                    // "indeterminato", non viene fatto sparire ne' conteggiato
+                    // come se fosse stato guardato e trovato vuoto
+                    const q = (c.quadrante && c.quadrante.quadrante) || "indeterminato";
+                    if (q !== state.filters.quadrante) return false;
+                }
                 return true;
             });
         }

@@ -44,6 +44,12 @@ BUZZ_HISTORY_FILE = BASE_DIR / "buzz_history.json"
 WATCHLIST_FILE = BASE_DIR / "watchlist.json"
 OBSERVATIONS_FILE = BASE_DIR / "radar_observations.json"
 DECISIONS_FILE = BASE_DIR / "human_decisions.json"
+# Layer F: cache dei record di carriera (presenze, convocazioni, traiettoria).
+# Non e' storico ma CACHE - si puo' buttare senza perdere nulla di
+# irrecuperabile, si rilegge dalla fonte. Vive comunque nella stessa
+# persistenza del resto (su Postgres se DATABASE_URL e' impostata), perche' il
+# suo scopo e' proprio non ri-martellare WDQS a ogni riavvio.
+CAREER_FILE = BASE_DIR / "career_records.json"
 
 # Contratto umano: SENTINEL misura l'attenzione, l'occhio decide la qualita'.
 # in_verifica = lo prendi in carico; passo = non ora; scarto = questo segnale no;
@@ -1355,6 +1361,75 @@ def curve_validation_summary() -> dict:
     }
 
 
+def validation_coverage_summary(feed: dict | None = None, cfg: dict | None = None) -> dict:
+    """QUANTO il Layer F riesce davvero a validare, misurato sui dati veri di
+    questo utente - non su una stima ottimistica presa a priori.
+
+    Appartiene al PROCESSO (l'avvocato del diavolo) per una ragione precisa:
+    un layer di validazione che non dichiara la propria copertura e' peggio
+    che inutile, perche' invita a leggere "non validato" come "non valido"
+    quando spesso significa solo "Wikidata non lo sa". Qui quella differenza
+    diventa un numero visibile in prodotto.
+
+    Nota di misura: durante lo sviluppo l'endpoint SPARQL di Wikidata era
+    sotto outage dichiarato (429, "aggressively rate-limiting to 1 req/min"),
+    quindi il sondaggio preliminare sulla copertura non era affidabile e NON
+    e' stato trasformato in una percentuale da esibire. La copertura vera e'
+    questa, calcolata a ogni run sui candidati reali."""
+    feed = feed if feed is not None else _load_json(FEED_FILE)
+    cfg = cfg or load_config()
+
+    conteggi = {"validato": 0, "non_corroborato": 0, "non_validabile": 0}
+    quadranti, prove_totali = {}, 0
+    for record in feed.values():
+        if not record:
+            continue
+        v = record.get("validazione") or {}
+        stato = v.get("stato")
+        if stato in conteggi:
+            conteggi[stato] += 1
+        prove_totali += len(v.get("prove") or [])
+        q = (record.get("quadrante") or {}).get("quadrante")
+        if q:
+            quadranti[q] = quadranti.get(q, 0) + 1
+
+    considerati = sum(conteggi.values())
+    copertura_pct = round(100.0 * (conteggi["validato"] + conteggi["non_corroborato"]) / considerati, 1) if considerati else None
+    validati_pct = round(100.0 * conteggi["validato"] / considerati, 1) if considerati else None
+
+    return {
+        "considerati": considerati,
+        "stati": conteggi,
+        "quadranti": quadranti,
+        "prove_totali": prove_totali,
+        # % di candidati su cui si e' potuto GUARDARE (validati + guardati e
+        # trovati vuoti). E' la misura onesta della portata del layer.
+        "copertura_pct": copertura_pct,
+        "validati_pct": validati_pct,
+        "tesori_silenziosi": quadranti.get("tesoro_silenzioso", 0),
+        "solo_rumore": quadranti.get("solo_rumore", 0),
+        "obiezione": (
+            # Nessun candidato valutato: si dice "non lo so ancora", non si
+            # sceglie una delle due frasi di merito. Stessa regola del
+            # tabellone (vedi tabellone/track_record_summary): su campione
+            # assente il sistema dichiara di non sapere invece di produrre
+            # una valutazione che sembrerebbe misurata.
+            "Nessun candidato e' ancora passato dalla validazione tecnica: non c'e' niente da "
+            "dichiarare sulla copertura. Il numero comparira' da solo dopo la prima scansione."
+            if not considerati else
+            "Su questo campione il segnale costoso e' leggibile per una minoranza dei candidati: "
+            "e' il limite vero di questo layer, non un dettaglio. Con fonti libere e livelli bassi "
+            "(Serie C/D, giovanili sudamericane) i database registrano presenze e convocazioni con "
+            "mesi di ritardo, quando le registrano. Per questo 'non validabile' resta uno stato a se' "
+            "e non viene mai contato come un voto basso: leggerlo come 'non vale' sarebbe l'errore "
+            "piu' facile e piu' costoso da fare con questi numeri."
+            if (copertura_pct is not None and copertura_pct < 50) else
+            "La copertura del segnale costoso su questo campione e' sufficiente a usarlo come filtro, "
+            "ma resta una misura di scommesse altrui - non un giudizio tecnico sul giocatore."
+        ),
+    }
+
+
 def track_record_summary() -> dict:
     """Il tabellone completo per l'avvocato del diavolo: precisione (dei
     segnalati, quanti sono davvero esplosi vs sgonfiati) E richiamo (degli
@@ -1465,7 +1540,8 @@ def phase_trail(record: dict) -> list:
     ]
 
 
-def player_caveats(last_entry: dict, bayes: dict | None, identity: dict, cfg: dict) -> list:
+def player_caveats(last_entry: dict, bayes: dict | None, identity: dict, cfg: dict,
+                   validazione: dict | None = None) -> list:
     """IL CONTRADDITTORIO per-giocatore: i motivi OGGETTIVI per dubitare di
     questo specifico segnale, calcolati dai suoi stessi dati - non
     dall'AI, cosi' non si possono inventare. E' la versione granulare, sulla
@@ -1499,6 +1575,42 @@ def player_caveats(last_entry: dict, bayes: dict | None, identity: dict, cfg: di
 
     if identity.get("tier") == "nationality_pool":
         caveats.append("Contesto non d'elite e livello di lega spesso ignoto: mancano riscontri prestazionali sul campo.")
+
+    # LAYER F nel contraddittorio. Qui sta il valore piu' alto del layer per
+    # chi legge una scheda: il dubbio smette di essere generico ("il buzz e'
+    # fragile", vero per tutti) e diventa specifico di QUESTO giocatore -
+    # nessuno che rischiava qualcosa ha ancora puntato su di lui, oppure
+    # qualcuno l'ha fatto e allora il dubbio e' un altro.
+    stato_v = (validazione or {}).get("stato")
+    signal = last_entry.get("signal_score") or 0
+    soglia_buzz = cfg["validazione_tecnica"]["quadranti"]["soglia_buzz"]
+    if stato_v == "non_corroborato":
+        if signal >= soglia_buzz:
+            caveats.append(
+                "Ne parla la stampa, ma nessun segnale costoso lo conferma: nessuna presenza in prima "
+                "squadra ne' convocazione risulta registrata. Non e' la prova che sia una bolla (le fonti "
+                "libere sono spesso indietro), ma e' il profilo tipico del falso positivo.")
+        else:
+            caveats.append(
+                "Nessun segnale costoso registrato finora (presenze, convocazioni): per ora c'e' solo "
+                "l'anagrafica, nessuno che rischiasse qualcosa ha ancora puntato su di lui.")
+    elif stato_v == "non_validabile":
+        caveats.append(
+            "Validazione tecnica impossibile su questo giocatore: " +
+            ((validazione or {}).get("motivo") or "fonte di carriera non disponibile") +
+            " Il punteggio qui sopra misura solo l'attenzione, non ha conferme sul campo - "
+            "ne' a favore ne' contro.")
+    elif stato_v == "validato":
+        ind = (validazione or {}).get("indipendenza") or {}
+        if not ind.get("corroborato") and ind.get("scommettitori", 0) <= 1:
+            caveats.append(
+                "Il segnale costoso viene da un solo soggetto (un solo club): e' una conferma vera ma "
+                "isolata, nessun valutatore indipendente l'ha ancora corroborata.")
+        cop = (validazione or {}).get("copertura") or {}
+        if cop.get("presenze_livello_ignoto"):
+            caveats.append(
+                f"Per {cop['presenze_livello_ignoto']} delle sue esperienze il livello del campionato "
+                "non e' ricostruibile: quelle presenze non hanno potuto pesare nella validazione.")
 
     return caveats
 
@@ -1561,6 +1673,561 @@ def curve_map_snapshot() -> dict:
 
 
 # ============================================================
+# LAYER F - VALIDAZIONE TECNICA (il segnale costoso)
+# ============================================================
+# LA LACUNA CHE QUESTO LAYER CHIUDE. Dal Layer A al Layer E il radar misura
+# un solo fenomeno: l'ATTENZIONE. E' il segnale piu' anticipatorio ottenibile
+# a costo zero, ma ha un difetto strutturale che il README dichiara da se':
+# SCRIVERE UN ARTICOLO NON COSTA NULLA. Un procuratore, un ufficio stampa o un
+# blog compiacente possono emetterlo a volonta'. Un radar che ascolta solo
+# quel canale e' aggirabile per costruzione.
+#
+# La tesi di questo layer: esiste una classe di segnali GRATIS DA LEGGERE ma
+# COSTOSI DA EMETTERE, e non li stava leggendo nessuno.
+#   - un allenatore che manda in campo un 17enne in una lega professionistica
+#     ci mette punti, classifica e alla lunga il posto di lavoro;
+#   - una federazione che lo convoca spende uno slot conteso, ed e' un
+#     valutatore INDIPENDENTE dal club (il club ha interesse a gonfiare il
+#     proprio asset, la federazione no);
+#   - un club che lo compra da una categoria inferiore ci mette soldi.
+# Nessuno di questi atti e' falsificabile dall'entourage del giocatore
+# (Spence 1973 sul signaling costoso, Zahavi 1975 sull'handicap: base
+# consolidata, non inventata qui).
+#
+# COSA MISURA E COSA NO. NON misura quanto e' bravo - per quello servono dati
+# evento che a questo livello non esistono gratis, e il README lo dice. Misura
+# QUANTO QUALCUNO CHE RISCHIAVA QUALCOSA HA GIA' PUNTATO SU DI LUI. Il numero
+# resta una misura di scommesse altrui, non un voto tecnico: la qualita' la
+# decide sempre l'occhio umano (contratto invariato, vedi HUMAN_STATUSES).
+#
+# REGOLA CARDINALE - MONOTONIA: puo' solo CONFERMARE, mai CONDANNARE. Le fonti
+# libere sono incomplete per costruzione (audit README: 52% dei QID senza club
+# su Wikidata) e l'assenza di un dato NON e' prova dell'assenza del fatto. Un
+# componente entra nel calcolo SOLO con evidenza positiva: non esistono zeri
+# "per dato mancante". Da qui il noisy-OR al posto della media pesata del
+# Layer A - la media violerebbe la monotonia (aggiungere un componente basso
+# abbasserebbe il totale), il noisy-OR no, mai. Bloccato da test.
+#
+# I TRE STATI, che vanno tenuti distinti a ogni costo:
+#   validato         evidenza costosa trovata -> punteggio 0-100 leggibile
+#   non_corroborato  le fonti si sono lette DAVVERO, non c'era nulla di
+#                    costoso: debolmente informativo, mai una condanna
+#   non_validabile   non si e' potuto guardare (fonte muta/assente) -> zero
+#                    informazione, e NON deve mai somigliare a un voto basso
+# La differenza tra gli ultimi due e' la differenza tra "ho guardato e non
+# c'era niente" e "non ho potuto guardare". Confonderle sarebbe esattamente il
+# tipo di disonesta' che questo progetto rifiuta altrove.
+
+_U_BAND_RE = re.compile(r"\bU[-\s]?(\d{2})\b|\bunder[-\s]?(\d{2})\b", re.IGNORECASE)
+
+
+def _parse_wd_date(value: str | None) -> datetime | None:
+    """Le date Wikidata arrivano come '2024-08-01T00:00:00Z'. Si tiene solo
+    la parte giorno: qui non serve altro e le timezone introdurrebbero solo
+    occasioni di sbagliare."""
+    if not value or len(value) < 10:
+        return None
+    try:
+        return datetime.fromisoformat(value[:10])
+    except ValueError:
+        return None
+
+
+def _eta_alla_data(dob: str | None, quando: datetime | None) -> float | None:
+    """None = non calcolabile (mai un'eta' stimata)."""
+    nascita = _parse_wd_date(dob)
+    if nascita is None or quando is None:
+        return None
+    anni = (quando - nascita).days / 365.25
+    return anni if anni > 0 else None
+
+
+def _precocita(eta: float | None, eta_riferimento: float, cfg: dict) -> float:
+    """Quanto e' sotto l'eta' tipica di chi sta a quel livello, normalizzato
+    0-1. Stessa idea del Layer A (age_vs_level_score), applicata pero' a
+    MINUTI VERI invece che alla semplice presenza in rosa: li' il 'livello'
+    costa quasi nulla, qui e' cio' che qualcuno ha davvero rischiato.
+    eta ignota -> 0.0, cioe' nessun bonus: nel dubbio non si gonfia."""
+    if eta is None:
+        return 0.0
+    spread = cfg["soglie"]["precocita_spread_anni"]
+    return max(0.0, min(1.0, (eta_riferimento - eta) / spread))
+
+
+def _banda_selezione(label: str | None, cfg: dict) -> str:
+    """Ricava la fascia di una selezione nazionale dall'etichetta ('Italy
+    national under-19 football team' -> U19). Deterministico e ispezionabile,
+    non un modello: l'etichetta si legge riga per riga. Se non e'
+    interpretabile si sceglie la banda PIU' PRUDENTE dichiarata in config,
+    mai la piu' generosa - regola cardinale, nel dubbio non si gonfia."""
+    if label:
+        m = _U_BAND_RE.search(label)
+        if m:
+            numero = m.group(1) or m.group(2)
+            chiave = f"U{numero}"
+            if chiave in cfg["selezioni"]:
+                return chiave
+            return cfg["selezione_banda_ignota"]
+        # nessun "under N" nell'etichetta: e' la selezione maggiore
+        return "senior"
+    return cfg["selezione_banda_ignota"]
+
+
+def _livello_di(league_qid: str | None, cfg: dict) -> dict | None:
+    """QID lega -> banda di livello. None = lega non mappata: NON vale zero,
+    vale 'livello ignoto' e finisce nella copertura come dato mancante."""
+    if not league_qid:
+        return None
+    banda = cfg["competizioni"].get(league_qid)
+    if not banda:
+        return None
+    livello = dict(cfg["livelli"][banda])
+    livello["banda"] = banda
+    return livello
+
+
+def _sparql_career_batch(qids: list[str], cfg: dict) -> dict | None:
+    """Carriera di PIU' candidati in una sola query (VALUES). None = fonte non
+    raggiungibile, che NON e' la stessa cosa di 'nessun record': il chiamante
+    deve poter distinguere i due casi (vedi i tre stati del Layer F).
+
+    Una query per lotto, non una per giocatore: con una pool nell'ordine delle
+    migliaia il per-giocatore sarebbe insostenibile. Durante lo sviluppo WDQS
+    era sotto outage dichiarato e rispondeva 429 'aggressively rate-limiting
+    to 1 req/min' - motivo per cui il tetto di query per run e la cache non
+    sono ottimizzazioni ma parte del contratto: la validazione e' un LUSSO
+    che non deve mai far fallire una scansione."""
+    if not qids:
+        return {}
+    values = " ".join(f"wd:{q}" for q in qids)
+    classi_naz = " ".join(f"wd:{c}" for c in cfg["classi_nazionale"])
+    query = f"""
+    SELECT ?player ?team ?teamLabel ?league ?apps ?goals ?start ?end ?isNational WHERE {{
+      VALUES ?player {{ {values} }}
+      ?player p:P54 ?membership .
+      ?membership ps:P54 ?team .
+      OPTIONAL {{ ?membership pq:P1350 ?apps . }}
+      OPTIONAL {{ ?membership pq:P1351 ?goals . }}
+      OPTIONAL {{ ?membership pq:P580 ?start . }}
+      OPTIONAL {{ ?membership pq:P582 ?end . }}
+      OPTIONAL {{ ?team wdt:P118 ?league . }}
+      BIND(EXISTS {{ VALUES ?nc {{ {classi_naz} }} ?team wdt:P31/wdt:P279* ?nc }} AS ?isNational)
+      SERVICE wikibase:label {{ bd:serviceParam wikibase:language "it,en". }}
+    }}
+    """
+    url = WIKIDATA_SPARQL_ENDPOINT + "?" + urllib.parse.urlencode({"query": query, "format": "json"})
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT,
+                                               "Accept": "application/sparql-results+json"})
+    try:
+        with urllib.request.urlopen(req, timeout=cfg["cache"]["timeout_secondi"]) as resp:
+            data = json.load(resp)
+    except Exception:
+        return None  # fonte muta: mai confuso con "nessun dato"
+
+    out = {q: [] for q in qids}
+    for row in data.get("results", {}).get("bindings", []):
+        pid = row["player"]["value"].rsplit("/", 1)[-1]
+        if pid not in out:
+            continue
+        apps_raw = row.get("apps", {}).get("value")
+        try:
+            apps = int(float(apps_raw)) if apps_raw is not None else None
+        except (TypeError, ValueError):
+            apps = None
+        out[pid].append({
+            "team": _clean_label(row.get("teamLabel", {}).get("value", "")),
+            "team_qid": row.get("team", {}).get("value", "").rsplit("/", 1)[-1] or None,
+            "league_qid": (row.get("league", {}).get("value", "").rsplit("/", 1)[-1] or None),
+            "apps": apps,
+            "start": row.get("start", {}).get("value"),
+            "end": row.get("end", {}).get("value"),
+            "is_national": row.get("isNational", {}).get("value") == "true",
+        })
+    return out
+
+
+def _career_is_fresh(record: dict | None, validita_giorni: int) -> bool:
+    if not record or not record.get("letto_il"):
+        return False
+    letto = _parse_wd_date(record["letto_il"])
+    if letto is None:
+        return False
+    return (datetime.now() - letto).days < validita_giorni
+
+
+def fetch_career_records(candidates: list[dict], cfg_root: dict, cache: dict,
+                         progress_cb=None) -> dict:
+    """Riempie/aggiorna la cache di carriera per i candidati dati. Mutata sul
+    posto e restituita, cosi' il chiamante la salva una volta sola.
+
+    Tre scelte deliberate, tutte per la stessa ragione (la validazione non
+    deve MAI degradare la scansione):
+      - i dati di carriera si muovono a settimane, non a ore -> cache con
+        scadenza, non rilettura a ogni giro;
+      - tetto duro di query per run -> chi non entra tiene il record vecchio
+        (dato stantio ma ONESTO, con letto_il in chiaro) invece di scadere a
+        'non validabile';
+      - fonte muta -> nessuna scrittura in cache, cosi' al giro dopo si
+        riprova invece di sedimentare un buco."""
+    cfg = cfg_root["validazione_tecnica"]
+    if not cfg.get("attiva", True):
+        return cache
+    ccfg = cfg["cache"]
+
+    da_leggere = [c["candidate_id"] for c in candidates
+                  if str(c.get("candidate_id", "")).startswith("Q")
+                  and not _career_is_fresh(cache.get(c["candidate_id"]), ccfg["validita_giorni"])]
+    if not da_leggere:
+        return cache
+
+    lotti = [da_leggere[i:i + ccfg["max_qid_per_query"]]
+             for i in range(0, len(da_leggere), ccfg["max_qid_per_query"])]
+    lotti = lotti[:ccfg["max_query_per_run"]]
+    ora = _now_iso()
+    for n, lotto in enumerate(lotti, 1):
+        if progress_cb:
+            try:
+                progress_cb("leggo i dati di carriera (segnale costoso)", done=n, total=len(lotti))
+            except Exception:
+                pass
+        risultato = _sparql_career_batch(lotto, cfg)
+        if risultato is None:
+            # WDQS muto per questo lotto: si interrompe qui invece di
+            # martellare una fonte che sta gia' dicendo di no (durante lo
+            # sviluppo rispondeva 429 a 1 req/min). I candidati non letti
+            # restano semplicemente "non validabili" per questo giro.
+            break
+        for qid, memberships in risultato.items():
+            cache[qid] = {"memberships": memberships, "fonte": "wikidata",
+                          "letto_il": ora, "stato_lettura": "ok"}
+    return cache
+
+
+def validation_score(candidate: dict, career: dict | None, cfg_root: dict) -> dict:
+    """Layer F, funzione PURA: zero rete, tutto testabile offline. Riceve i
+    record di carriera gia' letti (vedi fetch_career_records) e restituisce
+    punteggio + stato + le PROVE riga per riga.
+
+    Le prove non sono decorazione: sono l'equivalente dei tier1_hits del buzz
+    ('quale titolo, quale testata'). Un punteggio di validazione senza la
+    lista di cosa lo sostiene sarebbe esattamente il numero da prendere sulla
+    fiducia che il resto del progetto rifiuta."""
+    cfg = cfg_root["validazione_tecnica"]
+    soglie = cfg["soglie"]
+
+    def _muto(motivo: str) -> dict:
+        return {"validation_score": None, "stato": "non_validabile", "motivo": motivo,
+                "componenti": {}, "prove": [], "firma": [],
+                "indipendenza": {"scommettitori": 0, "corroborato": False, "chi": []},
+                "copertura": {"memberships_lette": 0}}
+
+    if not cfg.get("attiva", True):
+        return _muto("Validazione tecnica disattivata in configurazione.")
+    if not career:
+        return _muto("Carriera mai letta per questo candidato (fonte non ancora interrogata).")
+    if career.get("stato_lettura") != "ok":
+        return _muto(f"Fonte carriera non disponibile: {career.get('stato_lettura') or 'errore sconosciuto'}.")
+
+    memberships = career.get("memberships") or []
+    if not memberships:
+        return _muto("Nessuna carriera registrata su Wikidata per questo QID: "
+                     "non si e' potuto guardare, il che NON significa che non abbia giocato.")
+
+    dob = candidate.get("dob")
+    componenti, prove, firma = {}, [], []
+    scommettitori = {}
+    copertura = {"memberships_lette": len(memberships), "con_presenze": 0,
+                 "presenze_livello_ignoto": 0, "senza_data": 0, "nazionali": 0,
+                 "fonte": career.get("fonte", "wikidata"), "letto_il": career.get("letto_il")}
+
+    # ---- F1: FIDUCIA GUADAGNATA (minuti veri in prima squadra) ----------
+    # Si prende il MASSIMO, non la somma: la domanda e' "quanto e' stata
+    # grossa la scommessa piu' grossa fatta su di lui", non "quanti club ha
+    # girato". Sommare premierebbe il giramondo di categoria invece del
+    # ragazzo che un allenatore ha deciso di far giocare davvero. Il numero
+    # di scommettitori distinti e' misurato a parte (indipendenza).
+    migliore_fiducia = 0.0
+    for m in memberships:
+        if m.get("is_national"):
+            continue
+        apps = m.get("apps")
+        if not isinstance(apps, int) or apps <= 0:
+            continue
+        copertura["con_presenze"] += 1
+        livello = _livello_di(m.get("league_qid"), cfg)
+        if livello is None:
+            # presenze vere ma livello di lega ignoto: NON si scartano in
+            # silenzio (contano come scommettitore) e non si inventa un
+            # livello - si dichiarano nella copertura.
+            copertura["presenze_livello_ignoto"] += 1
+            scommettitori.setdefault(m.get("team_qid") or m.get("team"),
+                                     f"{m.get('team')} (livello ignoto)")
+            continue
+        inizio = _parse_wd_date(m.get("start"))
+        if inizio is None:
+            copertura["senza_data"] += 1
+        eta = _eta_alla_data(dob, inizio)
+        volume = min(1.0, apps / soglie["presenze_saturazione"])
+        # senza data non si sa a che eta' sono arrivate quelle presenze:
+        # si applica il pavimento, mai un'eta' dedotta
+        prec = _precocita(eta, livello["eta_riferimento"], cfg)
+        fattore_eta = max(soglie["precocita_minima"], prec)
+        contributo = livello["peso"] * volume * fattore_eta
+        if contributo > migliore_fiducia:
+            migliore_fiducia = contributo
+        scommettitori.setdefault(m.get("team_qid") or m.get("team"), m.get("team"))
+        eta_txt = f" a {eta:.1f} anni" if eta is not None else " (eta' alla firma non ricostruibile)"
+        prove.append({
+            "tipo": "presenze", "costo": cfg["costo_segnale"]["presenze_prima_squadra"],
+            "testo": f"{apps} presenze con {m.get('team')} in {livello['banda'].replace('_', ' ')}{eta_txt}",
+            "team": m.get("team"), "team_qid": m.get("team_qid"), "fonte": copertura["fonte"],
+        })
+        firma.append(f"presenze:{m.get('team_qid') or m.get('team')}")
+    if migliore_fiducia > 0:
+        componenti["fiducia_guadagnata"] = migliore_fiducia
+
+    # ---- F2: SELEZIONE ESTERNA (nazionale) ------------------------------
+    # Il componente col peso piu' alto, e non per gusto: e' l'unico dove chi
+    # valuta NON e' lo stesso soggetto che possiede il cartellino. Il club ha
+    # un interesse economico a far sembrare forte il proprio giocatore; una
+    # federazione che assegna uno slot di rosa no.
+    migliore_selezione = 0.0
+    for m in memberships:
+        if not m.get("is_national"):
+            continue
+        copertura["nazionali"] += 1
+        banda = _banda_selezione(m.get("team"), cfg)
+        sel = cfg["selezioni"][banda]
+        caps = m.get("apps") if isinstance(m.get("apps"), int) else 0
+        volume = min(1.0, caps / soglie["caps_saturazione"]) if caps > 0 else 0.0
+        # l'ATTO della convocazione vale gia' la maggior parte del segnale:
+        # essere scelto E' la scommessa, i minuti la rifiniscono
+        forza = soglie["selezione_base"] + (1 - soglie["selezione_base"]) * volume
+        base = sel["peso"] * forza
+        eta = _eta_alla_data(dob, _parse_wd_date(m.get("start")))
+        prec = _precocita(eta, sel["eta_banda"], cfg)
+        # la precocita' SOLLEVA verso l'alto invece di scontare: un 17enne in
+        # U20 si avvicina al valore di una convocazione di fascia superiore.
+        # (Qui non si usa il pavimento moltiplicativo di F1: una convocazione
+        # in fascia e' un fatto forte anche senza precocita', scontarla
+        # sarebbe una condanna mascherata.)
+        contributo = min(1.0, base + (1 - base) * prec)
+        if contributo > migliore_selezione:
+            migliore_selezione = contributo
+        scommettitori.setdefault(m.get("team_qid") or m.get("team"), m.get("team"))
+        eta_txt = f" a {eta:.1f} anni" if eta is not None else ""
+        caps_txt = f", {caps} presenze" if caps > 0 else ""
+        prove.append({
+            "tipo": "nazionale", "costo": cfg["costo_segnale"]["convocazione_nazionale"],
+            "testo": f"Convocato in {m.get('team')} ({banda}){caps_txt}{eta_txt}",
+            "team": m.get("team"), "team_qid": m.get("team_qid"), "fonte": copertura["fonte"],
+        })
+        firma.append(f"nazionale:{m.get('team_qid') or m.get('team')}")
+    if migliore_selezione > 0:
+        componenti["selezione_esterna"] = migliore_selezione
+
+    # ---- F3: TRAIETTORIA VERSO L'ALTO -----------------------------------
+    # Solo i salti IN SU vengono contati. Un passaggio a una categoria
+    # inferiore NON viene penalizzato: sui dati liberi non si distingue un
+    # prestito di crescita (normalissimo, spesso positivo) da un
+    # ridimensionamento, e penalizzare nel dubbio violerebbe la monotonia.
+    # Nel silenzio si tace, non si condanna.
+    datati = []
+    for m in memberships:
+        if m.get("is_national"):
+            continue
+        livello = _livello_di(m.get("league_qid"), cfg)
+        inizio = _parse_wd_date(m.get("start"))
+        if livello and inizio:
+            datati.append((inizio, livello, m))
+    datati.sort(key=lambda t: t[0])
+    finestra_giorni = soglie["traiettoria_finestra_mesi"] * 30.44
+    migliore_salto = 0.0
+    for i, (inizio, livello, m) in enumerate(datati):
+        if i == 0:
+            continue
+        if (datetime.now() - inizio).days > finestra_giorni:
+            continue
+        peso_prima = max(l["peso"] for _, l, _ in datati[:i])
+        salto = livello["peso"] - peso_prima
+        if salto <= 0:
+            continue
+        intensita = min(1.0, salto / soglie["traiettoria_salto_saturazione"])
+        contributo = livello["peso"] * intensita
+        # Il punteggio prende il salto MIGLIORE, ma la prova si registra per
+        # OGNI salto verso l'alto nella finestra. Tenerle legate (registrare
+        # la prova solo quando il salto batte il massimo) nascondeva il caso
+        # reale del secondo salto piu' piccolo del primo: sulla scheda
+        # sarebbe sparito il movimento PIU' RECENTE, che per uno scout e'
+        # spesso quello che conta di piu'. Anche la firma va aggiornata per
+        # tutti, altrimenti un salto nuovo non farebbe scattare il turno.
+        migliore_salto = max(migliore_salto, contributo)
+        prove.append({
+            "tipo": "salto", "costo": cfg["costo_segnale"]["trasferimento_verso_alto"],
+            "testo": f"Salito di categoria verso {m.get('team')} "
+                     f"({livello['banda'].replace('_', ' ')}) nel {inizio.year}",
+            "team": m.get("team"), "team_qid": m.get("team_qid"), "fonte": copertura["fonte"],
+        })
+        firma.append(f"salto:{m.get('team_qid') or m.get('team')}")
+    if migliore_salto > 0:
+        componenti["traiettoria"] = migliore_salto
+
+    # ---- INDIPENDENZA: quanti soggetti DISTINTI hanno scommesso ----------
+    # Tenuta FUORI dal punteggio di proposito. E' una misura di
+    # corroborazione, non di forza: mescolarla nel numero farebbe scendere il
+    # punteggio di chi ha una sola prova ma schiacciante - cioe' una
+    # condanna per assenza di dati, esattamente cio' che la regola cardinale
+    # vieta. Vive accanto al punteggio e alimenta il contraddittorio, come
+    # gia' fa la banda di confidenza bayesiana del Layer C.
+    indipendenza = {
+        "scommettitori": len(scommettitori),
+        "corroborato": len(scommettitori) >= soglie["corroborazione_piena"],
+        "chi": [v for v in scommettitori.values() if v],
+    }
+
+    if not componenti:
+        return {
+            "validation_score": None, "stato": "non_corroborato",
+            "motivo": "Le fonti sono state lette davvero, ma nessun segnale costoso risulta "
+                      "registrato (nessuna presenza, nessuna convocazione). E' un'assenza di "
+                      "conferme, NON una prova contraria: su questi livelli i database liberi "
+                      "sono spesso indietro.",
+            "componenti": {}, "prove": [], "firma": [],
+            "indipendenza": indipendenza, "copertura": copertura,
+        }
+
+    # ---- COMBINAZIONE: noisy-OR (vedi regola cardinale) ------------------
+    # score = 1 - PI(1 - peso_i * componente_i). Monotono crescente in ogni
+    # componente: aggiungere evidenza non puo' MAI abbassare il punteggio.
+    # Interpretazione: ogni segnale costoso e' una conferma indipendente, e
+    # il totale e' la fiducia che ALMENO UNA sia genuina.
+    pesi = cfg["pesi"]
+    prodotto = 1.0
+    for nome, valore in componenti.items():
+        prodotto *= (1 - pesi.get(nome, 0.0) * valore)
+    punteggio = round((1 - prodotto) * 100, 1)
+
+    prove.sort(key=lambda p: -p["costo"])
+    return {
+        "validation_score": punteggio, "stato": "validato", "motivo": None,
+        "componenti": componenti, "prove": prove, "firma": sorted(set(firma)),
+        "indipendenza": indipendenza, "copertura": copertura,
+    }
+
+
+# ------------------------------------------------------------------
+# I QUADRANTI: perche' la validazione NON entra nel Signal Score
+# ------------------------------------------------------------------
+# Sommare la validazione al buzz distruggerebbe informazione. Un giocatore con
+# buzz 80 / validazione 0 e uno con buzz 0 / validazione 80 finirebbero sullo
+# stesso numero, e sono i due casi PIU' OPPOSTI che esistano: il primo va
+# guardato con sospetto, il secondo e' esattamente cio' che il radar cerca.
+# Quindi i due assi restano separati e si incrociano.
+#
+#                    | validazione assente/debole | validazione forte
+#   buzz alto        | NE PARLANO E BASTA         | CONFERMATO
+#   buzz basso       | quiete                     | TESORO SILENZIOSO  <-- il punto
+#
+# TESORO SILENZIOSO e' il quadrante che il radar, prima di questo layer, NON
+# POTEVA VEDERE. Un 17enne con 1200 minuti veri in Ligue 2 di cui nessun
+# giornalista ha ancora scritto ha buzz ~0: usciva dal funnel come rumore. Il
+# Layer F non aggiunge solo un controllo, RADDOPPIA lo spazio di ricerca
+# coprendo l'angolo cieco strutturale del sistema.
+#
+# NE PARLANO E BASTA e' l'altro guadagno: e' la firma del falso positivo che
+# oggi lo Scettico dello swarm puo' solo INDOVINARE, qui con un dato dietro.
+# E' anche la difesa contro l'attacco che il README ammette (il buzz e'
+# aggirabile): chi pianta articoli muove il buzz e NON muove la validazione,
+# quindi finisce in un quadrante che si chiama da solo, invece di passare per
+# un vero positivo. Il nome resta pero' "ne parlano e basta", non "e' una
+# bolla": e' assenza di conferme, non prova del contrario.
+
+_QUADRANTI = {
+    "tesoro_silenzioso": {
+        "tag": "TESORO SILENZIOSO",
+        "lead": "Qualcuno che rischiava qualcosa ha gia' puntato su di lui - e la stampa non se n'e' "
+                "ancora accorta. E' il caso per cui questo radar esiste: la conferma c'e' gia', la "
+                "concorrenza no.",
+    },
+    "confermato": {
+        "tag": "CONFERMATO",
+        "lead": "Il segnale di stampa e' sostenuto da fatti costosi (minuti veri, convocazioni). "
+                "Reale - ma se ne parla gia': aspettati piu' concorrenza e prezzi meno gentili.",
+    },
+    "solo_rumore": {
+        "tag": "NE PARLANO E BASTA",
+        "lead": "Ne scrivono, ma nessun segnale costoso lo conferma: niente minuti veri, nessuna "
+                "convocazione registrata. Non e' la prova che sia una bolla - le fonti libere sono "
+                "spesso indietro - ma e' il profilo tipico del falso positivo: verifica di persona "
+                "prima di muoverti.",
+    },
+    "quiete": {
+        "tag": "QUIETE",
+        "lead": "Ne' attenzione di stampa ne' segnali costosi finora: non c'e' niente da guardare "
+                "ancora, ma neanche niente che lo escluda.",
+    },
+    "indeterminato": {
+        "tag": "NON VALIDABILE",
+        "lead": "Non e' stato possibile leggere alcun dato di carriera per questo giocatore. "
+                "Non e' un voto basso: e' assenza di informazione. Vale quanto valeva prima, "
+                "cioe' quanto dice il solo segnale di attenzione.",
+    },
+}
+
+
+def evidence_quadrant(signal_score: float | None, validazione: dict | None, cfg_root: dict) -> dict:
+    """Incrocia l'asse attenzione (Layer A-E) con l'asse segnale costoso
+    (Layer F). Restituisce SEMPRE un quadrante, anche 'indeterminato': un
+    giocatore non deve mai sparire da questa vista solo perche' una fonte
+    taceva."""
+    cfg = cfg_root["validazione_tecnica"]
+    q = cfg["quadranti"]
+    validazione = validazione or {}
+    stato = validazione.get("stato", "non_validabile")
+
+    if stato == "non_validabile":
+        chiave = "indeterminato"
+    else:
+        vscore = validazione.get("validation_score") or 0.0
+        validato = stato == "validato" and vscore >= q["soglia_validazione"]
+        rumoroso = (signal_score or 0.0) >= q["soglia_buzz"]
+        if validato:
+            chiave = "confermato" if rumoroso else "tesoro_silenzioso"
+        else:
+            chiave = "solo_rumore" if rumoroso else "quiete"
+
+    return {"quadrante": chiave, **_QUADRANTI[chiave],
+            "validation_score": validazione.get("validation_score"),
+            "signal_score": signal_score, "stato_validazione": stato}
+
+
+def _firma_di(prova: dict) -> str:
+    """La chiave d'identita' di una prova: tipo + squadra. Il team_qid quando
+    c'e' (stabile), il nome solo come ripiego."""
+    return f"{prova['tipo']}:{prova.get('team_qid') or prova.get('team')}"
+
+
+def nuove_prove_costose(validazione: dict | None, precedente: dict | None) -> list:
+    """Cosa di COSTOSO e' comparso da un giro all'altro. Confronta le firme
+    (tipo:squadra), non i punteggi: le presenze cambiano ogni settimana e un
+    confronto numerico farebbe scattare un allarme a ogni scansione, cioe'
+    rumore permanente. La firma cambia solo su un fatto QUALITATIVO nuovo -
+    una prima convocazione, i primi minuti in un club nuovo, un salto di
+    categoria. Eventi rari per costruzione: non possono inondare il turno.
+
+    Alla PRIMA lettura non scatta nulla: tutto sarebbe 'nuovo' senza esserlo
+    davvero (e' solo la prima volta che guardiamo). Un allarme li' sarebbe un
+    falso positivo garantito su ogni candidato al primo giro."""
+    if not validazione or validazione.get("stato") != "validato":
+        return []
+    mai_letto_prima = not (precedente or {}).get("copertura", {}).get("memberships_lette")
+    if mai_letto_prima:
+        return []
+    vecchia = set((precedente or {}).get("firma") or [])
+    return [p for p in (validazione.get("prove") or []) if _firma_di(p) not in vecchia]
+
+
+# ============================================================
 # LAYER D - sonda di cambiamento di stato (IL TURNO)
 # ============================================================
 # Decide se un candidato merita di entrare nel turno di revisione o restare
@@ -1580,6 +2247,8 @@ def detect_state_change(
     cfg: dict,
     buzz_detail: dict | None = None,
     curve: dict | None = None,
+    validazione: dict | None = None,
+    validazione_precedente: dict | None = None,
 ) -> dict | None:
     scfg = cfg["state_change"]
     current_dossier = current_dossier or {}
@@ -1635,6 +2304,37 @@ def detect_state_change(
             ),
         }
 
+    # 1a-bis. SEGNALE COSTOSO NUOVO (Layer F). Sta QUI, subito dopo la
+    # correzione del club e prima di tutto il resto che riguarda la stampa,
+    # per una ragione precisa: e' l'unico motivo del turno in cui a muoversi
+    # non e' l'attenzione ma un FATTO che qualcuno ha pagato - un allenatore
+    # che l'ha mandato in campo per la prima volta, una federazione che l'ha
+    # convocato. Tutti i motivi sotto (decollo, finestre, shock, deriva) sono
+    # inferenze su quanto si parla di lui; questo e' cio' che e' successo.
+    #
+    # Non puo' inondare il turno: nuove_prove_costose confronta le FIRME
+    # (tipo:squadra), non i punteggi, quindi le presenze che crescono ogni
+    # settimana non generano nulla - scatta solo su un fatto qualitativo
+    # nuovo, che per un singolo giocatore capita una o due volte l'anno.
+    nuove_prove = nuove_prove_costose(validazione, validazione_precedente)
+    if nuove_prove:
+        elenco = "; ".join(p["testo"] for p in nuove_prove[:3])
+        prima_convocazione = any(p["tipo"] == "nazionale" for p in nuove_prove)
+        return {
+            "type": "costoso",
+            "tag": "QUALCUNO CI HA PUNTATO",
+            "prove": nuove_prove,
+            "lead": (
+                f"Fatto nuovo, e non e' stampa: {elenco}. "
+                + ("Una convocazione in nazionale e' il segnale piu' pesante che questo radar sappia "
+                   "leggere, perche' chi l'ha scelto NON possiede il suo cartellino - non ha interesse "
+                   "a gonfiarlo. " if prima_convocazione else
+                   "Qualcuno che rischiava qualcosa di proprio ha deciso di puntare su di lui. ")
+                + "Questo tipo di segnale l'entourage non lo puo' fabbricare: guardalo con occhi diversi "
+                  "da un titolo di giornale."
+            ),
+        }
+
     # 1a. DECOLLO IMMINENTE (Layer E, la ragione per cui il radar esiste):
     # piu' fattori oggettivi indipendenti convergono mentre il giocatore e'
     # ANCORA fuori dai riflettori mainstream - accelerazione delle menzioni,
@@ -1645,12 +2345,26 @@ def detect_state_change(
     # riga per riga, mai un punteggio da prendere sulla fiducia.
     if (curve or {}).get("phase") == 3:
         active_details = [f["detail"] for f in curve["factors"].values() if f["active"]]
+        # Il Layer F entra qui come CONTROPROVA sull'allarme di punta. Prima
+        # di questo layer "sta per esplodere" si reggeva solo su quanto se ne
+        # parlava - e parlare non costa nulla. Ora l'allarme piu' importante
+        # del prodotto porta con se' la risposta alla domanda che un uomo di
+        # campo fa per prima: "si', ma ha giocato davvero?".
+        stato_v = (validazione or {}).get("stato")
+        controprova = ""
+        if stato_v == "validato" and (validazione or {}).get("prove"):
+            controprova = (" E non e' solo stampa: " +
+                           (validazione["prove"][0]["testo"]) + " - c'e' gia' chi ha rischiato su di lui.")
+        elif stato_v == "non_corroborato":
+            controprova = (" Attenzione pero': a muoversi finora e' SOLO la stampa - nessuna presenza in "
+                           "prima squadra ne' convocazione risulta registrata. Verifica di persona prima "
+                           "di muoverti.")
         return {
             "type": "takeoff",
             "tag": "STA PER ESPLODERE",
             "lead": (
                 "Piu' segnali indipendenti stanno salendo insieme, e nessun grande giornale "
-                "ne ha ancora scritto: " + "; ".join(active_details) + ". "
+                "ne ha ancora scritto: " + "; ".join(active_details) + "." + controprova + " "
                 "E' il tratto in cui guardarlo costa ancora poco - appena lo prendono le testate "
                 "grandi, salgono visibilita', concorrenza e prezzo. Se il profilo ti interessa, "
                 "questo e' il momento del tuo occhio, non fra un mese."
@@ -2172,6 +2886,7 @@ def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> di
     history = _load_json(BUZZ_HISTORY_FILE)
     feed = _load_json(FEED_FILE)
     observations = _load_json(OBSERVATIONS_FILE)
+    carriere = _load_json(CAREER_FILE)  # Layer F: cache carriera (segnale costoso)
 
     _progress("raccolgo i candidati dalle fonti (Wikidata/Wikipedia)")
     candidates = fetch_candidate_pool(cfg)
@@ -2267,10 +2982,37 @@ def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> di
                 c["club_alternativo"] = (resolution["alternativa"]
                                          if resolution["conflitto"] else None)
 
+    # Stage 2c: LAYER F - i dati di carriera (il segnale costoso).
+    # Gira sull'INTERA pool, non sul solo sottoinsieme buzz, e non e' un
+    # dettaglio: il quadrante "tesoro silenzioso" (chi ha gia' minuti veri e
+    # di cui NESSUNO parla ancora) esiste per definizione fuori dal pool
+    # buzz. Limitare la validazione ai candidati gia' rumorosi ricreerebbe
+    # esattamente l'angolo cieco che questo layer serve a coprire.
+    # Il costo resta sotto controllo da solo: la cache ha scadenza a giorni e
+    # il tetto di query per run fa il resto (chi non entra oggi entra domani,
+    # tenendo intanto il record vecchio con il suo letto_il in chiaro).
+    _progress("leggo i dati di carriera (presenze, convocazioni)")
+    try:
+        carriere = fetch_career_records(candidates, cfg, carriere, progress_cb=progress_cb)
+    except Exception as e:
+        # La validazione e' un LUSSO: non deve mai far fallire una scansione.
+        # Senza carriera fresca il radar torna esattamente a com'era prima
+        # del Layer F - i candidati risultano "non validabili", che e'
+        # onesto, e nessun punteggio di attenzione ne viene toccato.
+        print(f"[validazione] lettura carriera saltata in questo run: {e}")
+
     ranked = []
     for candidate in candidates:
         buzz = buzz_results.get(candidate["candidate_id"])
         sres = signal_score(candidate, cfg, buzz)
+        # Layer F: separato dal signal_score DI PROPOSITO (vedi i quadranti).
+        # Fonderlo nel punteggio di attenzione farebbe collassare sullo stesso
+        # numero il talento confermato-e-silenzioso e quello di cui parlano
+        # tutti senza uno straccio di riscontro.
+        sres["validazione"] = validation_score(
+            candidate, carriere.get(candidate["candidate_id"]), cfg)
+        sres["quadrante"] = evidence_quadrant(
+            sres.get("signal_score"), sres["validazione"], cfg)
 
         if buzz is not None:
             # aggiorna lo storico solo per chi e' stato davvero controllato
@@ -2319,6 +3061,14 @@ def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> di
         entry["_record"] = record
         entry["_previous_last_entry"] = record["history"][-1] if record["history"] else None
         entry["_previous_dossier"] = record.get("dossier")
+        # Layer F: la validazione del giro PRECEDENTE, catturata prima di
+        # sovrascriverla - serve a distinguere un fatto costoso NUOVO
+        # (prima convocazione, primi minuti) da uno gia' noto e gia'
+        # segnalato. Senza questo confronto "QUALCUNO CI HA PUNTATO" si
+        # ripresenterebbe identico a ogni scansione: un evento puntuale
+        # trasformato in rumore permanente, lo stesso errore gia' corretto
+        # per "CLUB DA CORREGGERE".
+        entry["_previous_validazione"] = record.get("validazione")
 
         # il club che il grafo risolveva PRIMA di questo run: serve alla sonda
         # per distinguere una correzione NUOVA (da mostrare) da una gia'
@@ -2335,6 +3085,15 @@ def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> di
         # disaccordo tra fonti resta visibile invece di sparire nell'identity
         if entry["candidate"].get("club_provenienza"):
             record["club_provenienza"] = entry["candidate"]["club_provenienza"]
+        # Layer F: la validazione COMPLETA (con le prove) vive a livello di
+        # record, non nella history. La history e' capped a 30 entry e viene
+        # riscritta per intero a ogni salvataggio: infilarci la lista delle
+        # prove a ogni run gonfierebbe il JSONB su Postgres per un dato che
+        # e' per sua natura CORRENTE, non storico (e la cache di carriera lo
+        # sa gia' ricostruire). Nella history restano i due campi che servono
+        # a leggere un andamento nel tempo.
+        record["validazione"] = entry["signal"]["validazione"]
+        record["quadrante"] = entry["signal"]["quadrante"]
         record["history"].append(
             {
                 "run_at": run_at,
@@ -2344,6 +3103,9 @@ def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> di
                 "fit_score": entry["fit"]["fit_score"],
                 "profile_used": profile_key,
                 "curve": entry["signal"].get("curve"),
+                "validation_score": entry["signal"]["validazione"].get("validation_score"),
+                "validation_stato": entry["signal"]["validazione"].get("stato"),
+                "quadrante": entry["signal"]["quadrante"].get("quadrante"),
             }
         )
         # bound alla crescita, come gia' per buzz_history (runs[-20:]): la
@@ -2408,6 +3170,15 @@ def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> di
             cfg=cfg,
             buzz_detail=entry["signal"].get("buzz_detail"),
             curve=entry["signal"].get("curve"),
+            # Layer F passato a ENTRAMBI i punti di chiamata (gate senza AI e
+            # ricalcolo con dossier) con gli stessi valori: la validazione non
+            # dipende dall'AI, quindi l'invariante del gate - "chiamare con i
+            # dossier a None da' esattamente la parte di sonda che non dipende
+            # dall'AI" - resta vera. E' l'assunto che test_gate_senza_ai.py
+            # blocca: se un domani divergessero, il gate cambierebbe
+            # significato in silenzio.
+            validazione=entry["signal"].get("validazione"),
+            validazione_precedente=entry.get("_previous_validazione"),
         )
 
         # stato provvisorio SENZA dossier: le finestre aperte si portano
@@ -2422,6 +3193,7 @@ def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> di
     _save_json(FEED_FILE, feed)
     _save_json(BUZZ_HISTORY_FILE, history)
     _save_json(OBSERVATIONS_FILE, observations)
+    _save_json(CAREER_FILE, carriere)
     if ledger_changed:
         _save_json(CURVE_VALIDATION_FILE, ledger)
     _progress("punteggi pronti; genero i dossier AI", feed_ready=True)
@@ -2564,6 +3336,15 @@ def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> di
             cfg=cfg,
             buzz_detail=entry["signal"].get("buzz_detail"),
             curve=entry["signal"].get("curve"),
+            # Layer F passato a ENTRAMBI i punti di chiamata (gate senza AI e
+            # ricalcolo con dossier) con gli stessi valori: la validazione non
+            # dipende dall'AI, quindi l'invariante del gate - "chiamare con i
+            # dossier a None da' esattamente la parte di sonda che non dipende
+            # dall'AI" - resta vera. E' l'assunto che test_gate_senza_ai.py
+            # blocca: se un domani divergessero, il gate cambierebbe
+            # significato in silenzio.
+            validazione=entry["signal"].get("validazione"),
+            validazione_precedente=entry.get("_previous_validazione"),
         )
         # niente sparisce in silenzio: una finestra aperta (sta per
         # esplodere) resta finche' non si risolve, e quando si risolve si

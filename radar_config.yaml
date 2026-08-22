@@ -542,3 +542,200 @@ adoption_curve:
     scalata_tier: 30         # prima testata tier-2 dopo run di sola nicchia (two-step flow in azione)
     allargamento_fonti: 20   # piu' testate DISTINTE di quante mai viste prima (adozione indipendente, non un blog che insiste)
     persistenza: 20          # presente da N controlli consecutivi (gli spike decadono, l'adozione persiste)
+
+# --- Layer F: VALIDAZIONE TECNICA (il segnale costoso) -----------------------
+# LA LACUNA CHE QUESTO BLOCCO CHIUDE. Fino al Layer E il radar misura una cosa
+# sola: l'ATTENZIONE (chi ne parla, quanto, da che tier). E' il segnale piu'
+# anticipatorio che esiste a costo zero, ma ha un difetto strutturale
+# dichiarato nel README: scrivere un articolo NON COSTA NULLA. Chiunque puo'
+# emetterlo - un procuratore, un ufficio stampa, un blog compiacente. Un radar
+# che ascolta solo quel canale e' per costruzione aggirabile.
+#
+# LA TESI: esiste una classe di segnali GRATIS DA LEGGERE ma COSTOSI DA
+# EMETTERE, e nessuno la stava leggendo.
+#   - Un allenatore che manda in campo un 17enne in una lega professionistica
+#     ci mette punti, classifica e, alla lunga, il posto di lavoro.
+#   - Una federazione che lo convoca spende uno slot di rosa conteso, ED E' UN
+#     VALUTATORE INDIPENDENTE DAL CLUB (il club ha interesse a gonfiare il
+#     proprio asset, la federazione no).
+#   - Un club che lo compra da una categoria inferiore ci mette soldi.
+# Nessuno di questi atti e' falsificabile dall'entourage del giocatore. Sono
+# scommesse con la pelle in gioco (Spence 1973 sul signaling costoso; Zahavi
+# 1975 sull'handicap - base teorica consolidata, non inventata qui).
+#
+# COSA MISURA (e cosa NO). NON misura quanto e' bravo: per quello servono dati
+# evento che a questo livello non esistono gratis, e il README lo dice. Misura
+# QUANTO QUALCUNO CHE RISCHIAVA QUALCOSA HA GIA' PUNTATO SU DI LUI. E' il
+# complemento onesto del buzz, non un suo sostituto: vive su un asse SEPARATO
+# (vedi quadranti) proprio per non confondersi con esso.
+#
+# NOTA DI PARENTELA CON IL LAYER A: il Layer A calcola gia' "giovane per il
+# suo livello", ma li' il livello e' la PRESENZA IN ROSA, che costa quasi
+# nulla. Qui si calcola la stessa idea dove il livello e' CIO' CHE QUALCUNO HA
+# davvero RISCHIATO. Stessa intuizione, segnale molto piu' caro da falsificare.
+validazione_tecnica:
+  attiva: true
+
+  # REGOLA CARDINALE - MONOTONIA: la validazione puo' solo CONFERMARE, mai
+  # CONDANNARE. Le fonti libere sono incomplete per costruzione (audit README:
+  # 52% dei QID senza club su Wikidata): l'assenza di un dato NON e' prova
+  # dell'assenza del fatto. Quindi un componente entra nel calcolo SOLO con
+  # evidenza positiva; non esistono zeri "per dato mancante". Conseguenza
+  # verificata da test: aggiungere un record non puo' MAI abbassare il
+  # punteggio. E' cio' che rende il layer sicuro su dati radi.
+  #
+  # Da qui anche la scelta di combinare i componenti in noisy-OR invece che
+  # con la media pesata del Layer A: li' i componenti sono due viste dello
+  # STESSO fenomeno latente (l'attenzione) e la media ha senso; qui ogni
+  # segnale costoso e' una conferma INDIPENDENTE, e non averne uno non e'
+  # un voto contro. La media violerebbe la monotonia (aggiungere un
+  # componente basso abbasserebbe il totale); il noisy-OR no, mai.
+  combinazione: noisy_or
+
+  # Peso di ciascun componente nel noisy-OR (0-1): quanto un singolo segnale
+  # saturo puo' da solo portare in alto il punteggio. Ordinati per COSTO
+  # DELL'ATTO, che e' l'unica gerarchia difendibile qui.
+  pesi:
+    selezione_esterna: 0.85   # convocazione in nazionale: valutatore indipendente dal club
+    fiducia_guadagnata: 0.80  # minuti veri in prima squadra: l'allenatore ci mette la panchina
+    traiettoria: 0.45         # salto verso l'alto: qualcuno ha pagato per portarlo su
+
+  # Costo relativo dell'atto, per la UI e per il /processo: quanto e' CARO
+  # emettere questo segnale, cioe' quanto e' difficile falsificarlo. La
+  # menzione stampa e' qui a 0.0 non per dispetto ma per dichiarare
+  # l'invariante: cio' che il buzz gia' misura NON entra mai nella
+  # validazione, altrimenti si conterebbe due volte lo stesso bit.
+  costo_segnale:
+    convocazione_nazionale: 1.0
+    presenze_prima_squadra: 0.9
+    trasferimento_verso_alto: 0.7
+    presenza_in_rosa: 0.2      # esserci e basta costa poco: non valida nulla da solo
+    menzione_stampa: 0.0       # <- gia' misurata dal buzz, esclusa per costruzione
+
+  # Bande di livello competitivo. peso = quanto vale un minuto giocato li';
+  # eta_riferimento = eta' tipica di un titolare in quella banda, usata per la
+  # PRECOCITA' (stessa logica di age_reference del Layer A, applicata pero'
+  # ai minuti veri invece che alla presenza in rosa).
+  # TARATURA - perche' la scala e' COMPRESSA e non lineare sulla piramide
+  # calcistica. Errore commesso e corretto in fase di sviluppo: con pesi
+  # "realistici" (Serie C a 0.45) una STAGIONE INTERA di un 17enne in Serie C
+  # arrivava a 36/100 e non superava soglia_validazione - cioe' il caso
+  # centrale del radar risultava "non validato". Il difetto era concettuale,
+  # non numerico: questi pesi non misurano quanto e' forte il campionato, ma
+  # QUANTO COSTA A CHI DECIDE mandarlo in campo - e un allenatore di Serie D
+  # che schiera un 17enne rischia il proprio posto esattamente come uno di
+  # Serie A. Il livello modula (dice fin dove puo' arrivare), non schiaccia.
+  # Con questa scala la stessa stagione vale 56/100: validato, come dev'essere.
+  livelli:
+    prima_divisione_top:  {peso: 1.00, eta_riferimento: 25.0}
+    prima_divisione:      {peso: 0.92, eta_riferimento: 24.5}
+    seconda_divisione:    {peso: 0.82, eta_riferimento: 24.0}
+    terza_divisione:      {peso: 0.70, eta_riferimento: 23.0}
+    quarta_divisione:     {peso: 0.55, eta_riferimento: 23.0}
+    riserve_giovanili:    {peso: 0.35, eta_riferimento: 20.0}
+
+  # QID lega -> banda. TUTTI verificati uno per uno via API MediaWiki prima di
+  # essere scritti qui (l'endpoint wbgetentities, che non e' WDQS e regge
+  # anche durante gli outage del query service). La verifica non e' stata
+  # cerimoniale: ha intercettato due QID sbagliati presi a memoria - Q201620
+  # e' "valdismo" (un movimento cristiano medievale) non l'Eredivisie, e
+  # Q178874 e' la "corona slovacca" non la Primeira Liga. Stessa trappola su
+  # Q2164956, che e' l'Eredivisie DI HOCKEY SU GHIACCIO. Una lega non elencata
+  # qui non vale zero: vale "livello ignoto" e viene gestita come dato
+  # mancante (vedi presenze_livello_ignoto nella copertura).
+  competizioni:
+    Q15804: prima_divisione_top      # Serie A
+    Q9448: prima_divisione_top       # Premier League
+    Q324867: prima_divisione_top     # LaLiga
+    Q82595: prima_divisione_top      # Fussball-Bundesliga
+    Q13394: prima_divisione_top      # Ligue 1
+    Q167541: prima_divisione         # Eredivisie (calcio - NON Q2164956, che e' hockey)
+    Q182994: prima_divisione         # Liga Portugal (NON Q21929716, che e' la Primeira Liga BRASILIANA)
+    Q194052: seconda_divisione       # Serie B
+    Q152665: seconda_divisione       # 2. Fussball-Bundesliga
+    Q217374: seconda_divisione       # Ligue 2
+    Q35615: seconda_divisione        # Segunda Division
+    Q754488: seconda_divisione       # Liga Portugal 2
+    Q610823: seconda_divisione       # Eerste Divisie
+    Q607965: terza_divisione         # Serie C
+    Q154069: terza_divisione         # 3. Liga
+    Q864298: terza_divisione         # Ligue 3 (Championnat National)
+    Q100146559: terza_divisione      # Primera Federacion
+    Q106597664: terza_divisione      # Terceira Liga
+    Q2777436: terza_divisione        # Tweede Divisie
+    Q1141778: quarta_divisione       # Serie D
+    # Aggiunte dopo la prova live: la Superliga danese e' comparsa nei dati
+    # veri di un candidato (una presenza in prima squadra che, non essendo
+    # mappata, era finita in "livello ignoto" senza poter pesare). E' il modo
+    # in cui questa mappa va estesa: guardando cosa esce davvero dal feed, non
+    # provando a indovinare in anticipo tutte le leghe del mondo.
+    Q204752: prima_divisione         # Superliga danese
+    Q216022: prima_divisione         # Belgian Pro League
+    Q219592: prima_divisione         # Bundesliga austriaca
+    Q202699: prima_divisione         # Swiss Super League
+    Q14377162: prima_divisione       # Scottish Premiership (calcio - l'omonimo Q2261131 e' RUGBY)
+    Q485568: prima_divisione         # Super Lig turca (NON Q2180367, che e' quella di Cipro Nord)
+    Q235114: prima_divisione         # Super League Greece
+    Q63980269: seconda_divisione     # Super League Greece 2
+    Q44763: prima_divisione          # Ekstraklasa (calcio - Q1345484 e' pallamano, Q2300526 hockey)
+    Q217016: prima_divisione         # Czech First League
+
+  # Classi Wikidata per riconoscere una squadra NAZIONALE (verificate):
+  # Q6979593 "squadra nazionale di calcio", Q1194951 "squadra sportiva
+  # nazionale" (la superclasse). Costanti strutturali, non pesi da tarare.
+  classi_nazionale: ["Q6979593", "Q1194951"]
+  classe_riserve: "Q2412834"         # "squadra riserve" (gia' usata dal Layer A)
+
+  # Bande di selezione nazionale. eta_banda = eta' nominale della selezione:
+  # serve a misurare la PRECOCITA' della convocazione. Un 17enne in U17 e'
+  # normale per un talento; un 17enne in U20 e' un fatto raro, e il punteggio
+  # deve saperlo distinguere.
+  selezioni:
+    senior: {peso: 1.00, eta_banda: 26.0}
+    U23:    {peso: 0.85, eta_banda: 22.0}
+    U21:    {peso: 0.80, eta_banda: 20.0}
+    U20:    {peso: 0.72, eta_banda: 19.0}
+    U19:    {peso: 0.62, eta_banda: 18.0}
+    U18:    {peso: 0.55, eta_banda: 17.0}
+    U17:    {peso: 0.48, eta_banda: 16.0}
+    U16:    {peso: 0.38, eta_banda: 15.0}
+    # U15/U14 aggiunte dopo la prova live: nei dati veri di Wikidata compaiono
+    # davvero selezioni "under-15" (viste su nazionali giovanili tedesche e
+    # danesi). Senza queste voci una U15 sarebbe ricaduta sulla banda di
+    # ripiego U16, cioe' sarebbe stata SOPRAVVALUTATA - l'esatto contrario
+    # della regola "nel dubbio non si gonfia". Un ripiego prudente lo e' solo
+    # rispetto a cio' che esiste davvero nella fonte.
+    U15:    {peso: 0.30, eta_banda: 14.0}
+    U14:    {peso: 0.24, eta_banda: 13.0}
+  # Banda usata quando l'etichetta della selezione non e' interpretabile:
+  # si sceglie la PIU' PRUDENTE (mai la piu' generosa), coerente con la
+  # regola cardinale - nel dubbio non si gonfia.
+  selezione_banda_ignota: U14
+
+  soglie:
+    presenze_saturazione: 25       # presenze oltre cui il volume non aggiunge (una stagione da titolare)
+    caps_saturazione: 8            # convocazioni oltre cui il volume non aggiunge
+    # L'ATTO della selezione vale gia' la maggior parte del segnale: essere
+    # scelto e' la scommessa, i minuti che seguono la rifiniscono.
+    selezione_base: 0.60
+    precocita_spread_anni: 4.0     # su quanti anni sotto il riferimento la precocita' satura
+    precocita_minima: 0.25         # minuti veri di un 22enne valgono meno, ma non zero
+    traiettoria_finestra_mesi: 24  # un salto verso l'alto conta se recente
+    traiettoria_salto_saturazione: 0.35  # salto di peso-livello oltre cui la traiettoria satura (~due bande)
+    corroborazione_piena: 3        # scommettitori DISTINTI per dirsi corroborato
+
+  quadranti:
+    # Le due soglie che separano i quadranti (vedi evidence_quadrant).
+    soglia_validazione: 45         # sopra: il segnale costoso c'e' davvero
+    soglia_buzz: 55                # sopra: la stampa se n'e' gia' accorta
+
+  cache:
+    # I dati di carriera si muovono a settimane, non a ore: rileggerli a ogni
+    # scansione sprecherebbe l'unica risorsa davvero scarsa qui, cioe' la
+    # tolleranza di WDQS (misurata durante lo sviluppo: sotto outage scende a
+    # 1 richiesta/minuto). La cache e' quindi parte del design, non un
+    # optional - e vive nella stessa persistenza append-only del resto.
+    validita_giorni: 7
+    max_qid_per_query: 120         # QID per singola query VALUES (batch)
+    max_query_per_run: 12          # tetto duro: la validazione non fa mai saltare una scansione
+    timeout_secondi: 45

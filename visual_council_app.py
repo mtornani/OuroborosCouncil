@@ -405,8 +405,15 @@ def radar_feed():
                 "profile_used": last.get("profile_used"),
                 "run_at": last.get("run_at"),
                 "curve": last.get("curve"),
+                # LAYER F: il segnale costoso. Asse SEPARATO dal signal_score
+                # di proposito - vedi i quadranti in discovery_engine: fonderli
+                # farebbe collassare sullo stesso numero il talento confermato
+                # e silenzioso e quello di cui parlano tutti senza riscontri.
+                "validazione": record.get("validazione"),
+                "quadrante": record.get("quadrante"),
                 "caveats": discovery_engine.player_caveats(
-                    last, discovery_engine.bayesian_estimate(record["history"], cfg), identity, cfg),
+                    last, discovery_engine.bayesian_estimate(record["history"], cfg), identity, cfg,
+                    validazione=record.get("validazione")),
                 "dossier": record.get("dossier"),
                 "bayesian": discovery_engine.bayesian_estimate(record["history"], cfg),
                 "watchlisted": candidate_id in watchlist,
@@ -482,8 +489,11 @@ def radar_turno():
                 "curve_trail": discovery_engine.phase_trail(record),
                 # IL CONTRADDITTORIO: motivi oggettivi per dubitare di questo
                 # segnale, calcolati dai dati del giocatore (non dall'AI)
+                "validazione": record.get("validazione"),
+                "quadrante": record.get("quadrante"),
                 "caveats": discovery_engine.player_caveats(
-                    last, discovery_engine.bayesian_estimate(record["history"], cfg), identity, cfg),
+                    last, discovery_engine.bayesian_estimate(record["history"], cfg), identity, cfg,
+                    validazione=record.get("validazione")),
                 # la voce scettica dello swarm su questo giocatore, se c'e'
                 "scettico": (record.get("dossier") or {}).get("scettico"),
                 "watchlisted": candidate_id in watchlist,
@@ -497,7 +507,11 @@ def radar_turno():
         # radar esiste e apre sempre il turno; poi i fatti verificati (club)
         # e gli eventi di finestra (crossing/velocity), le chiusure spiegate,
         # poi le statistiche
-        priority = {"takeoff": 0, "club": 1, "mainstream": 2, "early": 2,
+        # "costoso" a -1 (non una rinumerazione di tutti gli altri): apre il
+        # turno perche' e' l'unico motivo in cui a muoversi non e' l'attenzione
+        # ma un fatto che qualcuno ha pagato - minuti veri, una convocazione.
+        priority = {"costoso": -1,
+                    "takeoff": 0, "club": 1, "mainstream": 2, "early": 2,
                     "closed_crossed": 3, "closed_faded": 3, "closed_stale": 3,
                     "verdict": 4, "resolved": 5, "rising": 6, "falling": 6, "new": 7}
         cases.sort(key=lambda c: (priority.get(c["change"]["type"], 9), -(c["signal_score"] or 0)))
@@ -510,8 +524,11 @@ def radar_turno():
             last = (record.get("history") or [None])[-1] or {}
             if last:
                 card["bayesian"] = discovery_engine.bayesian_estimate(record.get("history") or [], cfg)
+                card["validazione"] = record.get("validazione")
+                card["quadrante"] = record.get("quadrante")
                 card["caveats"] = discovery_engine.player_caveats(
-                    last, card["bayesian"], identity, cfg)
+                    last, card["bayesian"], identity, cfg,
+                    validazione=record.get("validazione"))
                 card["curve_trail"] = discovery_engine.phase_trail(record)
         return jsonify({
             "status": "success",
@@ -548,7 +565,15 @@ def radar_processo():
     discovery_engine.track_record_summary. Le obiezioni sono contenuto
     statico nel template, non dati a runtime."""
     try:
-        return jsonify({"status": "success", **discovery_engine.track_record_summary()})
+        return jsonify({
+            "status": "success",
+            **discovery_engine.track_record_summary(),
+            # Layer F sotto processo insieme al resto: un layer di validazione
+            # che non dichiara la propria copertura invita a leggere "non
+            # validato" come "non valido", quando spesso vuol dire solo che la
+            # fonte non lo sapeva. Qui quella differenza diventa un numero.
+            "validazione_copertura": discovery_engine.validation_coverage_summary(),
+        })
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
 
