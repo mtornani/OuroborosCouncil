@@ -758,3 +758,116 @@ validazione_tecnica:
     max_qid_per_query: 120         # QID per singola query VALUES (batch)
     max_query_per_run: 12          # tetto duro: la validazione non fa mai saltare una scansione
     timeout_secondi: 45
+
+# ============================================================================
+# LAYER G - OB1-KENOBI: l'algoritmo dell'inefficienza
+# ============================================================================
+#   K alman          - la derivata: la fiducia sta salendo o scendendo?
+#   E ffetto eta'    - il calendario di nascita come variabile di mercato
+#   N ati tardi      - chi il sistema di selezione ha filtrato piu' duramente
+#   O sservazioni    - la coorte reale, misurata, non un coefficiente inventato
+#   B ilancio        - valore meno prezzo: la sottrazione, non la somma
+#   I nefficienza    - cio' che resta, ed e' l'unica cosa che si puo' comprare
+#
+#                    "Questi non sono i giocatori che state cercando."
+#
+# Il settore ha un problema di postura che nessuno ammette: cento piattaforme
+# vendono cento modi diversi di misurare gli STESSI trecento ragazzi, quelli
+# che hanno gia' una scheda, gia' un procuratore e gia' un prezzo. E' una gara
+# a chi descrive meglio un mercato dove il vantaggio e' gia' stato consumato -
+# arrivare secondi con una dashboard piu' bella resta arrivare secondi. Il
+# problema non e' che misurano male: e' che misurano DOVE GUARDANO TUTTI.
+#
+# KENOBI fa la cosa opposta e volutamente stupida: non cerca di stimare meglio
+# il valore. Cerca il posto dove il PREZZO e' sbagliato. E' la differenza fra
+# fare lo scout e fare arbitraggio.
+#
+# LA SOTTRAZIONE (Beane l'aveva capita, il calcio l'ha dimenticata):
+#
+#     edge = valore_reale  -  prezzo_di_mercato
+#
+# Quasi tutti costruiscono solo il primo termine. SENTINEL, per un accidente
+# fortunato della sua storia, aveva gia' il SECONDO: l'attenzione della stampa
+# E' il prezzo (attenzione -> concorrenza -> costo). Il Layer F ha aggiunto il
+# primo. Questo layer si limita a fare la sottrazione e a ordinarla.
+kenobi:
+  attiva: true
+
+  # --- L'EFFETTO ETA' RELATIVA (la variabile che il mercato sbaglia) --------
+  # Fatto misurato sui campionati REALI di questo radar (Serie B/C, 3. Liga,
+  # Ligue 2, Segunda), non preso da un paper:
+  #
+  #     nati gen-mar  41.4%   |  nati lug-set  20.7%
+  #     nati apr-giu  26.2%   |  nati ott-dic  11.7%
+  #     chi-quadro 26.94 su 3 gdl -> p < 0.001. Non e' rumore.
+  #
+  # Meccanismo noto e banale: a 13 anni un nato a gennaio e' fisicamente piu'
+  # maturo di uno nato a dicembre. Viene selezionato, riceve piu' minuti, piu'
+  # allenamento, piu' fiducia. Il vantaggio e' ANAGRAFICO, non tecnico, e si
+  # dissolve verso i 20-21 anni - ma la selezione, ormai, e' avvenuta.
+  #
+  # L'INVERSIONE, che e' il punto: se un nato a dicembre e' arrivato allo
+  # STESSO livello di un nato a gennaio, ha dovuto essere piu' bravo per
+  # arrivarci. Ha superato un filtro tre volte piu' stretto. Il suo livello
+  # attuale SOTTOSTIMA la sua qualita' - ed e' esattamente la definizione di
+  # un asset sottoprezzato.
+  #
+  # ONESTA': l'effetto di selezione (la tabella sopra) e' solidissimo e
+  # replicato da decenni. Il "ribaltamento" - che i nati tardi sopravvissuti
+  # rendano meglio DOPO - e' documentato ma piu' dibattuto. Qui non si chiede
+  # di crederci: entra come variabile dichiarata e il tabellone del /processo
+  # la misura nel tempo. Se non paga, lo dira' da solo.
+  effetto_eta:
+    # Mese di taglio della finestra di selezione. 1 = anno solare (FIFA e
+    # quasi tutta l'Europa continentale). Alcune federazioni usano settembre:
+    # si cambia qui, senza toccare codice.
+    mese_taglio: 1
+    # Campione minimo di date di nascita prima di applicare la correzione.
+    # Sotto questa soglia il layer dice "non ancora calibrato" e NON corregge
+    # nulla: una distribuzione stimata su pochi casi direbbe piu' cose sul
+    # campione che sul calcio.
+    coorte_minima: 200
+    # Rarita' (attesa/osservata) oltre cui lo sconto satura. 2.5 = "il suo
+    # trimestre e' 2.5 volte piu' raro del dovuto" -> handicap massimo.
+    rarita_saturazione: 2.5
+    # Quanto lo sconto anagrafico puo' sollevare la stima di valore (0-1).
+    # Non e' un bonus appiccicato al punteggio finale: CORREGGE IL VALORE,
+    # perche' e' esattamente cio' che afferma - il livello raggiunto
+    # sottostima la qualita' di chi ha passato il filtro piu' duro.
+    peso_correzione: 0.45
+
+  # SOLO BONUS, MAI MALUS. Un nato a gennaio non viene penalizzato, pur
+  # essendo statisticamente piu' probabile che sia un prodotto del calendario.
+  # Due ragioni, entrambe vincolanti:
+  #  - metodologica: e' la stessa regola cardinale del Layer F. Declassare un
+  #    individuo per una statistica di GRUPPO e' esattamente il modo in cui
+  #    questi sistemi cominciano a sbagliare, e a sbagliare in modo invisibile.
+  #  - pratica: SENTINEL e' un prioritizzatore di attenzione. Un malus non
+  #    "corregge" nessuno, fa solo sparire dei ragazzi dalla lista per il mese
+  #    in cui sono nati. L'effetto Moneyball si ottiene comunque per intero:
+  #    se i nati tardi salgono, i nati presto scendono in classifica RELATIVA.
+  solo_bonus: true
+
+  # --- IL BILANCIO ----------------------------------------------------------
+  bilancio:
+    # L'edge esiste solo se ESISTONO ENTRAMBI I TERMINI. Senza il valore non
+    # c'e' arbitraggio, c'e' solo una scommessa - e questo layer non fa
+    # scommesse al buio: dice "non calcolabile" e tace.
+    richiede_entrambi_i_termini: true
+    # Sotto questo scarto il disallineamento non e' abbastanza per parlarne
+    # (0-100 sulla scala finale, 50 = mercato allineato).
+    soglia_occasione: 65      # sopra: sottovalutato in modo interessante
+    soglia_sopravvalutato: 35 # sotto: il prezzo corre piu' del valore
+
+  # --- LA DERIVATA (lo sviluppo, non la fotografia) -------------------------
+  # La domanda "come si sviluppera'?" non ha una risposta onesta con questi
+  # dati, e chi te la da' con due decimali sta inventando. La domanda che una
+  # risposta ce l'ha e': "la fiducia che il mondo reale ripone in lui sta
+  # salendo o scendendo?" - ed e' misurabile, perche' Kalman e CUSUM sono gia'
+  # in questo repo (Layer C e D). Finora giravano SOLO sul punteggio di
+  # attenzione. Qui si puntano sul punteggio di VALIDAZIONE: non la derivata
+  # di quanto se ne parla, ma di quanto qualcuno ci scommette davvero.
+  sviluppo:
+    min_osservazioni: 3       # sotto: "traiettoria non ancora leggibile"
+    z_salita: 1.0             # z-score oltre cui la fiducia e' in crescita
+    z_discesa: -1.0

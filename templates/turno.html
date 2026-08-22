@@ -319,6 +319,20 @@
         .proof.is-vuoto { border-color: var(--doubt); background: transparent; }
         .proof.is-vuoto .proof-head, .proof.is-vuoto .proof-quad { color: var(--doubt); }
 
+        /* LAYER G - OB1-KENOBI. Bordo tratteggiato di proposito: non e' un
+           fatto come le prove costose, e' una LETTURA DI MERCATO - una
+           sottrazione fra due stime. La differenza deve vedersi prima di
+           leggere, non dopo. */
+        .ken { border: 1px dashed var(--signal); padding: 13px 16px 14px; margin-bottom: 18px; }
+        .ken-head { font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--signal); margin-bottom: 6px; display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+        .ken-score { font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 0.95rem; }
+        .ken-lead { font-size: 0.82rem; line-height: 1.5; color: var(--text-dim); margin-bottom: 8px; }
+        .ken-row { font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; color: var(--text-faint); line-height: 1.6; }
+        .ken-dev { margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--line); font-size: 0.78rem; line-height: 1.5; color: var(--text-dim); }
+        .ken-dev .arrow { font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+        .ken-dev .up { color: var(--verified); } .ken-dev .down { color: var(--doubt); }
+        .ken.is-mute { border-color: var(--line); } .ken.is-mute .ken-head { color: var(--text-faint); }
+
         .contra { border: 1px solid var(--doubt); padding: 13px 16px 14px; margin-bottom: 18px; }
         .contra-head { font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--doubt); margin-bottom: 4px; }
         .contra-sub { font-size: 0.72rem; color: var(--text-faint); margin-bottom: 10px; line-height: 1.4; }
@@ -453,6 +467,10 @@
             end_out: "out",
             end_holds: "holds",
             end_doesnt: "doesn't hold",
+            ken_head: "market reading — OB1·KENOBI",
+            ken_sub: "value minus price. Not how good he is: how far off the price is.",
+            ken_mute: "Subtraction not possible: one of the two terms is missing. Without value there is no arbitrage, only a blind bet — and this layer doesn't take those.",
+            ken_dev: "trust trajectory",
             proof_head: "who has already bet on him",
             proof_sub: "facts someone paid for — not press. This is the only block here that doesn't measure attention.",
             proof_none_read: "Sources were actually read: no costly signal on record — no first-team appearances, no call-ups. That's an absence of confirmation, NOT evidence to the contrary: at these levels free databases are often behind.",
@@ -516,6 +534,10 @@
             end_out: "scartati",
             end_holds: "tiene",
             end_doesnt: "non tiene",
+            ken_head: "lettura di mercato — OB1·KENOBI",
+            ken_sub: "valore meno prezzo. Non quanto è bravo: quanto il prezzo è sbagliato.",
+            ken_mute: "Sottrazione impossibile: manca uno dei due termini. Senza il valore non c'è arbitraggio, c'è solo una scommessa al buio — e questo layer non ne fa.",
+            ken_dev: "traiettoria della fiducia",
             proof_head: "chi ci ha gia' puntato",
             proof_sub: "fatti che qualcuno ha pagato — non stampa. È l'unico blocco qui dentro che non misura attenzione.",
             proof_none_read: "Le fonti sono state lette davvero: nessun segnale costoso registrato — nessuna presenza in prima squadra, nessuna convocazione. È un'assenza di conferme, NON una prova contraria: su questi livelli i database liberi sono spesso indietro.",
@@ -877,6 +899,39 @@
             </div>`;
         }
 
+        // LAYER G - la sottrazione, resa leggibile. Le righe di spiegazione
+        // NON sono decorazione: un punteggio di "inefficienza di mercato" che
+        // non mostra i due addendi sarebbe indistinguibile da un oroscopo.
+        function kenobiBox(c) {
+            const k = c.kenobi;
+            if (!k) return "";
+            if (k.kenobi_score === null || k.kenobi_score === undefined) {
+                return `<div class="ken is-mute">
+                    <div class="ken-head"><span>${I18N.ken_head}</span><span>${escapeHTML(k.tag || "")}</span></div>
+                    <div class="ken-lead">${I18N.ken_mute}</div>
+                </div>`;
+            }
+            const righe = (k.spiegazione || []).map(x => `<div>${escapeHTML(x)}</div>`).join("");
+            const d = k.sviluppo || {};
+            let dev = "";
+            if (d.leggibile) {
+                const cls = d.direzione === "salita" ? "up" : d.direzione === "discesa" ? "down" : "";
+                const freccia = d.direzione === "salita" ? "▲" : d.direzione === "discesa" ? "▼" : "=";
+                dev = `<div class="ken-dev"><span class="arrow ${cls}">${freccia}</span>
+                       <b>${I18N.ken_dev}:</b> ${escapeHTML(d.motivo || "")}</div>`;
+            } else if (d.motivo) {
+                dev = `<div class="ken-dev">${escapeHTML(d.motivo)}</div>`;
+            }
+            return `<div class="ken">
+                <div class="ken-head"><span>${I18N.ken_head}</span>
+                    <span class="ken-score">${k.kenobi_score}/100</span>
+                    <span>${escapeHTML(k.tag || "")}</span></div>
+                <div class="ken-lead">${escapeHTML(k.lead || "")}</div>
+                <div class="ken-row">${righe}</div>
+                ${dev}
+            </div>`;
+        }
+
         function contraddittorio(c) {
             const cav = c.caveats || [];
             const items = cav.map(t => `<div class="contra-item"><span class="x">✕</span><span>${escapeHTML(t)}</span></div>`).join("");
@@ -949,6 +1004,7 @@
                 ${bayesHtml}
                 ${curveStrip(c.curve, c.curve_trail)}
                 ${provaCostosa(c)}
+                ${kenobiBox(c)}
                 <div class="verdict-box">
                     <div class="verdict-head"><span>${I18N.verdict_head}</span>${verdictLabel}</div>
                     <div class="verdict-text">${v.motivazione ? `"${escapeHTML(v.motivazione)}"` : I18N.no_motivation}</div>

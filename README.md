@@ -63,7 +63,7 @@ un gradino per volta — la scalata dei tier delle fonti è il preavviso).
 
 ---
 
-## Come si costruisce il punteggio (i sei layer)
+## Come si costruisce il punteggio (i sette layer)
 
 Backend deliberatamente leggibile ("alla Karpathy"): funzioni dirette, formule
 esplicite e ispezionabili in `discovery_engine.py`, zero ML/training, tutti i
@@ -90,6 +90,8 @@ tunable in `radar_config.yaml`.
   grande giornale ne parla ancora → **STA PER ESPLODERE**.
 - **Layer F — VALIDAZIONE TECNICA (il segnale costoso).** L'unico layer che
   *non* misura attenzione. Vedi la sezione dedicata qui sotto.
+- **Layer G — OB1·KENOBI.** La sottrazione: valore meno prezzo. Non stima
+  meglio il valore, cerca dove il *prezzo* è sbagliato. Sezione dedicata sotto.
 
 ---
 
@@ -187,6 +189,108 @@ progetto rifiuta altrove. Per questo un `non_validabile` con buzz alto resta
   puntato su di lui*, oppure *la conferma c'è ma viene da un solo soggetto*.
 - **`/processo`** mette sotto processo anche questo layer, con la sua copertura
   reale misurata (`validazione_copertura`).
+
+---
+
+## Layer G — OB1·KENOBI, l'algoritmo dell'inefficienza
+
+```
+K alman        la derivata: la fiducia sale o scende?
+E ffetto età   il calendario di nascita come variabile di mercato
+N ati tardi    chi la selezione ha filtrato più duramente
+O sservazioni  la coorte reale, misurata, non un coefficiente inventato
+B ilancio      valore meno prezzo: la sottrazione, non la somma
+I nefficienza  ciò che resta, ed è l'unica cosa che si può comprare
+```
+
+> *"Questi non sono i giocatori che state cercando."*
+
+Il settore ha una postura che nessuno ammette: cento piattaforme vendono cento
+modi diversi di misurare gli **stessi trecento ragazzi** — quelli che hanno già
+una scheda, già un procuratore e già un prezzo. È una gara a chi descrive meglio
+un mercato dove il vantaggio è già stato consumato, e arrivare secondi con una
+dashboard più bella resta arrivare secondi. Il problema non è che misurano male:
+è che misurano **dove guardano tutti**.
+
+KENOBI fa la cosa opposta, e volutamente stupida: non prova a stimare meglio il
+valore. Cerca il posto dove il **prezzo** è sbagliato.
+
+```
+edge = valore_reale − prezzo_di_mercato
+```
+
+Quasi tutti costruiscono solo il primo termine e si fermano lì. SENTINEL, per un
+accidente fortunato della sua storia, aveva già il **secondo**: l'attenzione
+della stampa *è* il prezzo (attenzione → concorrenza → costo). Il Layer F ha
+aggiunto il primo. Questo layer fa la sottrazione, e basta.
+
+### La variabile che il mercato sbaglia
+
+Il colpo di Beane non fu "usare le statistiche": fu trovare l'attributo che il
+mercato **sbaglia sistematicamente**. Qui è l'**effetto età relativa**, misurato
+sui campionati reali di questo radar — non preso da un paper:
+
+| trimestre di nascita | quota |
+|---|---|
+| gen–mar | **41.4%** |
+| apr–giu | 26.2% |
+| lug–set | 20.7% |
+| ott–dic | **11.7%** |
+
+χ² = 26.94 (3 gdl), **p < 0.001**. Non è rumore.
+
+A 13 anni un nato a gennaio è fisicamente più maturo di uno nato a dicembre:
+viene selezionato, riceve più minuti, più fiducia. Il vantaggio è **anagrafico,
+non tecnico**, e si dissolve verso i 20-21 anni — ma la selezione, ormai, è
+avvenuta.
+
+**L'inversione, che è il punto:** se un nato a dicembre è arrivato allo *stesso*
+livello, ha dovuto superare un filtro tre volte più stretto. Il livello che ha
+raggiunto **sottostima** la sua qualità — che è la definizione operativa di un
+asset sottoprezzato.
+
+Per questo la correzione si applica al **valore**, non al punteggio finale:
+
+```
+valore_corretto = valore + (1 − valore) × peso × sconto_anagrafico
+edge            = valore_corretto − prezzo
+kenobi          = 50 + 50 × edge          (50 = mercato allineato)
+```
+
+### Tre garanzie scritte nei test
+
+- **Autocalibrante.** Il coefficiente non è incollato da un paper: lo misura la
+  pool dell'utente a ogni scansione. Se un domani l'effetto sparisse, la
+  correzione andrebbe a zero da sola — c'è un test che lo verifica.
+- **Solo bonus, mai malus.** Un nato a gennaio non viene penalizzato, pur essendo
+  statisticamente più probabile che sia un prodotto del calendario. Declassare un
+  individuo per una statistica di *gruppo* è il modo in cui questi sistemi
+  iniziano a sbagliare in modo invisibile. L'effetto Moneyball si ottiene lo
+  stesso: se i nati tardi salgono, i nati presto scendono in classifica relativa.
+- **Niente sottrazione senza entrambi i termini.** Se manca il valore, KENOBI
+  dice `non calcolabile` e tace. Senza valore non c'è arbitraggio: c'è una
+  scommessa al buio, e questo layer non ne fa.
+
+### La derivata (lo sviluppo, non la fotografia)
+
+*"Come si svilupperà?"* non ha una risposta onesta con questi dati, e chi te la
+dà con due decimali sta inventando. La domanda che una risposta ce l'ha è: **la
+fiducia che il mondo reale ripone in lui sta salendo o scendendo?**
+
+Kalman e CUSUM erano già in questo repo (Layer C e D) e giravano solo
+sull'attenzione. KENOBI li punta sul punteggio di **validazione**: non la
+derivata di quanto se ne parla, ma di quanto qualcuno ci scommette. Sotto tre
+osservazioni dice *"traiettoria non ancora leggibile"*, non un numero.
+
+### Sotto processo come tutto il resto
+
+`/processo` mostra la copertura di KENOBI, la coorte misurata con il suo χ², e
+questa obiezione, che è nel codice e non nel marketing: che i nati tardi siano
+stati filtrati più duramente **è misurato**; che questo li renda mediamente
+migliori dopo è plausibile e documentato, ma **è una tesi** — e va verificata sul
+tabellone, nel tempo, su questi candidati.
+
+---
 
 ### Limiti misurati dal vivo (non stimati)
 
@@ -308,6 +412,7 @@ buzz_history.json         # snapshot menzioni per candidato
 watchlist.json            # giocatori segnati a mano dalle schede
 curve_validation.json     # registro scommesse (esplosi/sgonfiati) + crossing
 career_records.json       # CACHE (non storico) dei dati di carriera per il Layer F — si può buttare, si rilegge
+coorte_anagrafica.json    # KENOBI: la distribuzione dei mesi di nascita misurata (il "modello" autocalibrante)
 
 # Legacy (non SENTINEL): Miss Minute — prioritizzazione progetti (miss_minute*.py, priorities.yaml)
 ```

@@ -508,6 +508,13 @@
              buzz finivano in fondo a una classifica ordinata sul buzz. -->
         <div class="filter-label">{{ 'Costly signal' if LANG == 'en' else 'Segnale costoso' }}</div>
         <div class="filter-chip-row" id="quad-filters"></div>
+
+        <!-- LAYER G: ordinare per SCARTO invece che per punteggio e' il modo
+             in cui si usa davvero un algoritmo di inefficienza. Una classifica
+             per signal score mette in cima chi e' gia' visibile - cioe' chi
+             costa gia' caro. -->
+        <div class="filter-label">{{ 'Sort by' if LANG == 'en' else 'Ordina per' }}</div>
+        <div class="filter-chip-row" id="sort-filters"></div>
     </div>
 
     <main id="results"></main>
@@ -581,6 +588,7 @@
             expanded: new Set(),
             filterPanelOpen: false,
             filters: { roles: new Set(), maxAge: "all", country: "all", quadrante: "all" },
+            ordina: "signal",
             renderLimit: 60,   // quante schede disegnare per volta (mobile)
             totalCount: 0,     // totale reale, prima del cap del server
             scanning: false,   // c'e' una scansione in corso lanciata da qui?
@@ -850,6 +858,12 @@
             { key: "indeterminato", label: IS_EN ? "not validatable" : "non validabile" },
         ];
 
+        const ORDINAMENTI = [
+            { key: "signal", label: IS_EN ? "attention" : "attenzione" },
+            { key: "kenobi", label: IS_EN ? "💰 mispricing (KENOBI)" : "💰 scarto di prezzo (KENOBI)" },
+            { key: "validazione", label: IS_EN ? "costly signal" : "segnale costoso" },
+        ];
+
         function renderFilterPanel() {
             const panel = document.getElementById("filter-panel");
             panel.classList.toggle("open", state.filterPanelOpen);
@@ -881,6 +895,18 @@
             ageEl.querySelectorAll(".filter-chip").forEach(el => {
                 el.addEventListener("click", () => {
                     state.filters.maxAge = el.dataset.age;
+                    state.renderLimit = 60;
+                    render();
+                });
+            });
+
+            const sortEl = document.getElementById("sort-filters");
+            sortEl.innerHTML = ORDINAMENTI.map(o =>
+                `<div class="filter-chip ${state.ordina === o.key ? "active" : ""}" data-sort="${o.key}">${o.label}</div>`
+            ).join("");
+            sortEl.querySelectorAll(".filter-chip").forEach(el => {
+                el.addEventListener("click", () => {
+                    state.ordina = el.dataset.sort;
                     state.renderLimit = 60;
                     render();
                 });
@@ -958,7 +984,22 @@
                 .map(c => ({ ...c, _fit: computeFitScore(c, state.activeProfile) }))
                 .filter(c => c._fit !== null);
             scored = applyFilters(scored);
-            scored.sort((a, b) => b._fit - a._fit);
+            // Chi non ha un punteggio per il criterio scelto NON viene
+            // spinto in cima da un default a zero ne' fatto sparire: va in
+            // fondo, e resta visibile. Un "non lo so" non e' uno zero -
+            // vale in UI come vale nei dati (Layer F, regola cardinale).
+            const chiaveOrdine = (c) => {
+                if (state.ordina === "kenobi") {
+                    const v = c.kenobi && c.kenobi.kenobi_score;
+                    return (v === null || v === undefined) ? -1 : v;
+                }
+                if (state.ordina === "validazione") {
+                    const v = c.validazione && c.validazione.validation_score;
+                    return (v === null || v === undefined) ? -1 : v;
+                }
+                return c._fit;
+            };
+            scored.sort((a, b) => chiaveOrdine(b) - chiaveOrdine(a));
 
             // il totale mostrato dice sia quanti passano i filtri sia quanti
             // ne esistono in tutto (il server manda solo i primi per non

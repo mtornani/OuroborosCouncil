@@ -411,6 +411,8 @@ def radar_feed():
                 # e silenzioso e quello di cui parlano tutti senza riscontri.
                 "validazione": record.get("validazione"),
                 "quadrante": record.get("quadrante"),
+                # LAYER G: la sottrazione valore-prezzo (OB1-KENOBI)
+                "kenobi": record.get("kenobi"),
                 "caveats": discovery_engine.player_caveats(
                     last, discovery_engine.bayesian_estimate(record["history"], cfg), identity, cfg,
                     validazione=record.get("validazione")),
@@ -491,6 +493,7 @@ def radar_turno():
                 # segnale, calcolati dai dati del giocatore (non dall'AI)
                 "validazione": record.get("validazione"),
                 "quadrante": record.get("quadrante"),
+                "kenobi": record.get("kenobi"),
                 "caveats": discovery_engine.player_caveats(
                     last, discovery_engine.bayesian_estimate(record["history"], cfg), identity, cfg,
                     validazione=record.get("validazione")),
@@ -526,6 +529,7 @@ def radar_turno():
                 card["bayesian"] = discovery_engine.bayesian_estimate(record.get("history") or [], cfg)
                 card["validazione"] = record.get("validazione")
                 card["quadrante"] = record.get("quadrante")
+                card["kenobi"] = record.get("kenobi")
                 card["caveats"] = discovery_engine.player_caveats(
                     last, card["bayesian"], identity, cfg,
                     validazione=record.get("validazione"))
@@ -573,6 +577,9 @@ def radar_processo():
             # validato" come "non valido", quando spesso vuol dire solo che la
             # fonte non lo sapeva. Qui quella differenza diventa un numero.
             "validazione_copertura": discovery_engine.validation_coverage_summary(),
+            # Layer G sotto processo: un algoritmo che dice di trovare
+            # inefficienze deve dichiarare su quanti casi ha potuto guardare
+            "kenobi": discovery_engine.kenobi_summary(),
         })
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})

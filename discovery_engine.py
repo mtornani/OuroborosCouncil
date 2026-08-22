@@ -50,6 +50,12 @@ DECISIONS_FILE = BASE_DIR / "human_decisions.json"
 # persistenza del resto (su Postgres se DATABASE_URL e' impostata), perche' il
 # suo scopo e' proprio non ri-martellare WDQS a ogni riavvio.
 CAREER_FILE = BASE_DIR / "career_records.json"
+# Layer G/KENOBI: la coorte anagrafica misurata (il "modello" autocalibrante
+# dell'effetto eta' relativa). Chiave di persistenza DEDICATA, non un campo
+# dentro radar_feed: il feed viene iterato in sei punti diversi come
+# "candidate_id -> record", e infilarci dentro un non-giocatore e' una
+# trappola per il prossimo che scrive un ciclo - incluso me fra sei mesi.
+COORTE_FILE = BASE_DIR / "coorte_anagrafica.json"
 
 # Contratto umano: SENTINEL misura l'attenzione, l'occhio decide la qualita'.
 # in_verifica = lo prendi in carico; passo = non ora; scarto = questo segnale no;
@@ -1087,7 +1093,12 @@ def fit_score(candidate: dict, score_result: dict, profile_key: str, cfg: dict) 
 # la nuova osservazione e' vicina alla stima corrente rispetto al suo
 # rumore atteso (observation_variance, piu' alto se dati parziali).
 
-def bayesian_estimate(history: list[dict], cfg: dict) -> dict | None:
+def bayesian_estimate(history: list[dict], cfg: dict, campo: str = "signal_score") -> dict | None:
+    """campo: quale serie storica filtrare. Default 'signal_score' (Layer A,
+    comportamento storico invariato). KENOBI lo punta su 'validation_score'
+    per ottenere la derivata della FIDUCIA invece che dell'attenzione: stessa
+    matematica, domanda completamente diversa - non 'quanto se ne parla di
+    piu'' ma 'quanto qualcuno ci scommette di piu''."""
     if not history:
         return None
     bcfg = cfg["bayesian"]
@@ -1100,7 +1111,7 @@ def bayesian_estimate(history: list[dict], cfg: dict) -> dict | None:
     # (radar_config.yaml: state_change.shock_z_threshold).
     last_innovation_z = None
     for obs in history:
-        score = obs.get("signal_score")
+        score = obs.get(campo)
         if score is None:
             continue
         obs_variance = bcfg["observation_variance_partial"] if obs.get("partial_data") else bcfg["observation_variance_full"]
@@ -1121,7 +1132,7 @@ def bayesian_estimate(history: list[dict], cfg: dict) -> dict | None:
         "estimate": round(mean, 1),
         "std_dev": round(std_dev, 1),
         "confidence_band": [round(max(0.0, mean - 1.96 * std_dev), 1), round(min(100.0, mean + 1.96 * std_dev), 1)],
-        "n_observations": len(history),
+        "n_observations": sum(1 for o in history if o.get(campo) is not None),
         "last_innovation_z": round(last_innovation_z, 2) if last_innovation_z is not None else None,
     }
 
@@ -1438,6 +1449,53 @@ def validation_coverage_summary(feed: dict | None = None, cfg: dict | None = Non
             if (copertura_pct is not None and copertura_pct < 50) else
             "La copertura del segnale costoso su questo campione e' sufficiente a usarlo come filtro, "
             "ma resta una misura di scommesse altrui - non un giudizio tecnico sul giocatore."
+        ),
+    }
+
+
+def kenobi_summary(feed: dict | None = None, coorte: dict | None = None) -> dict:
+    """KENOBI sotto processo insieme al resto. Un algoritmo che pretende di
+    trovare inefficienze di mercato DEVE dichiarare su quanti casi riesce
+    davvero a fare la sottrazione - altrimenti "ho trovato 3 occasioni" non
+    si distingue da "ho potuto guardare solo 3 casi"."""
+    feed = feed if feed is not None else _load_json(FEED_FILE)
+    coorte = coorte if coorte is not None else _load_json(COORTE_FILE)
+
+    stati, punteggi, scontati = {}, [], 0
+    for record in feed.values():
+        if not isinstance(record, dict):
+            continue
+        k = record.get("kenobi") or {}
+        st = k.get("stato")
+        if st:
+            stati[st] = stati.get(st, 0) + 1
+        if k.get("kenobi_score") is not None:
+            punteggi.append(k["kenobi_score"])
+        if (k.get("sconto_anagrafico") or {}).get("sconto", 0) > 0:
+            scontati += 1
+
+    tot = sum(stati.values())
+    calcolabili = tot - stati.get("non_calcolabile", 0)
+    return {
+        "coorte": coorte,
+        "stati": stati,
+        "considerati": tot,
+        "calcolabili": calcolabili,
+        "copertura_pct": round(100.0 * calcolabili / tot, 1) if tot else None,
+        "occasioni": stati.get("occasione", 0),
+        "con_sconto_anagrafico": scontati,
+        "kenobi_medio": round(sum(punteggi) / len(punteggi), 1) if punteggi else None,
+        "obiezione": (
+            "Nessun caso ancora passato da KENOBI: non c'e' niente da dichiarare. "
+            "Il numero comparira' da solo dopo la prima scansione."
+            if not tot else
+            "La sottrazione richiede ENTRAMBI i termini: dove manca il valore (nessun dato di "
+            "carriera leggibile) KENOBI tace invece di indovinare, ed e' il motivo per cui la "
+            "copertura qui sopra non e' 100%. Inoltre l'inversione dell'effetto eta' relativa "
+            "resta una TESI: che i nati tardi siano stati filtrati piu' duramente e' misurato "
+            "(chi-quadro qui accanto); che questo li renda mediamente migliori dopo e' "
+            "plausibile e documentato, ma va verificato sul tabellone, nel tempo, su questi "
+            "candidati. Finche' non ci sono esiti, e' una scommessa dichiarata - non un fatto."
         ),
     }
 
@@ -2240,6 +2298,276 @@ def nuove_prove_costose(validazione: dict | None, precedente: dict | None) -> li
 
 
 # ============================================================
+#  L A Y E R   G  -  O B 1 - K E N O B I
+#  l'algoritmo dell'inefficienza
+# ============================================================
+#   K alman        la derivata: la fiducia sale o scende?
+#   E ffetto eta'  il calendario di nascita come variabile di mercato
+#   N ati tardi    chi la selezione ha filtrato piu' duramente
+#   O sservazioni  la coorte reale, misurata, non un coefficiente inventato
+#   B ilancio      valore meno prezzo: la sottrazione, non la somma
+#   I nefficienza  cio' che resta, ed e' l'unica cosa che si puo' comprare
+#
+#            "Questi non sono i giocatori che state cercando."
+#
+# Il settore ha una postura che nessuno ammette: cento piattaforme vendono
+# cento modi diversi di misurare gli STESSI trecento ragazzi - quelli che
+# hanno gia' una scheda, gia' un procuratore e gia' un prezzo. E' una gara a
+# chi descrive meglio un mercato dove il vantaggio e' gia' stato consumato, e
+# arrivare secondi con una dashboard piu' bella resta arrivare secondi. Il
+# problema non e' che misurano male. E' che misurano DOVE GUARDANO TUTTI.
+#
+# KENOBI fa la cosa opposta, e volutamente stupida: non prova a stimare
+# meglio il valore. Cerca il posto dove il PREZZO e' sbagliato. E' la
+# differenza fra fare lo scout e fare arbitraggio.
+#
+#     edge = valore_reale - prezzo_di_mercato
+#
+# Quasi tutti costruiscono solo il primo termine e si fermano li'. SENTINEL
+# per un accidente fortunato della sua storia aveva gia' il SECONDO -
+# l'attenzione della stampa E' il prezzo (attenzione -> concorrenza -> costo).
+# Il Layer F ha aggiunto il primo. Questo layer fa la sottrazione, e basta.
+# Tre funzioni, nessun modello, nessun training: si legge tutto in dieci
+# minuti e si smonta in cinque. Se un giorno smette di funzionare, si vede.
+
+
+_TRIMESTRI = {1: "gen-mar", 2: "apr-giu", 3: "lug-set", 4: "ott-dic"}
+
+
+def _trimestre_relativo(dob: str | None, mese_taglio: int) -> int | None:
+    """In quale quarto della finestra di selezione e' nato. Q1 = subito dopo
+    il taglio (il piu' vecchio della sua annata, quindi il piu' favorito),
+    Q4 = appena prima del taglio successivo (il piu' penalizzato)."""
+    data = _parse_wd_date(dob)
+    if data is None:
+        return None
+    offset = (data.month - mese_taglio) % 12   # 0..11 dal taglio
+    return offset // 3 + 1
+
+
+def misura_coorte_anagrafica(candidates: list[dict], cfg_root: dict) -> dict:
+    """Misura la distribuzione REALE dei mesi di nascita nella pool.
+    Zero rete: la data di nascita e' gia' in ogni candidato.
+
+    E' il pezzo che rende questo layer autocalibrante invece che un
+    coefficiente preso da un paper e incollato qui. La forza della
+    correzione la decide il campione di QUESTO utente, su QUESTI campionati,
+    e si aggiorna da sola a ogni scansione. Se un domani il calcio giovanile
+    smettesse di avere l'effetto (buon per lui), la correzione scenderebbe a
+    zero senza che nessuno debba accorgersene e toccare una riga."""
+    kcfg = cfg_root["kenobi"]["effetto_eta"]
+    conteggi = {1: 0, 2: 0, 3: 0, 4: 0}
+    for c in candidates:
+        t = _trimestre_relativo(c.get("dob"), kcfg["mese_taglio"])
+        if t:
+            conteggi[t] += 1
+    n = sum(conteggi.values())
+    if n < kcfg["coorte_minima"]:
+        # Sotto soglia NON si corregge nulla: una distribuzione stimata su
+        # pochi casi direbbe piu' cose sul campione che sul calcio. Meglio un
+        # layer che tace di uno che corregge sul rumore.
+        return {"n": n, "calibrata": False, "conteggi": conteggi, "quote": {}, "rarita": {},
+                "motivo": f"Coorte troppo piccola per calibrare ({n} date di nascita, "
+                          f"ne servono {kcfg['coorte_minima']}): nessuna correzione applicata."}
+
+    quote = {t: conteggi[t] / n for t in conteggi}
+    attesa = 0.25
+    # rarita' = quanto quel trimestre e' sotto-rappresentato. >1 significa
+    # "il filtro per arrivare qui nati in quel trimestre e' stato piu' duro".
+    rarita = {t: (attesa / quote[t]) if quote[t] > 0 else None for t in conteggi}
+    # chi-quadro: serve a dire ONESTAMENTE se lo sbilanciamento e' reale o
+    # e' il campione che balla. Con 3 gradi di liberta': 7.81 -> p<0.05,
+    # 11.34 -> p<0.01, 16.27 -> p<0.001.
+    atteso_n = n / 4
+    chi2 = sum((conteggi[t] - atteso_n) ** 2 / atteso_n for t in conteggi) if atteso_n else 0.0
+    return {
+        "n": n, "calibrata": True, "conteggi": conteggi,
+        "quote": {t: round(quote[t] * 100, 1) for t in quote},
+        "rarita": {t: (round(rarita[t], 2) if rarita[t] else None) for t in rarita},
+        "chi_quadro": round(chi2, 2),
+        "significativo": chi2 > 7.81,
+        "motivo": None,
+    }
+
+
+def sconto_anagrafico(dob: str | None, coorte: dict, cfg_root: dict) -> dict:
+    """Quanto il calendario ha remato contro questo ragazzo, 0-1.
+
+    L'inversione che rende la cosa interessante: se e' arrivato allo STESSO
+    livello nascendo nel trimestre tre volte piu' raro, ha superato un filtro
+    tre volte piu' stretto. Il livello che ha raggiunto SOTTOSTIMA la sua
+    qualita' - che e' la definizione operativa di un asset sottoprezzato.
+
+    SOLO BONUS, MAI MALUS (kenobi.solo_bonus). Un nato a gennaio non viene
+    penalizzato pur essendo statisticamente piu' probabile che sia un prodotto
+    del calendario: declassare un individuo per una statistica di GRUPPO e'
+    il modo esatto in cui questi sistemi cominciano a sbagliare, e a sbagliare
+    in modo invisibile. L'effetto Moneyball si ottiene lo stesso: se i nati
+    tardi salgono, i nati presto scendono in classifica RELATIVA."""
+    kcfg = cfg_root["kenobi"]["effetto_eta"]
+    t = _trimestre_relativo(dob, kcfg["mese_taglio"])
+    if t is None:
+        return {"sconto": 0.0, "trimestre": None, "disponibile": False,
+                "motivo": "Data di nascita non disponibile."}
+    if not coorte.get("calibrata"):
+        return {"sconto": 0.0, "trimestre": t, "etichetta": _TRIMESTRI[t],
+                "disponibile": False, "motivo": coorte.get("motivo")}
+
+    rarita = (coorte.get("rarita") or {}).get(t)
+    if not rarita or rarita <= 1.0:
+        # trimestre sovra-rappresentato: nessuno sconto, e nessuna penalita'
+        return {"sconto": 0.0, "trimestre": t, "etichetta": _TRIMESTRI[t],
+                "rarita": rarita, "disponibile": True,
+                "motivo": "Nato nella finestra favorita dalla selezione: nessuna correzione "
+                          "(ne' a favore ne' contro)."}
+
+    sat = kcfg["rarita_saturazione"]
+    sconto = max(0.0, min(1.0, (rarita - 1.0) / max(1e-9, sat - 1.0)))
+    return {
+        "sconto": round(sconto, 3), "trimestre": t, "etichetta": _TRIMESTRI[t],
+        "rarita": rarita, "disponibile": True,
+        "motivo": f"Nato in {_TRIMESTRI[t]}: nei campionati che questo radar copre quel trimestre "
+                  f"e' {rarita:.1f} volte piu' raro del dovuto. Chi arriva a questo livello nascendo "
+                  f"li' ha superato un filtro piu' stretto - il livello raggiunto sottostima la qualita'.",
+    }
+
+
+def sviluppo_fiducia(history: list[dict], cusum_state: dict | None, cfg_root: dict) -> dict:
+    """LA DERIVATA. La domanda "come si sviluppera'?" non ha risposta onesta
+    con questi dati, e chi te la da' con due decimali sta inventando. La
+    domanda che una risposta ce l'ha e': "la fiducia che il mondo reale
+    ripone in lui sta salendo o scendendo?".
+
+    Riusa Kalman (Layer C) e CUSUM (Layer D) senza riscrivere nulla: stessa
+    matematica gia' in produzione, puntata pero' sul punteggio di VALIDAZIONE
+    invece che su quello di attenzione. Non la derivata di quanto se ne
+    parla: quella di quanto qualcuno ci scommette."""
+    scfg = cfg_root["kenobi"]["sviluppo"]
+    bayes = bayesian_estimate(history or [], cfg_root, campo="validation_score")
+    n = (bayes or {}).get("n_observations", 0)
+    if not bayes or n < scfg["min_osservazioni"]:
+        return {"direzione": "ignota", "leggibile": False, "n_osservazioni": n,
+                "motivo": f"Traiettoria non ancora leggibile: servono almeno "
+                          f"{scfg['min_osservazioni']} misure di validazione, ce ne sono {n}."}
+
+    z = bayes.get("last_innovation_z")
+    deriva_su = (cusum_state or {}).get("pos", 0.0)
+    deriva_giu = (cusum_state or {}).get("neg", 0.0)
+    soglia = cfg_root["state_change"]["cusum_threshold"]
+
+    if (z is not None and z >= scfg["z_salita"]) or deriva_su >= soglia:
+        direzione, testo = "salita", ("La fiducia di chi rischia su di lui sta CRESCENDO: piu' minuti, "
+                                      "piu' convocazioni, o a livello piu' alto rispetto ai controlli scorsi.")
+    elif (z is not None and z <= scfg["z_discesa"]) or deriva_giu >= soglia:
+        direzione, testo = "discesa", ("La fiducia sta CALANDO: i segnali costosi si stanno diradando "
+                                       "rispetto ai controlli scorsi. Non significa che sia peggiorato - "
+                                       "puo' essere un infortunio, un cambio di allenatore, una scelta tattica.")
+    else:
+        direzione, testo = "stabile", "La fiducia e' stabile: nessun movimento significativo nei segnali costosi."
+
+    return {"direzione": direzione, "leggibile": True, "n_osservazioni": n,
+            "z": z, "stima": bayes.get("estimate"), "banda": bayes.get("confidence_band"),
+            "motivo": testo}
+
+
+_KENOBI_ETICHETTE = {
+    "occasione": ("SOTTOVALUTATO",
+                  "Il valore che qualcuno gli ha gia' riconosciuto e' piu' alto dell'attenzione che ha "
+                  "addosso. E' lo scarto che si puo' comprare - guardalo prima che il prezzo lo raggiunga."),
+    "allineato": ("MERCATO ALLINEATO",
+                  "Valore e attenzione si corrispondono: nessuno scarto da sfruttare, ne' in un senso "
+                  "ne' nell'altro. Puo' essere comunque un buon giocatore - semplicemente, non e' un affare."),
+    "sopravvalutato": ("PREZZO IN FUGA",
+                       "L'attenzione corre piu' del valore dimostrato. Non vuol dire che sia scarso: vuol "
+                       "dire che stai per pagarlo piu' di quanto i fatti, finora, giustifichino."),
+    "non_calcolabile": ("NON CALCOLABILE",
+                        "Manca uno dei due termini della sottrazione. Senza il valore non c'e' arbitraggio, "
+                        "c'e' solo una scommessa al buio - e questo layer non ne fa."),
+}
+
+
+def kenobi_score(candidate: dict, signal_score_val: float | None, validazione: dict | None,
+                 coorte: dict, sviluppo: dict | None, cfg_root: dict) -> dict:
+    """LA SOTTRAZIONE. Funzione pura, zero rete, zero stato.
+
+        valore_corretto = valore + (1 - valore) * peso * sconto_anagrafico
+        edge            = valore_corretto - prezzo
+        kenobi          = 50 + 50 * edge        (50 = mercato allineato)
+
+    Perche' lo sconto anagrafico corregge il VALORE e non il punteggio
+    finale: e' esattamente cio' che afferma. Non dice "questo ragazzo merita
+    dei punti in piu' perche' e' nato a dicembre"; dice "il livello che ha
+    raggiunto sottostima la sua qualita', perche' il filtro che ha passato
+    era piu' duro". E' una correzione alla STIMA, e va applicata dove sta la
+    stima. La forma (1-v)*peso*sconto e' la stessa gia' usata dal Layer F per
+    la precocita': solleva verso l'alto, non puo' mai sfondare 1, e non puo'
+    mai abbassare - la regola cardinale vale anche qui."""
+    kcfg = cfg_root["kenobi"]
+    if not kcfg.get("attiva", True):
+        return {"kenobi_score": None, "stato": "non_calcolabile",
+                "tag": _KENOBI_ETICHETTE["non_calcolabile"][0],
+                "lead": "KENOBI disattivato in configurazione.",
+                "spiegazione": [], "sconto_anagrafico": None, "sviluppo": sviluppo}
+
+    anagrafica = sconto_anagrafico(candidate.get("dob"), coorte, cfg_root)
+    stato_v = (validazione or {}).get("stato")
+    vscore = (validazione or {}).get("validation_score")
+
+    spiegazione = []
+    if anagrafica.get("motivo"):
+        spiegazione.append(anagrafica["motivo"])
+
+    # Il valore esiste solo se le fonti sono state LETTE davvero. Un
+    # non_validabile non vale zero: vale "non lo so", e senza valore non
+    # esiste sottrazione (kenobi.bilancio.richiede_entrambi_i_termini).
+    valore = None
+    if stato_v == "validato" and vscore is not None:
+        valore = vscore / 100.0
+    elif stato_v == "non_corroborato":
+        # letto davvero, nessun segnale costoso trovato: valore misurato ~0.
+        # E' l'unico caso in cui uno zero e' onesto, perche' NON deriva da un
+        # dato mancante ma da una lettura andata a buon fine.
+        valore = 0.0
+
+    if valore is None or signal_score_val is None:
+        mancante = ("il valore (nessun dato di carriera leggibile)" if valore is None
+                    else "il prezzo (nessun punteggio di attenzione in questo run)")
+        tag, lead = _KENOBI_ETICHETTE["non_calcolabile"]
+        spiegazione.append(f"Manca {mancante}.")
+        return {"kenobi_score": None, "stato": "non_calcolabile", "tag": tag, "lead": lead,
+                "edge": None, "valore": None, "valore_corretto": None, "prezzo": None,
+                "spiegazione": spiegazione, "sconto_anagrafico": anagrafica, "sviluppo": sviluppo}
+
+    peso = kcfg["effetto_eta"]["peso_correzione"]
+    sconto = anagrafica.get("sconto", 0.0)
+    valore_corretto = valore + (1 - valore) * peso * sconto
+    prezzo = max(0.0, min(1.0, signal_score_val / 100.0))
+    edge = valore_corretto - prezzo
+    punteggio = round(max(0.0, min(100.0, 50 + 50 * edge)), 1)
+
+    if sconto > 0:
+        spiegazione.append(
+            f"Correzione anagrafica applicata al valore: {valore*100:.0f} -> {valore_corretto*100:.0f} su 100.")
+    spiegazione.append(
+        f"Bilancio: valore {valore_corretto*100:.0f} meno prezzo (attenzione) {prezzo*100:.0f} "
+        f"= scarto {edge*100:+.0f}.")
+
+    b = kcfg["bilancio"]
+    if punteggio >= b["soglia_occasione"]:
+        chiave = "occasione"
+    elif punteggio <= b["soglia_sopravvalutato"]:
+        chiave = "sopravvalutato"
+    else:
+        chiave = "allineato"
+    tag, lead = _KENOBI_ETICHETTE[chiave]
+
+    return {"kenobi_score": punteggio, "stato": chiave, "tag": tag, "lead": lead,
+            "edge": round(edge, 3), "valore": round(valore, 3),
+            "valore_corretto": round(valore_corretto, 3), "prezzo": round(prezzo, 3),
+            "spiegazione": spiegazione, "sconto_anagrafico": anagrafica, "sviluppo": sviluppo}
+
+
+# ============================================================
 # LAYER D - sonda di cambiamento di stato (IL TURNO)
 # ============================================================
 # Decide se un candidato merita di entrare nel turno di revisione o restare
@@ -2922,6 +3250,16 @@ def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> di
             if resolution["conflitto"] and resolution.get("alternativa"):
                 c["club_alternativo"] = resolution["alternativa"]
 
+    # LAYER G / KENOBI - la coorte anagrafica si misura UNA volta per run,
+    # sull'intera pool grezza (non sui soli ranked): serve la distribuzione
+    # VERA di chi e' arrivato a questi campionati, non quella dei candidati
+    # che hanno gia' superato i filtri di profilo - filtrare prima di
+    # misurare distorcerebbe proprio la statistica che si vuole misurare.
+    # Zero rete: la data di nascita e' gia' in ogni candidato.
+    coorte = misura_coorte_anagrafica(candidates, cfg)
+    if coorte.get("calibrata"):
+        _progress(f"coorte anagrafica: n={coorte['n']}, chi2={coorte['chi_quadro']}")
+
     # Stage 1: eta'-relativa-al-livello, locale, zero chiamate di rete su
     # tutti i candidati (pool nell'ordine delle centinaia - vedi commento in
     # radar_config.yaml sotto "performance").
@@ -3025,6 +3363,11 @@ def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> di
             candidate, carriere.get(candidate["candidate_id"]), cfg)
         sres["quadrante"] = evidence_quadrant(
             sres.get("signal_score"), sres["validazione"], cfg)
+        # LAYER G: la sottrazione. Lo sviluppo (la derivata) si attacca
+        # dopo, in fase 1, quando la history di QUESTO run e' gia' scritta -
+        # qui non esiste ancora e passarlo a None e' corretto, non una svista.
+        sres["kenobi"] = kenobi_score(
+            candidate, sres.get("signal_score"), sres["validazione"], coorte, None, cfg)
 
         if buzz is not None:
             # aggiorna lo storico solo per chi e' stato davvero controllato
@@ -3171,6 +3514,17 @@ def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> di
         record["cusum"] = cusum_state
         entry["_bayes"] = bayes
         entry["_cusum"] = cusum_state
+
+        # LAYER G - LA DERIVATA. Si calcola QUI e non prima perche' ha bisogno
+        # della history con l'entry di questo run gia' dentro (appesa poco
+        # sopra): e' la traiettoria della FIDUCIA, e senza il punto di oggi
+        # sarebbe la traiettoria di ieri. Riusa il CUSUM gia' aggiornato in
+        # queste righe invece di ricalcolarlo - applicarlo due volte allo
+        # stesso z farebbe scattare la deriva prima del dovuto.
+        entry["signal"]["kenobi"]["sviluppo"] = sviluppo_fiducia(
+            record["history"], cusum_state, cfg)
+        record["kenobi"] = entry["signal"]["kenobi"]
+        record["history"][-1]["kenobi_score"] = entry["signal"]["kenobi"].get("kenobi_score")
         entry["_ai_free_change"] = detect_state_change(
             candidate=entry["candidate"],
             previous_last_entry=entry["_previous_last_entry"],
@@ -3203,6 +3557,7 @@ def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> di
 
     _progress("salvo i punteggi (gia' consultabili)")
     _save_json(FEED_FILE, feed)
+    _save_json(COORTE_FILE, coorte)  # KENOBI: ispezionabile dal /processo
     _save_json(BUZZ_HISTORY_FILE, history)
     _save_json(OBSERVATIONS_FILE, observations)
     _save_json(CAREER_FILE, carriere)
