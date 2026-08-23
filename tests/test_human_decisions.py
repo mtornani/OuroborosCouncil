@@ -122,3 +122,72 @@ class TestDaVerificareCards(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ======================================================================
+class TestPrecisioneTurno(unittest.TestCase):
+    """QUANTO VALE LA LISTA GIORNALIERA, per tipo di segnalazione.
+
+    I dati c'erano gia' tutti: per ogni caso mostrato nel turno viene
+    registrata una decisione (in_verifica/passo/scarto/tiene/non_tiene).
+    Nessuno li stava contando. Incrociandoli col motivo per cui il caso era
+    in lista si scopre quali allarmi si guadagnano il posto nel turno."""
+
+    def _feed(self, cid, motivo, run_at="2026-08-01T10:00:00+00:00"):
+        return {cid: {"identity": {"name": cid},
+                      "history": [{"run_at": run_at,
+                                   "state_change": {"type": motivo, "tag": motivo.upper()}}]}}
+
+    def _dec(self, cid, status, at="2026-08-02T10:00:00+00:00"):
+        return {cid: {"status": status, "updated_at": at}}
+
+    def test_conta_aperture_per_motivo(self):
+        from discovery_engine import precisione_turno
+        feed, dec = {}, {}
+        for i in range(4):                      # takeoff: 4 mostrati, 4 aperti
+            feed.update(self._feed(f"T{i}", "takeoff"))
+            dec.update(self._dec(f"T{i}", "in_verifica"))
+        for i in range(10):                     # rising: 10 mostrati, 1 aperto
+            feed.update(self._feed(f"R{i}", "rising"))
+            dec.update(self._dec(f"R{i}", "in_verifica" if i == 0 else "passo"))
+        r = precisione_turno(dec, feed)
+        self.assertEqual(r["per_motivo"]["takeoff"]["tasso_apertura"], 100.0)
+        self.assertEqual(r["per_motivo"]["rising"]["tasso_apertura"], 10.0)
+        # il piu' utile in cima
+        self.assertEqual(list(r["per_motivo"])[0], "takeoff")
+
+    def test_non_tiene_conta_come_apertura_riuscita(self):
+        """Il turno ha fatto BENE a mostrarlo: l'hai guardato. Che il
+        giocatore non abbia retto e' un giudizio sul giocatore, non sulla
+        lista. La lista propone, l'occhio dispone."""
+        from discovery_engine import precisione_turno
+        r = precisione_turno(self._dec("A", "non_tiene"), self._feed("A", "takeoff"))
+        self.assertEqual(r["per_motivo"]["takeoff"]["aperti"], 1)
+
+    def test_decisione_senza_storico_contata_a_parte(self):
+        """La history tiene 30 controlli: le decisioni vecchie non sono piu'
+        ricostruibili. Vanno dichiarate, non fatte sparire."""
+        from discovery_engine import precisione_turno
+        r = precisione_turno(self._dec("X", "passo"), {"X": {"history": []}})
+        self.assertEqual(r["decisioni_totali"], 1)
+        self.assertEqual(r["senza_motivo"], 1)
+        self.assertEqual(r["ricostruite"], 0)
+
+    def test_usa_lo_stato_mostrato_AL_MOMENTO_della_decisione(self):
+        """Non l'ultimo motivo in assoluto: quello che avevi davanti quando
+        hai deciso. Altrimenti si attribuisce l'apertura al motivo sbagliato."""
+        from discovery_engine import precisione_turno
+        feed = {"A": {"history": [
+            {"run_at": "2026-08-01T00:00:00", "state_change": {"type": "takeoff"}},
+            {"run_at": "2026-08-05T00:00:00", "state_change": {"type": "rising"}},
+        ]}}
+        r = precisione_turno(self._dec("A", "in_verifica", at="2026-08-02T00:00:00"), feed)
+        self.assertIn("takeoff", r["per_motivo"])
+        self.assertNotIn("rising", r["per_motivo"])
+
+    def test_senza_decisioni_dice_non_lo_so(self):
+        from discovery_engine import precisione_turno
+        r = precisione_turno({}, {})
+        self.assertEqual(r["decisioni_totali"], 0)
+        self.assertIsNone(r["tasso_apertura_complessivo"])
+        self.assertIn("niente da misurare", r["obiezione"])
