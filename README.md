@@ -421,6 +421,10 @@ curve_validation.json     # registro scommesse (esplosi/sgonfiati) + crossing
 career_records.json       # CACHE (non storico) dei dati di carriera per il Layer F — si può buttare, si rilegge
 coorte_anagrafica.json    # KENOBI: la distribuzione dei mesi di nascita misurata (il "modello" autocalibrante)
 
+# Strumenti a sé (non fanno parte della scansione)
+referto_anagrafico.py     # la diagnosi sul vivaio di un club, da un CSV di nomi e date
+smoke_test.py             # "la situazione" in un comando, prima di un deploy
+
 # Legacy (non SENTINEL): Miss Minute — prioritizzazione progetti (miss_minute*.py, priorities.yaml)
 ```
 
@@ -452,6 +456,64 @@ python visual_council_app.py     # dev server su http://localhost:8081
 ```bash
 python discovery_engine.py diagnose
 ```
+
+### Il referto anagrafico — la cosa che si può mettere in mano a qualcuno domani
+
+```bash
+python3 referto_anagrafico.py --csv rosa_vivaio.csv --societa "AC Esempio"
+```
+
+Prende la cosa **meno sensibile** che un club possieda — nomi e date di nascita
+del settore giovanile — e restituisce una pagina HTML autonoma (doppio clic,
+funziona senza rete) che mostra quanto il **loro stesso** processo di selezione
+sia sbilanciato sul mese di nascita, e quali dei loro ragazzi sono passati dal
+filtro più stretto.
+
+È l'unica parte del sistema **senza il problema di copertura**: sul feed di
+produzione solo il 4,5% dei candidati ha più del dato anagrafico, e la
+validazione va dal 68% in Segunda allo 0% in Serie C — ma la data di nascita
+ce l'hanno tutti, sempre, in ogni database che possiedono. Nessuna API, nessuna
+chiave, nessun accordo da firmare.
+
+Due regole scritte nel file, non negoziabili:
+
+- **Zero gergo.** Nel referto non compare una parola che richieda una
+  spiegazione. Il chi-quadro è calcolato con lo stesso codice del radar, ma al
+  lettore arriva come *"la probabilità che sia un caso è meno di 1 su 1000"*.
+  Se serve un glossario, il referto ha fallito.
+- **L'inversione resta un'ipotesi.** Che la selezione sbilanci è un fatto
+  misurato sui loro dati. Che i nati tardi sopravvissuti rendano *meglio* da
+  adulti è documentato ma dibattuto, e il referto lo dice: *"non dice che siano
+  più forti — dice che hanno superato una selezione più dura a parità di
+  risultato"*. Venderlo come acquisito significa perdere la stanza davanti al
+  primo analista che conosce la letteratura.
+
+Sotto le 25 date di nascita il referto **non dice niente**: su un gruppo piccolo
+qualunque sbilanciamento è compatibile col caso. Le righe con date illeggibili
+vengono scartate e **dichiarate** in fondo alla pagina, mai indovinate. Il
+separatore del CSV e i nomi delle colonne vengono riconosciuti da soli: un
+referto che pretende un formato esatto non lo apre nessuno.
+
+### Smoke test — "la situazione", in un comando
+
+```bash
+python3 smoke_test.py             # tutto, rete inclusa
+python3 smoke_test.py --offline   # salta le fonti esterne
+```
+
+Non sostituisce i test unitari (`tests/`, che verificano le *regole*): verifica
+che l'**impianto** stia in piedi — che i sette layer si parlino, che la pipeline
+arrivi fino all'API, che le rotte rispondano, che le fonti esterne siano vive.
+
+Distingue tre esiti, e la distinzione è il punto:
+
+| | |
+|---|---|
+| `OK` | funziona |
+| `DEGRADATO` | una fonte esterna non risponde. **Non è un bug**: il radar è progettato per continuare senza |
+| `ROTTO` | invariante violata. *Quello* è un bug |
+
+Esce con codice ≠ 0 solo sul terzo.
 
 ### Deploy su Google Cloud Run
 
