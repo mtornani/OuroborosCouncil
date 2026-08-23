@@ -4246,12 +4246,17 @@ def scansioni_note(feed: dict) -> list:
     e' rappresentato dal suo istante piu' recente. Un timestamp illeggibile
     non entra nell'elenco: non si conta una scansione che non sappiamo
     datare."""
-    viste = set()
+    # si raccolgono prima le STRINGHE distinte e si parsa dopo: su un feed
+    # vero sono 60.000 voci di storico per una trentina di run_at diversi,
+    # e parsare la stessa data 3.000 volte costerebbe 40 ms a ogni apertura
+    # del turno per un risultato identico
+    testi = set()
     for record in (feed or {}).values():
         for entry in (record or {}).get("history") or []:
-            istante = _istante((entry or {}).get("run_at"))
-            if istante is not None:
-                viste.add(istante)
+            run_at = (entry or {}).get("run_at")
+            if run_at:
+                testi.add(run_at)
+    viste = {i for i in (_istante(t) for t in testi) if i is not None}
     gruppi = []
     for istante in sorted(viste):
         if gruppi and (istante - gruppi[-1]) <= _TOLLERANZA_SCANSIONE:
