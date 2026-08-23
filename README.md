@@ -93,6 +93,15 @@ tunable in `radar_config.yaml`.
 - **Layer G — OB1·KENOBI.** La sottrazione: valore meno prezzo. Non stima
   meglio il valore, cerca dove il *prezzo* è sbagliato. Sezione dedicata sotto.
 
+> **Il turno non mostra un punteggio alto: mostra che è successo qualcosa.**
+> I motivi *statistici* (salto anomalo, tendenza sostenuta) si spengono su un
+> segnale vuoto e saturo — un punteggio di 100 fatto solo di "è molto giovane
+> per la sua categoria" non è un fatto, è un soffitto. Misurato sul turno vero
+> di produzione: **56 casi → 17, il 70% erano artefatti di saturazione**, tutti
+> con punteggio 100.0 esatto e il solo indicatore anagrafico. I motivi basati
+> su fatti (club aggiornato, segnale costoso, decollo, finestre) restano tutti
+> accesi: quelli non mentono sul perché sono lì.
+
 ---
 
 ## Il Layer F: il segnale costoso
@@ -296,6 +305,48 @@ questa obiezione, che è nel codice e non nel marketing: che i nati tardi siano
 stati filtrati più duramente **è misurato**; che questo li renda mediamente
 migliori dopo è plausibile e documentato, ma **è una tesi** — e va verificata sul
 tabellone, nel tempo, su questi candidati.
+
+---
+
+---
+
+## La metrica che misura il prodotto, non l'algoritmo
+
+Il tabellone del `/processo` giudica le *scommesse* ("sta per esplodere":
+esplosa o sgonfiata?). Ma il prodotto vero è **IL TURNO** — la lista corta,
+una volta al giorno, di chi merita due minuti del tuo occhio. E finora
+nessuno misurava se quella lista valesse la pena di essere aperta.
+
+I dati per farlo c'erano già tutti: per ogni caso mostrato viene registrata
+una decisione (`in_verifica` / `passo` / `scarto` / `tiene` / `non_tiene`).
+Incrociandola col **motivo** per cui quel caso era in lista si ottiene il
+tasso di apertura per tipo di segnalazione:
+
+```
+motivo "sta per esplodere":   12 mostrati,  9 aperti   →  75%
+motivo "club da correggere":  20 mostrati, 14 aperti   →  70%
+motivo "salto anomalo":       88 mostrati,  3 aperti   →   3%   ← si retrocede
+```
+
+Da lì i motivi che non si guadagnano il posto si tolgono, **con un numero in
+mano invece che a sensazione**. È anche l'unica parte del sistema che migliora
+da sola mentre lo usi: ogni tua decisione è un voto su chi ti ha fatto perdere
+tempo.
+
+Due scelte scritte nel codice, entrambe discutibili e quindi dichiarate:
+
+- **`non_tiene` conta come apertura riuscita.** Il turno ha fatto bene a
+  mostrarlo — l'hai guardato. Che il giocatore non abbia retto è un giudizio
+  sul giocatore, non sulla lista. *La lista propone, l'occhio dispone.*
+- **Il motivo si ricostruisce dallo storico**, cercando l'entry più recente
+  non successiva alla decisione: così il numero esce dai dati già raccolti
+  invece di richiedere mesi di decisioni nuove. Lo storico tiene 30 controlli
+  per candidato, quindi le decisioni più vecchie non sono più ricostruibili e
+  vengono **contate a parte**, non nascoste.
+
+L'esempio qui sopra è illustrativo: finché non ci sono decisioni,
+`/processo` risponde *"non c'è niente da misurare"* invece di inventare una
+percentuale.
 
 ---
 

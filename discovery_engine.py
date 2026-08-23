@@ -993,6 +993,26 @@ def buzz_score(candidate: dict, history: dict, cfg: dict) -> dict:
 # LAYER A - Signal Score combinato
 # ============================================================
 
+def _segnale_vuoto_saturo(componenti: dict | None, validazione: dict | None = None) -> bool:
+    """Un solo indicatore disponibile E gia' al tetto (>=0.9), senza nessun
+    segnale costoso a corroborarlo. In pratica: "punteggio 100 perche' e'
+    molto giovane per la sua categoria, e nient'altro".
+
+    Il Giudice dello swarm lo aveva gia' detto in chiaro su un caso reale
+    (Deinner Ordonez): "punteggio 100 e' un puro artefatto anagrafico...
+    segnale vuoto ad alta rumorosita'".
+
+    UNA sola definizione, usata in DUE posti (gate del dossier e gate del
+    turno). Tenerne due copie significherebbe che un giorno divergono e il
+    turno ricomincia a riempirsi di fantasmi senza che nessuno se ne accorga."""
+    if (validazione or {}).get("stato") == "validato":
+        return False  # il segnale costoso e' la corroborazione che mancava
+    if not componenti or len(componenti) != 1:
+        return False
+    (valore,) = componenti.values()
+    return valore >= 0.9
+
+
 def _needs_more_signal(score_result: dict) -> bool:
     """Un solo componente disponibile E gia' saturo (>=0.9) non basta come
     evidenza per un dossier - lo dice il primo verdetto reale del Giudice
@@ -1008,13 +1028,8 @@ def _needs_more_signal(score_result: dict) -> bool:
     o una convocazione. Sarebbe il caso per cui il layer e' stato scritto,
     scartato dal filtro che lo precede - il tipo di bug che non da' errore e
     si nota solo perche' il dossier "giusto" non arriva mai."""
-    if (score_result.get("validazione") or {}).get("stato") == "validato":
-        return False
-    components = score_result.get("components", {})
-    if len(components) != 1:
-        return False
-    (value,) = components.values()
-    return value >= 0.9
+    return _segnale_vuoto_saturo(score_result.get("components"),
+                                 score_result.get("validazione"))
 
 
 def _assert_no_duplicate_candidate_ids(candidate_ids: list[str], stage: str) -> None:
@@ -1474,6 +1489,103 @@ def validation_coverage_summary(feed: dict | None = None, cfg: dict | None = Non
             if (copertura_pct is not None and copertura_pct < 50) else
             "La copertura del segnale costoso su questo campione e' sufficiente a usarlo come filtro, "
             "ma resta una misura di scommesse altrui - non un giudizio tecnico sul giocatore."
+        ),
+    }
+
+
+# Cosa una decisione umana dice del MOTIVO per cui il caso era in lista.
+# in_verifica/tiene = quel caso valeva l'apertura; passo/scarto/non_tiene = no.
+# "non_tiene" e' un caso a se': il turno ha fatto BENE a mostrarlo (l'hai
+# guardato) ma il giocatore non ha retto - conta come apertura riuscita, non
+# come errore della lista. La lista propone, l'occhio dispone: era il patto
+# fin dall'inizio (vedi HUMAN_STATUSES).
+_ESITI_APERTURA = {"in_verifica": True, "tiene": True, "non_tiene": True,
+                   "passo": False, "scarto": False}
+
+
+def _motivo_al_momento(record: dict, quando: str) -> str | None:
+    """Il motivo per cui quel candidato era nel turno quando l'hai deciso.
+
+    Il record della decisione non salva il motivo (e non lo salvava
+    nemmeno prima), ma la history lo conserva: si cerca l'entry con il
+    run_at piu' recente che NON sia successiva alla decisione. Cosi' il
+    numero esce dai dati gia' raccolti, senza aspettare mesi di decisioni
+    nuove. La history e' capped a 30 entry: le decisioni piu' vecchie
+    possono non essere piu' ricostruibili, e vengono contate a parte
+    invece che sparire."""
+    if not quando:
+        return None
+    migliore = None
+    for entry in (record.get("history") or []):
+        run_at = entry.get("run_at") or ""
+        if run_at and run_at <= quando:
+            if migliore is None or run_at > (migliore.get("run_at") or ""):
+                migliore = entry
+    return ((migliore or {}).get("state_change") or {}).get("type")
+
+
+def precisione_turno(decisioni: dict | None = None, feed: dict | None = None) -> dict:
+    """QUANTO VALE LA LISTA GIORNALIERA, per tipo di segnalazione.
+
+    E' la misura che mancava, e i dati per farla c'erano gia' tutti: per
+    ogni caso mostrato nel turno tu registri cosa hai deciso
+    (in_verifica / passo / scarto / tiene / non_tiene). Nessuno li stava
+    contando.
+
+    Incrociando la decisione col MOTIVO per cui quel caso era in lista si
+    ottiene il tasso di apertura per tipo di allarme - cioe' quali motivi
+    si guadagnano il posto nel tuo turno e quali te lo sprecano. Da li' i
+    motivi che non rendono si retrocedono, con un numero in mano invece
+    che a sensazione.
+
+    E' anche l'unica cosa del prodotto che migliora DA SOLA mentre lo usi:
+    ogni tua decisione e' un voto su chi ti ha fatto perdere tempo."""
+    decisioni = decisioni if decisioni is not None else _load_json(DECISIONS_FILE)
+    feed = feed if feed is not None else _load_json(FEED_FILE)
+
+    per_motivo, senza_motivo, totali = {}, 0, 0
+    for cid, rec in (decisioni or {}).items():
+        if not isinstance(rec, dict) or rec.get("status") not in _ESITI_APERTURA:
+            continue
+        totali += 1
+        motivo = _motivo_al_momento(feed.get(cid) or {}, rec.get("updated_at") or "")
+        if not motivo:
+            senza_motivo += 1
+            continue
+        riga = per_motivo.setdefault(motivo, {"mostrati": 0, "aperti": 0, "scartati": 0})
+        riga["mostrati"] += 1
+        if _ESITI_APERTURA[rec["status"]]:
+            riga["aperti"] += 1
+        else:
+            riga["scartati"] += 1
+
+    for riga in per_motivo.values():
+        riga["tasso_apertura"] = (round(100.0 * riga["aperti"] / riga["mostrati"], 1)
+                                  if riga["mostrati"] else None)
+
+    classifica = sorted(per_motivo.items(),
+                        key=lambda kv: (-(kv[1]["tasso_apertura"] or 0), -kv[1]["mostrati"]))
+    ricostruite = totali - senza_motivo
+    complessivo = (round(100.0 * sum(r["aperti"] for r in per_motivo.values())
+                         / max(1, sum(r["mostrati"] for r in per_motivo.values())), 1)
+                   if per_motivo else None)
+
+    return {
+        "decisioni_totali": totali,
+        "ricostruite": ricostruite,
+        "senza_motivo": senza_motivo,
+        "per_motivo": dict(classifica),
+        "tasso_apertura_complessivo": complessivo,
+        "obiezione": (
+            "Nessuna decisione ancora presa sul turno: non c'e' niente da misurare. "
+            "Il numero comparira' da solo man mano che il turno viene usato."
+            if not totali else
+            f"Misurato su {ricostruite} decisioni ricostruibili su {totali}: la history "
+            f"tiene 30 controlli per candidato, quindi le decisioni piu' vecchie non hanno "
+            f"piu' l'entry corrispondente e sono contate a parte, non nascoste. Un tasso "
+            f"basso su un motivo NON vuol dire che quel motivo sia sbagliato: vuol dire che "
+            f"su questo campione ti ha fatto aprire poco. Con pochi casi per motivo, "
+            f"aspetta prima di retrocedere qualcosa."
         ),
     }
 
@@ -2776,8 +2888,23 @@ def detect_state_change(
     curve: dict | None = None,
     validazione: dict | None = None,
     validazione_precedente: dict | None = None,
+    componenti: dict | None = None,
 ) -> dict | None:
     scfg = cfg["state_change"]
+    # ARTEFATTO DI SATURAZIONE - la scoperta che ha rifatto il turno.
+    # Misurato sul turno VERO di produzione: 40 casi su 56 erano "SALTO
+    # ANOMALO", e 39 di quei 40 avevano il solo indicatore anagrafico, tutti
+    # con punteggio 100.0 esatto. Il punteggio arriva al tetto, ci resta, e
+    # il filtro di Kalman continua a stupirsi del soffitto perche' la sua
+    # stima gli sta sotto di qualche punto. Ogni giorno. Per sempre.
+    #
+    # Non e' un difetto di Kalman: e' che i test statistici stavano girando
+    # su un numero che per quei candidati non porta informazione. Qui si
+    # spengono i due motivi STATISTICI (shock e deriva) per chi ha un
+    # segnale vuoto e saturo. Restano accesi tutti i motivi basati su FATTI:
+    # club aggiornato, segnale costoso nuovo, decollo, finestre, dati
+    # completati, nuovo ingresso. Quelli non mentono sul perche' sono li'.
+    segnale_vuoto = _segnale_vuoto_saturo(componenti, validazione)
     current_dossier = current_dossier or {}
     giudice = current_dossier.get("giudice") or {}
 
@@ -2954,7 +3081,7 @@ def detect_state_change(
 
     # 4. shock statistico - salto che l'incertezza attesa non giustifica
     z = (bayes or {}).get("last_innovation_z")
-    if z is not None and abs(z) >= scfg["shock_z_threshold"]:
+    if not segnale_vuoto and z is not None and abs(z) >= scfg["shock_z_threshold"]:
         rising = z > 0
         return {
             "type": "rising" if rising else "falling",
@@ -2963,13 +3090,13 @@ def detect_state_change(
         }
 
     # 5. deriva lenta ma sostenuta (nessun singolo salto la giustificherebbe)
-    if cusum_state.get("pos", 0.0) >= scfg["cusum_threshold"]:
+    if not segnale_vuoto and cusum_state.get("pos", 0.0) >= scfg["cusum_threshold"]:
         return {
             "type": "rising",
             "tag": "TENDENZA SOSTENUTA (SALITA)",
             "lead": "Nessun singolo salto anomalo, ma la tendenza e' salita in modo consistente su piu' run.",
         }
-    if cusum_state.get("neg", 0.0) >= scfg["cusum_threshold"]:
+    if not segnale_vuoto and cusum_state.get("neg", 0.0) >= scfg["cusum_threshold"]:
         return {
             "type": "falling",
             "tag": "TENDENZA SOSTENUTA (DISCESA)",
@@ -3747,6 +3874,7 @@ def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> di
             # significato in silenzio.
             validazione=entry["signal"].get("validazione"),
             validazione_precedente=entry.get("_previous_validazione"),
+            componenti=entry["signal"].get("components"),
         )
 
         # stato provvisorio SENZA dossier: le finestre aperte si portano
@@ -3916,6 +4044,7 @@ def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> di
             # significato in silenzio.
             validazione=entry["signal"].get("validazione"),
             validazione_precedente=entry.get("_previous_validazione"),
+            componenti=entry["signal"].get("components"),
         )
         # niente sparisce in silenzio: una finestra aperta (sta per
         # esplodere) resta finche' non si risolve, e quando si risolve si

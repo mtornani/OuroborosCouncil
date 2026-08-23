@@ -174,3 +174,66 @@ class TestPrecedenzaMotivi(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ======================================================================
+class TestArtefattoDiSaturazione(unittest.TestCase):
+    """SCOPERTA SUL TURNO VERO DI PRODUZIONE: 40 casi su 56 erano "SALTO
+    ANOMALO", e 39 di quei 40 avevano il SOLO indicatore anagrafico, tutti
+    con punteggio 100.0 esatto.
+
+    Il punteggio arriva al tetto, ci resta, e Kalman continua a stupirsi del
+    soffitto perche' la sua stima gli sta sotto di qualche punto. Ogni
+    giorno. Il risultato era una lista giornaliera fatta per il 70% di
+    fantasmi - e una lista cosi' la smetti di aprire dopo una settimana.
+
+    I motivi STATISTICI si spengono su un segnale vuoto e saturo. Tutti i
+    motivi basati su FATTI restano accesi: quelli non mentono sul perche'."""
+
+    SATURO = {"age_vs_level": 1.0}          # solo eta', al tetto
+    PIENO = {"age_vs_level": 1.0, "buzz": 0.4}
+
+    def test_shock_non_scatta_su_segnale_vuoto_e_saturo(self):
+        ev = _probe(bayes={"last_innovation_z": 4.0}, componenti=self.SATURO)
+        self.assertIsNone(ev, "il turno si riempie ancora di artefatti anagrafici")
+
+    def test_shock_scatta_se_c_e_un_secondo_indicatore(self):
+        ev = _probe(bayes={"last_innovation_z": 4.0}, componenti=self.PIENO)
+        self.assertEqual(ev["type"], "rising")
+
+    def test_deriva_non_scatta_su_segnale_vuoto_e_saturo(self):
+        ev = _probe(cusum_state={"pos": 9.0, "neg": 0.0}, componenti=self.SATURO)
+        self.assertIsNone(ev)
+
+    def test_un_indicatore_NON_saturo_resta_valido(self):
+        """La guardia colpisce il tetto, non il singolo indicatore in se'."""
+        ev = _probe(bayes={"last_innovation_z": 4.0}, componenti={"age_vs_level": 0.55})
+        self.assertEqual(ev["type"], "rising")
+
+    def test_il_segnale_costoso_riabilita_lo_shock(self):
+        """Se qualcuno ci ha davvero puntato, la corroborazione che mancava
+        c'e': il segnale non e' piu' vuoto e le statistiche tornano a valere."""
+        ev = _probe(bayes={"last_innovation_z": 4.0}, componenti=self.SATURO,
+                    validazione={"stato": "validato", "validation_score": 70})
+        self.assertEqual(ev["type"], "rising")
+
+    def test_i_motivi_basati_sui_FATTI_restano_accesi(self):
+        """Club aggiornato e decollo non vengono toccati dalla guardia: non
+        sono inferenze su un numero, sono cose successe."""
+        curva = {"phase": 3, "factors": {"a": {"active": True, "detail": "le menzioni accelerano"}}}
+        ev = _probe(curve=curva, componenti=self.SATURO)
+        self.assertEqual(ev["type"], "takeoff")
+
+        ev = _probe(previous_last_entry={"signal_score": 50, "partial_data": True},
+                    current_partial_data=False, componenti=self.SATURO)
+        self.assertEqual(ev["type"], "resolved")
+
+    def test_nuovo_ingresso_resta(self):
+        """Non e' un'inferenza: e' la prima volta che lo vedi."""
+        ev = _probe(previous_last_entry=None, componenti=self.SATURO)
+        self.assertEqual(ev["type"], "new")
+
+    def test_senza_componenti_il_comportamento_e_quello_di_prima(self):
+        """Retrocompatibilita': il parametro e' opzionale."""
+        ev = _probe(bayes={"last_innovation_z": 4.0})
+        self.assertEqual(ev["type"], "rising")

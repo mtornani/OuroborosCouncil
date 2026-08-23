@@ -580,6 +580,11 @@ def radar_processo():
             # Layer G sotto processo: un algoritmo che dice di trovare
             # inefficienze deve dichiarare su quanti casi ha potuto guardare
             "kenobi": discovery_engine.kenobi_summary(),
+            # Quanto vale la LISTA GIORNALIERA, per tipo di segnalazione:
+            # incrocia le decisioni umane gia' registrate col motivo per cui
+            # quel caso era nel turno. E' l'unica metrica che misura il
+            # prodotto invece dell'algoritmo.
+            "precisione_turno": discovery_engine.precisione_turno(),
         })
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
