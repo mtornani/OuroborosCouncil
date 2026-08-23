@@ -179,3 +179,32 @@ class TestIntegrazioneGrafo(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ======================================================================
+class TestFontiNonEditoriali(unittest.TestCase):
+    """MISURATO sui candidati veri di produzione: 16 menzioni su 43 (37%) non
+    erano stampa ma pagine-profilo di database/livescore, che esistono per
+    ogni giocatore a prescindere. Contarle come attenzione e' un errore di
+    misura: non si accendono quando un ragazzo inizia a interessare."""
+
+    def setUp(self):
+        import yaml
+        from pathlib import Path
+        self.cfg = yaml.safe_load(
+            open(Path(__file__).resolve().parent.parent / "radar_config.yaml", encoding="utf-8"))
+
+    def test_riconosce_gli_aggregatori(self):
+        from discovery_engine import _is_non_editoriale
+        for p in ("Transfermarkt", "FotMob", "BeSoccer Livescore", "365Scores", "Sofascore"):
+            self.assertTrue(_is_non_editoriale(p, self.cfg), p)
+
+    def test_non_tocca_la_stampa_vera(self):
+        from discovery_engine import _is_non_editoriale
+        for p in ("Mundo Deportivo", "La Gazzetta dello Sport", "Tribuna.com",
+                  "Foot-Africa.com", "SB Nation"):
+            self.assertFalse(_is_non_editoriale(p, self.cfg), p)
+
+    def test_lista_vuota_non_esclude_nulla(self):
+        from discovery_engine import _is_non_editoriale
+        self.assertFalse(_is_non_editoriale("Transfermarkt", {"source_tiers": {}}))
