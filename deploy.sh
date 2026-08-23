@@ -17,6 +17,15 @@
 # non hai voglia di scoprirlo il giorno dopo.
 set -euo pipefail
 
+# Se in produzione e' impostata RADAR_ACCESS_KEY, il gate copre TUTTO -
+# compreso /api/version. Scoperto al primo deploy vero: gcloud diceva
+# "deployed and serving 100 percent of traffic" e la verifica rispondeva
+# "Accesso negato", cioe' un falso allarme su un deploy perfettamente
+# riuscito. Basta la chiave OSPITE (sola lettura): questo script non scrive
+# nulla, e non c'e' motivo di tenere la chiave piena in una variabile
+# d'ambiente per leggere un numero di versione.
+#   export RADAR_KEY=...        # chiave piena, oppure
+#   export RADAR_GUEST_KEY=...  # meglio: sola lettura
 SERVIZIO="${SERVIZIO:-ob1-radar}"
 REGIONE="${REGIONE:-europe-west1}"
 URL="${URL:-https://ob1-radar-957169827556.europe-west1.run.app}"
@@ -54,12 +63,34 @@ gcloud run deploy "$SERVIZIO" \
 echo
 grigio "── verifico cosa sta rispondendo davvero"
 sleep 5
-risposta="$(curl -fsS --max-time 30 "$URL/api/version" || echo '')"
+intestazioni=()
+if [ -n "${RADAR_KEY:-}" ]; then
+  intestazioni=(-H "X-Radar-Key: ${RADAR_KEY}")
+elif [ -n "${RADAR_GUEST_KEY:-}" ]; then
+  intestazioni=(-H "X-Radar-Guest-Key: ${RADAR_GUEST_KEY}")
+fi
+
+# senza -f, cosi' un 401 si legge invece di sparire in un errore di curl
+risposta="$(curl -sS --max-time 30 "${intestazioni[@]}" "$URL/api/version" || echo '')"
 if [ -z "$risposta" ]; then
   rosso "Il servizio non risponde su $URL/api/version — controlla i log:"
   echo "  gcloud run services logs read $SERVIZIO --region $REGIONE --limit 50"
   exit 1
 fi
+case "$risposta" in
+  *"Accesso negato"*|*"Accesso ospite"*)
+    rosso "Il deploy e' probabilmente andato bene, ma non posso verificarlo:"
+    rosso "il gate d'accesso protegge anche /api/version."
+    echo
+    grigio "Imposta una chiave e rilancia (basta quella ospite, sola lettura):"
+    grigio "  export RADAR_GUEST_KEY=la_tua_chiave_ospite"
+    grigio "  ./deploy.sh"
+    echo
+    grigio "Oppure controlla a mano:"
+    grigio "  curl -s \"$URL/api/version?guest_key=LA_TUA_CHIAVE\""
+    exit 1
+    ;;
+esac
 
 servita="$(printf '%s' "$risposta" | sed -n 's/.*"version"[: ]*"\([^"]*\)".*/\1/p')"
 build="$(printf '%s' "$risposta" | sed -n 's/.*"build"[: ]*"\([^"]*\)".*/\1/p')"
