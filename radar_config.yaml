@@ -355,6 +355,38 @@ buzz_weights:
 # Tier 3 = stampa locale/di nicchia (bonus alto), Tier 1 = testate big
 # (una volta che parlano loro, il vantaggio e' gia' sfumato).
 source_tiers:
+  # --- FONTI NON EDITORIALI: contate come rumore, non come attenzione ------
+  # MISURATO sui candidati veri di produzione (14 giocatori con buzz reale,
+  # 43 menzioni, 29 testate): 16 menzioni su 43 - il 37% - NON erano stampa.
+  # Erano pagine-profilo di database e livescore, che esistono per OGNI
+  # giocatore e OGNI partita a prescindere dal fatto che sia successo
+  # qualcosa. Contarle come "attenzione giornalistica" e' un errore di
+  # misura, non una scelta di taratura: quelle pagine non si accendono
+  # quando un ragazzo inizia a interessare, ci sono e basta.
+  #
+  # Peggiora anche in modo sistematico: un giocatore ha una pagina
+  # Transfermarkt/FotMob se e' gia' DOCUMENTATO - cioe' la stessa distorsione
+  # di copertura che il Layer F ha gia' incontrato, che entra dalla porta di
+  # servizio nel punteggio di attenzione.
+  #
+  # NOTA ONESTA sul cambiamento: gli snapshot gia' salvati conservano i loro
+  # conteggi vecchi. Nel primo run dopo questa modifica la VELOCITA' (che e'
+  # un delta fra due run) risulta artificialmente negativa per chi aveva
+  # menzioni non editoriali. Un run di assestamento, poi torna coerente.
+  non_editoriali:
+    - Transfermarkt
+    - FotMob
+    - BeSoccer Livescore
+    - BeSoccer
+    - 365Scores
+    - playmakerstats.com
+    - Soccerway
+    - Sofascore
+    - FlashScore
+    - WhoScored.com
+    - footballdatabase.eu
+    - Wikipedia
+
   tier_1:
     - "Gazzetta dello Sport"
     - "Corriere dello Sport"
@@ -820,12 +852,23 @@ kenobi:
   attiva: true
 
   # --- L'EFFETTO ETA' RELATIVA (la variabile che il mercato sbaglia) --------
-  # Fatto misurato sui campionati REALI di questo radar (Serie B/C, 3. Liga,
-  # Ligue 2, Segunda), non preso da un paper:
+  # Fatto misurato sul FEED DI PRODUZIONE REALE (3913 candidati, tutti con
+  # data di nascita), non preso da un paper:
   #
-  #     nati gen-mar  41.4%   |  nati lug-set  20.7%
-  #     nati apr-giu  26.2%   |  nati ott-dic  11.7%
-  #     chi-quadro 26.94 su 3 gdl -> p < 0.001. Non e' rumore.
+  #     nati gen-mar  33.0%   |  nati lug-set  21.4%
+  #     nati apr-giu  28.6%   |  nati ott-dic  17.0%
+  #     chi-quadro 240.08 su 3 gdl -> p << 0.001. Q1/Q4 = 1.94x
+  #
+  # E il dato che ha cambiato il disegno: separando le famiglie, nelle SOLE
+  # leghe pro europee (n=401) il rapporto sale a 2.62x (Q1 35.9%, Q4 13.7%,
+  # chi2 45.29) mentre sul pool per nazionalita' e' molto piu' basso. Ha
+  # senso: quel pool contiene anche chi in una lega pro non e' MAI entrato,
+  # cioe' esattamente quelli che il filtro non ha selezionato. Usare la media
+  # globale sotto-corregge proprio i candidati che contano di piu' - per
+  # questo la coorte si misura anche per famiglia (vedi _famiglia_tier).
+  #
+  # (Una misura precedente su n=145, da una query Wikidata degradata, dava
+  # 3.53x. Questa la sostituisce: stesso segno, campione 27 volte piu' grande.)
   #
   # Meccanismo noto e banale: a 13 anni un nato a gennaio e' fisicamente piu'
   # maturo di uno nato a dicembre. Viene selezionato, riceve piu' minuti, piu'

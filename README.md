@@ -230,14 +230,21 @@ Il colpo di Beane non fu "usare le statistiche": fu trovare l'attributo che il
 mercato **sbaglia sistematicamente**. Qui è l'**effetto età relativa**, misurato
 sui campionati reali di questo radar — non preso da un paper:
 
-| trimestre di nascita | quota |
-|---|---|
-| gen–mar | **41.4%** |
-| apr–giu | 26.2% |
-| lug–set | 20.7% |
-| ott–dic | **11.7%** |
+| trimestre di nascita | tutto il pool (n=3913) | sole leghe pro (n=401) |
+|---|---|---|
+| gen–mar | **33.0%** | **35.9%** |
+| apr–giu | 28.6% | 29.4% |
+| lug–set | 21.4% | 20.9% |
+| ott–dic | **17.0%** | **13.7%** |
+| **Q1/Q4** | **1.94x** | **2.62x** |
 
-χ² = 26.94 (3 gdl), **p < 0.001**. Non è rumore.
+χ² = 240.08 (3 gdl), **p ≪ 0.001**, misurato sul feed di produzione reale.
+
+L'effetto è **più forte nelle sole leghe pro** — ed è il motivo per cui la
+coorte si misura anche per famiglia di campionato: il pool per nazionalità
+contiene anche chi in una lega pro non è mai entrato, cioè esattamente quelli
+che il filtro *non* ha selezionato. Usare la media globale sotto-corregge
+proprio i candidati che contano di più.
 
 A 13 anni un nato a gennaio è fisicamente più maturo di uno nato a dicembre:
 viene selezionato, riceve più minuti, più fiducia. Il vantaggio è **anagrafico,

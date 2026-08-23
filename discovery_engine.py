@@ -822,6 +822,16 @@ def _publisher_of(title: str) -> str:
     return title.rsplit(" - ", 1)[-1].strip()
 
 
+def _is_non_editoriale(publisher: str, cfg: dict) -> bool:
+    """Database e livescore che generano una pagina per ogni giocatore a
+    prescindere. Non sono attenzione: sono inventario. Vedi la nota in
+    radar_config.yaml (source_tiers.non_editoriali) - misurato sui candidati
+    veri, erano il 37% delle "menzioni"."""
+    lista = (cfg.get("source_tiers") or {}).get("non_editoriali") or []
+    p = (publisher or "").lower()
+    return any(p == x.lower() or p.startswith(x.lower()) for x in lista)
+
+
 def _source_tier(publisher: str, cfg: dict) -> int:
     tiers = cfg["source_tiers"]
     publisher_lower = publisher.lower()
@@ -914,13 +924,27 @@ def buzz_score(candidate: dict, history: dict, cfg: dict) -> dict:
         unique.append(r)
     results = unique[:8]
 
+    # Le fonti non editoriali escono PRIMA del conteggio: se restassero,
+    # gonfierebbero mention_count (e quindi velocita' e tier) con pagine che
+    # esistono comunque. Il numero di esclusi finisce nello snapshot, cosi'
+    # il filtro e' visibile e verificabile invece che silenzioso.
+    editoriali, esclusi = [], []
+    for r in results:
+        titolo = r.get("title")
+        if titolo and _is_non_editoriale(_publisher_of(titolo), cfg):
+            esclusi.append(_publisher_of(titolo))
+        else:
+            editoriali.append(r)
+    results = editoriali
+
     publishers = [_publisher_of(r["title"]) for r in results if r.get("title")]
     tiers_seen = [_source_tier(p, cfg) for p in publishers]
     mention_count = len(results)
 
     run_snapshot = {"run_at": _now_iso(), "mention_count": mention_count,
                      "publishers": publishers, "tier1_present": 1 in tiers_seen,
-                     "tier1_hits": _tier1_hits_from_results(results, cfg)}
+                     "tier1_hits": _tier1_hits_from_results(results, cfg),
+                     "esclusi_non_editoriali": esclusi}
 
     # I titoli grezzi escono dal buzz check ma NON entrano nello snapshot
     # persistito: servono al lettore "news" del grafo (news_reader) dentro
@@ -2434,6 +2458,52 @@ def _trimestre_relativo(dob: str | None, mese_taglio: int) -> int | None:
     return offset // 3 + 1
 
 
+def _famiglia_tier(tier: str | None, cfg_root: dict) -> str:
+    """Raggruppa i tier in FAMIGLIE comparabili. Serve alla coorte
+    anagrafica: la pressione di selezione non e' la stessa ovunque, e
+    misurarla su tutto insieme la annacqua. Misurato sul feed di produzione
+    (n=3913): sull'intera pool il rapporto Q1/Q4 e' 1.94x, ma nelle sole
+    leghe pro europee sale a 2.62x - perche' il pool per nazionalita'
+    contiene anche chi in una lega pro non e' mai entrato, cioe' proprio
+    quelli che il filtro NON ha selezionato."""
+    if not tier:
+        return "ignoto"
+    if tier == "nationality_pool":
+        return "nationality_pool"
+    if str(tier).startswith("conmebol"):
+        return "conmebol"
+    leghe = (cfg_root.get("candidate_sources", {}).get("wikidata_leagues") or {})
+    tier_base = str(tier).replace("_riserve", "")
+    if any(v.get("tier") == tier_base for v in leghe.values()):
+        return "pro_europa"
+    return "ignoto"
+
+
+def _conta_trimestri(candidates, mese_taglio):
+    conteggi = {1: 0, 2: 0, 3: 0, 4: 0}
+    for c in candidates:
+        t = _trimestre_relativo(c.get("dob"), mese_taglio)
+        if t:
+            conteggi[t] += 1
+    return conteggi
+
+
+def _statistiche_coorte(conteggi: dict, minimo: int) -> dict:
+    n = sum(conteggi.values())
+    if n < minimo:
+        return {"n": n, "calibrata": False, "conteggi": conteggi, "quote": {}, "rarita": {},
+                "motivo": f"Coorte troppo piccola per calibrare ({n} date di nascita, "
+                          f"ne servono {minimo}): nessuna correzione applicata."}
+    quote = {t: conteggi[t] / n for t in conteggi}
+    rarita = {t: (0.25 / quote[t]) if quote[t] > 0 else None for t in conteggi}
+    atteso = n / 4
+    chi2 = sum((conteggi[t] - atteso) ** 2 / atteso for t in conteggi) if atteso else 0.0
+    return {"n": n, "calibrata": True, "conteggi": conteggi,
+            "quote": {t: round(quote[t] * 100, 1) for t in quote},
+            "rarita": {t: (round(rarita[t], 2) if rarita[t] else None) for t in rarita},
+            "chi_quadro": round(chi2, 2), "significativo": chi2 > 7.81, "motivo": None}
+
+
 def misura_coorte_anagrafica(candidates: list[dict], cfg_root: dict) -> dict:
     """Misura la distribuzione REALE dei mesi di nascita nella pool.
     Zero rete: la data di nascita e' gia' in ogni candidato.
@@ -2445,41 +2515,30 @@ def misura_coorte_anagrafica(candidates: list[dict], cfg_root: dict) -> dict:
     smettesse di avere l'effetto (buon per lui), la correzione scenderebbe a
     zero senza che nessuno debba accorgersene e toccare una riga."""
     kcfg = cfg_root["kenobi"]["effetto_eta"]
-    conteggi = {1: 0, 2: 0, 3: 0, 4: 0}
+    minimo, taglio = kcfg["coorte_minima"], kcfg["mese_taglio"]
+
+    globale = _statistiche_coorte(_conta_trimestri(candidates, taglio), minimo)
+
+    # Coorte anche PER FAMIGLIA di campionato, quando il campione basta: il
+    # filtro che un ragazzo ha effettivamente superato e' quello del SUO
+    # contesto, non quello medio di tutto l'archivio. Misurato in produzione:
+    # globale 1.94x contro 2.62x nelle sole leghe pro - usare il globale
+    # sotto-corregge proprio i candidati che contano di piu'.
+    per_famiglia = {}
+    gruppi = {}
     for c in candidates:
-        t = _trimestre_relativo(c.get("dob"), kcfg["mese_taglio"])
-        if t:
-            conteggi[t] += 1
-    n = sum(conteggi.values())
-    if n < kcfg["coorte_minima"]:
-        # Sotto soglia NON si corregge nulla: una distribuzione stimata su
-        # pochi casi direbbe piu' cose sul campione che sul calcio. Meglio un
-        # layer che tace di uno che corregge sul rumore.
-        return {"n": n, "calibrata": False, "conteggi": conteggi, "quote": {}, "rarita": {},
-                "motivo": f"Coorte troppo piccola per calibrare ({n} date di nascita, "
-                          f"ne servono {kcfg['coorte_minima']}): nessuna correzione applicata."}
+        gruppi.setdefault(_famiglia_tier(c.get("tier"), cfg_root), []).append(c)
+    for famiglia, membri in gruppi.items():
+        st = _statistiche_coorte(_conta_trimestri(membri, taglio), minimo)
+        if st["calibrata"]:
+            per_famiglia[famiglia] = st
 
-    quote = {t: conteggi[t] / n for t in conteggi}
-    attesa = 0.25
-    # rarita' = quanto quel trimestre e' sotto-rappresentato. >1 significa
-    # "il filtro per arrivare qui nati in quel trimestre e' stato piu' duro".
-    rarita = {t: (attesa / quote[t]) if quote[t] > 0 else None for t in conteggi}
-    # chi-quadro: serve a dire ONESTAMENTE se lo sbilanciamento e' reale o
-    # e' il campione che balla. Con 3 gradi di liberta': 7.81 -> p<0.05,
-    # 11.34 -> p<0.01, 16.27 -> p<0.001.
-    atteso_n = n / 4
-    chi2 = sum((conteggi[t] - atteso_n) ** 2 / atteso_n for t in conteggi) if atteso_n else 0.0
-    return {
-        "n": n, "calibrata": True, "conteggi": conteggi,
-        "quote": {t: round(quote[t] * 100, 1) for t in quote},
-        "rarita": {t: (round(rarita[t], 2) if rarita[t] else None) for t in rarita},
-        "chi_quadro": round(chi2, 2),
-        "significativo": chi2 > 7.81,
-        "motivo": None,
-    }
+    globale["per_famiglia"] = per_famiglia
+    return globale
 
 
-def sconto_anagrafico(dob: str | None, coorte: dict, cfg_root: dict) -> dict:
+def sconto_anagrafico(dob: str | None, coorte: dict, cfg_root: dict,
+                      tier: str | None = None) -> dict:
     """Quanto il calendario ha remato contro questo ragazzo, 0-1.
 
     L'inversione che rende la cosa interessante: se e' arrivato allo STESSO
@@ -2498,6 +2557,11 @@ def sconto_anagrafico(dob: str | None, coorte: dict, cfg_root: dict) -> dict:
     if t is None:
         return {"sconto": 0.0, "trimestre": None, "disponibile": False,
                 "motivo": "Data di nascita non disponibile."}
+    # la coorte del SUO contesto batte quella media, quando esiste
+    famiglia = _famiglia_tier(tier, cfg_root)
+    specifica = (coorte.get("per_famiglia") or {}).get(famiglia)
+    if specifica:
+        coorte = {**specifica, "famiglia": famiglia}
     if not coorte.get("calibrata"):
         return {"sconto": 0.0, "trimestre": t, "etichetta": _TRIMESTRI[t],
                 "disponibile": False, "motivo": coorte.get("motivo")}
@@ -2514,7 +2578,7 @@ def sconto_anagrafico(dob: str | None, coorte: dict, cfg_root: dict) -> dict:
     sconto = max(0.0, min(1.0, (rarita - 1.0) / max(1e-9, sat - 1.0)))
     return {
         "sconto": round(sconto, 3), "trimestre": t, "etichetta": _TRIMESTRI[t],
-        "rarita": rarita, "disponibile": True,
+        "rarita": rarita, "disponibile": True, "coorte_usata": coorte.get("famiglia", "globale"),
         "motivo": f"Nato in {_TRIMESTRI[t]}: nei campionati che questo radar copre quel trimestre "
                   f"e' {rarita:.1f} volte piu' raro del dovuto. Chi arriva a questo livello nascendo "
                   f"li' ha superato un filtro piu' stretto - il livello raggiunto sottostima la qualita'.",
@@ -2598,7 +2662,8 @@ def kenobi_score(candidate: dict, signal_score_val: float | None, validazione: d
                 "lead": "KENOBI disattivato in configurazione.",
                 "spiegazione": [], "sconto_anagrafico": None, "sviluppo": sviluppo}
 
-    anagrafica = sconto_anagrafico(candidate.get("dob"), coorte, cfg_root)
+    anagrafica = sconto_anagrafico(candidate.get("dob"), coorte, cfg_root,
+                                   tier=candidate.get("tier"))
     stato_v = (validazione or {}).get("stato")
     vscore = (validazione or {}).get("validation_score")
 
