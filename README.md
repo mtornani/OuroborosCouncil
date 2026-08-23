@@ -348,6 +348,36 @@ L'esempio qui sopra è illustrativo: finché non ci sono decisioni,
 `/processo` risponde *"non c'è niente da misurare"* invece di inventare una
 percentuale.
 
+### Il turno non mostra fossili
+
+Trovato in produzione il 23 agosto 2026: dei 12 casi in lista, 6 portavano la
+data del giorno prima. Non erano un errore di calcolo — erano candidati che le
+scansioni successive **non avevano più toccato** (la pool si ricostruisce a
+ogni giro, e le fonti non restituiscono sempre tutti: quel giorno 3.046 su
+3.913). Il turno mostrava l'ultimo verdetto salvato senza mai chiedersi quanti
+giri fossero passati da allora, quindi quei casi sarebbero rimasti lì **per
+sempre**, con la stessa faccia di uno appena calcolato.
+
+Il contatore che esisteva già (`_CARRY_MAX_RUNS`) non poteva accorgersene:
+conta i giri *di quel candidato*, e un candidato che nessuno rivaluta di giri
+non ne fa più nessuno.
+
+La correzione è **in lettura**, non in scrittura: lo storico non si tocca (è il
+registro dei fatti, non si riscrive per far quadrare una vista). Il turno
+semplicemente non propone più un caso che `scadenza_turno_scansioni` scansioni
+di fila hanno saltato — 2 di default: una persa si perdona, due vogliono dire
+che quel candidato non è più sotto osservazione.
+
+L'unità di misura è la **scansione, non il giorno**, e non è un dettaglio: i
+run avvengono a intervalli irregolari, quindi contando i giorni due scansioni
+nello stesso pomeriggio non farebbero scadere niente e una settimana di radar
+fermo svuoterebbe il turno tutto in un colpo appena riparte. Le scansioni
+avvenute non vanno tracciate da nessuna parte: sono già scritte nei fatti,
+perché ogni giro scrive lo stesso `run_at` su tutte le voci che produce.
+
+E i casi scaduti **non spariscono in silenzio**: `/api/radar/turno` li conta in
+`scaduti_count` e la lista lo dice in chiaro sotto ai numeri.
+
 ---
 
 ### Limiti misurati dal vivo (non stimati)
@@ -677,7 +707,7 @@ gcloud scheduler jobs create http radar-scan-mattina \
 | `POST` | `/api/radar/refresh` | Avvia una scansione in background; con `{"wait":true}` risponde a scansione finita (per Cloud Scheduler) |
 | `GET` | `/api/radar/refresh/status` | Polling dello stato: include `progress` (es. "dossier AI 3/8") e `feed_ready` (punteggi già salvati e consultabili mentre i dossier arrivano) |
 | `GET` | `/api/radar/feed` | Archivio (cap ai primi 300 per signal; `?limit=all` per tutti) |
-| `GET` | `/api/radar/turno` | Solo i casi con un cambiamento/finestra aperta |
+| `GET` | `/api/radar/turno` | Solo i casi con un cambiamento/finestra aperta, esclusi quelli che le ultime scansioni non hanno più toccato (contati in `scaduti_count`) |
 | `GET` | `/api/radar/mappa` | Posizione sulla curva di tutti i profilati |
 | `GET` | `/api/radar/processo` | Il tabellone (precisione/richiamo) |
 | `POST` | `/api/radar/watchlist` | Segna/togli un giocatore |

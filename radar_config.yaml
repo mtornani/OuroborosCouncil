@@ -536,6 +536,19 @@ state_change:
   # giro precedente) - 0.4 equivale a un salto di almeno 2 menzioni.
   early_velocity_threshold: 0.4
 
+  # SCADENZA IN LETTURA del turno (discovery_engine.filtra_casi_scaduti).
+  # Un caso esce dalla lista quando questo numero di scansioni successive non
+  # l'ha piu' toccato: il verdetto e' ancora nello storico, ma non e' piu' una
+  # notizia di oggi. L'unita' e' la SCANSIONE, non il giorno, perche' i run
+  # avvengono a intervalli irregolari (vedi adoption_curve): due scansioni
+  # nello stesso pomeriggio non devono far scadere niente, e una settimana di
+  # radar fermo non deve svuotare il turno tutto in una volta appena riparte.
+  # 2 = una scansione persa si perdona (la pool si ricostruisce a ogni giro e
+  # le fonti non restituiscono sempre tutti), due vogliono dire che quel
+  # candidato non e' piu' sotto osservazione.
+  # 0 o negativo: scadenza disattivata, il turno mostra anche i fossili.
+  scadenza_turno_scansioni: 2
+
 # --- Layer E: LA CURVA - posizione sulla curva di adozione -------------------
 # Lo scopo dichiarato del radar: trovare il giocatore mentre e' ANCORA nella
 # fase early adopter ma sta per uscirne - il momento in cui piu' fattori
