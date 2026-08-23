@@ -595,3 +595,73 @@ class TestCacheCarriera(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+# ======================================================================
+class TestCoperturaPerCampionato(unittest.TestCase):
+    """SCOPERTA PROVANDO SU 90 GIOCATORI VERI: il tasso di validazione varia
+    enormemente per campionato (Segunda 68.6%, Serie C 0%) e il 36% dei
+    validati veniva da un solo club. Non e' talento, e' documentazione.
+
+    Conseguenza logica: "non ho trovato niente" informa solo dove di solito
+    qualcosa si trova. Dove il tasso e' ~0 e' "non ho potuto guardare"
+    travestito da "ho guardato" - e quello zero entrava come VALORE nella
+    sottrazione di KENOBI."""
+
+    def _cop(self, tot, validati):
+        return {"serie_c": {"totale": tot, "validati": validati, "guardati": tot,
+                            "tasso": validati / tot if tot else 0.0}}
+
+    def test_misura_il_tasso_per_campionato(self):
+        from discovery_engine import misura_copertura_validazione
+        coppie = [({"tier": "segunda"}, {"stato": "validato"}) for _ in range(7)]
+        coppie += [({"tier": "segunda"}, {"stato": "non_corroborato"}) for _ in range(3)]
+        coppie += [({"tier": "serie_c"}, {"stato": "non_corroborato"}) for _ in range(10)]
+        c = misura_copertura_validazione(coppie)
+        self.assertAlmostEqual(c["segunda"]["tasso"], 0.7)
+        self.assertEqual(c["serie_c"]["tasso"], 0.0)
+
+    def test_campionato_cieco_declassa_a_non_validabile(self):
+        from discovery_engine import applica_copertura_tier
+        v = _score(_giocatore(), _carriera([_club(apps=None)]))
+        self.assertEqual(v["stato"], "non_corroborato")
+        d = applica_copertura_tier(v, "serie_c", self._cop(20, 0), CFG)
+        self.assertEqual(d["stato"], "non_validabile")
+        self.assertIn("declassato_per_copertura", d)
+
+    def test_campionato_documentato_non_declassa(self):
+        """Dove di solito qualcosa si trova, un'assenza informa davvero."""
+        from discovery_engine import applica_copertura_tier
+        v = _score(_giocatore(), _carriera([_club(apps=None)]))
+        d = applica_copertura_tier(v, "serie_c", self._cop(20, 14), CFG)
+        self.assertEqual(d["stato"], "non_corroborato")
+
+    def test_campione_troppo_piccolo_non_declassa(self):
+        """Non si giudica la copertura di un campionato su tre giocatori."""
+        from discovery_engine import applica_copertura_tier
+        v = _score(_giocatore(), _carriera([_club(apps=None)]))
+        d = applica_copertura_tier(v, "serie_c", self._cop(3, 0), CFG)
+        self.assertEqual(d["stato"], "non_corroborato")
+
+    def test_un_validato_non_viene_mai_declassato(self):
+        from discovery_engine import applica_copertura_tier
+        v = _score(_giocatore(17.0), _carriera([_club(apps=25), _nazionale()]))
+        d = applica_copertura_tier(v, "serie_c", self._cop(50, 0), CFG)
+        self.assertEqual(d["stato"], "validato")
+        self.assertEqual(d["validation_score"], v["validation_score"])
+
+    def test_il_declassamento_arriva_fino_a_kenobi(self):
+        """IL PUNTO. Senza questo, ogni giocatore di Serie C portava un
+        valore misurato pari a ZERO dentro la sottrazione."""
+        from discovery_engine import applica_copertura_tier, kenobi_score, misura_coorte_anagrafica
+        rif = [{"candidate_id": f"R{i}", "dob": f"2007-{m}-15"}
+               for m, n in (("01", 240), ("05", 152), ("08", 120), ("11", 68)) for i in range(n)]
+        coorte = misura_coorte_anagrafica(rif, CFG)
+        v = _score(_giocatore(), _carriera([_club(apps=None)]))
+        prima = kenobi_score(_giocatore(), 60, v, coorte, None, CFG)
+        dopo = kenobi_score(_giocatore(),  60,
+                            applica_copertura_tier(v, "serie_c", self._cop(20, 0), CFG),
+                            coorte, None, CFG)
+        self.assertIsNotNone(prima["kenobi_score"])      # credeva di aver misurato 0
+        self.assertIsNone(dopo["kenobi_score"])          # ora ammette di non sapere
+        self.assertEqual(dopo["stato"], "non_calcolabile")

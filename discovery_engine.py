@@ -1459,7 +1459,14 @@ def kenobi_summary(feed: dict | None = None, coorte: dict | None = None) -> dict
     davvero a fare la sottrazione - altrimenti "ho trovato 3 occasioni" non
     si distingue da "ho potuto guardare solo 3 casi"."""
     feed = feed if feed is not None else _load_json(FEED_FILE)
-    coorte = coorte if coorte is not None else _load_json(COORTE_FILE)
+    if coorte is None:
+        # il file contiene {anagrafica, copertura_tier}; i run vecchi
+        # contenevano la sola coorte anagrafica - si leggono entrambi
+        salvato = _load_json(COORTE_FILE) or {}
+        coorte = salvato.get("anagrafica", salvato)
+        copertura_tier = salvato.get("copertura_tier") or {}
+    else:
+        copertura_tier = {}
 
     stati, punteggi, scontati = {}, [], 0
     for record in feed.values():
@@ -1478,6 +1485,9 @@ def kenobi_summary(feed: dict | None = None, coorte: dict | None = None) -> dict
     calcolabili = tot - stati.get("non_calcolabile", 0)
     return {
         "coorte": coorte,
+        # la copertura per campionato: la riga che spiega perche' un Serie C
+        # "non validato" non e' un giudizio ma un buco nelle fonti
+        "copertura_tier": copertura_tier,
         "stati": stati,
         "considerati": tot,
         "calcolabili": calcolabili,
@@ -2183,6 +2193,62 @@ def validation_score(candidate: dict, career: dict | None, cfg_root: dict) -> di
         "componenti": componenti, "prove": prove, "firma": sorted(set(firma)),
         "indipendenza": indipendenza, "copertura": copertura,
     }
+
+
+def misura_copertura_validazione(coppie: list[tuple]) -> dict:
+    """Tasso di validazione per campionato, misurato sui risultati di QUESTO
+    run. coppie = [(candidate, validazione), ...].
+
+    Serve a sapere quanto vale un "non ho trovato niente" in quel campionato.
+    Misurato su 90 giocatori veri: Segunda 68.6% di validati, 3. Liga 85.7%,
+    Serie C 0%. Non e' una differenza di talento, e' una differenza di
+    documentazione - e senza questa misura il sistema la scambierebbe per la
+    prima cosa."""
+    per_tier = {}
+    for cand, val in coppie:
+        tier = cand.get("tier") or "ignoto"
+        riga = per_tier.setdefault(tier, {"totale": 0, "validati": 0, "guardati": 0})
+        riga["totale"] += 1
+        if val.get("stato") == "validato":
+            riga["validati"] += 1
+        if val.get("stato") in ("validato", "non_corroborato"):
+            riga["guardati"] += 1
+    for riga in per_tier.values():
+        riga["tasso"] = (riga["validati"] / riga["totale"]) if riga["totale"] else 0.0
+    return per_tier
+
+
+def applica_copertura_tier(validazione: dict, tier: str | None, copertura: dict,
+                           cfg_root: dict) -> dict:
+    """Declassa "non_corroborato" a "non_validabile" dove il campionato non e'
+    documentato abbastanza perche' un'assenza voglia dire qualcosa.
+
+    E' la stessa regola cardinale del layer, applicata un livello piu' su: non
+    solo "l'assenza di un dato non prova l'assenza del fatto" per il singolo
+    giocatore, ma anche "l'assenza di dati in TUTTO il campionato non prova
+    niente su nessuno dei suoi giocatori". Senza questo passaggio ogni
+    giocatore di Serie C portava un valore misurato pari a zero dentro la
+    sottrazione di KENOBI - cioe' il sistema credeva di aver misurato zero
+    dove non aveva misurato niente."""
+    cfg = cfg_root["validazione_tecnica"].get("copertura") or {}
+    if not cfg or validazione.get("stato") != "non_corroborato":
+        return validazione
+    riga = (copertura or {}).get(tier or "ignoto")
+    if not riga or riga["totale"] < cfg["campione_minimo_tier"]:
+        return validazione  # campione troppo piccolo per giudicare il campionato
+    if riga["tasso"] >= cfg["tasso_minimo_assenza"]:
+        return validazione  # li' dentro di solito qualcosa si trova: l'assenza informa
+
+    declassato = dict(validazione)
+    declassato["stato"] = "non_validabile"
+    declassato["declassato_per_copertura"] = {
+        "tier": tier, "tasso": round(riga["tasso"] * 100, 1), "campione": riga["totale"]}
+    declassato["motivo"] = (
+        f"In questo campionato le fonti libere registrano presenze e convocazioni per appena "
+        f"{riga['tasso']*100:.0f}% dei candidati ({riga['validati']} su {riga['totale']} in questa "
+        f"scansione). Qui \"non ho trovato nulla\" non distingue un giocatore senza minuti da un "
+        f"campionato non documentato: si dichiara di NON aver potuto guardare, che e' la verita'.")
+    return declassato
 
 
 # ------------------------------------------------------------------
@@ -3406,13 +3472,13 @@ def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> di
         # tutti senza uno straccio di riscontro.
         sres["validazione"] = validation_score(
             candidate, carriere.get(candidate["candidate_id"]), cfg)
-        sres["quadrante"] = evidence_quadrant(
-            sres.get("signal_score"), sres["validazione"], cfg)
+        # quadrante e KENOBI si calcolano DOPO la correzione di copertura
+        # (seconda passata, poco sotto): farlo qui userebbe uno stato che
+        # potrebbe ancora essere declassato.
         # LAYER G: la sottrazione. Lo sviluppo (la derivata) si attacca
         # dopo, in fase 1, quando la history di QUESTO run e' gia' scritta -
         # qui non esiste ancora e passarlo a None e' corretto, non una svista.
-        sres["kenobi"] = kenobi_score(
-            candidate, sres.get("signal_score"), sres["validazione"], coorte, None, cfg)
+        # (calcolato nella seconda passata, vedi sotto)
 
         if buzz is not None:
             # aggiorna lo storico solo per chi e' stato davvero controllato
@@ -3433,6 +3499,21 @@ def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> di
         if fres is None:
             continue
         ranked.append({"candidate": candidate, "signal": sres, "fit": fres})
+
+    # SECONDA PASSATA sulla validazione: funzioni pure, zero rete, costo
+    # trascurabile. Serve perche' il significato di "non ho trovato niente"
+    # dipende da quanto quel campionato e' documentato - e quel tasso si
+    # conosce solo dopo aver valutato tutti. Vedi applica_copertura_tier.
+    copertura_tier = misura_copertura_validazione(
+        [(e["candidate"], e["signal"]["validazione"]) for e in ranked])
+    for e in ranked:
+        e["signal"]["validazione"] = applica_copertura_tier(
+            e["signal"]["validazione"], e["candidate"].get("tier"), copertura_tier, cfg)
+        e["signal"]["quadrante"] = evidence_quadrant(
+            e["signal"].get("signal_score"), e["signal"]["validazione"], cfg)
+        e["signal"]["kenobi"] = kenobi_score(
+            e["candidate"], e["signal"].get("signal_score"), e["signal"]["validazione"],
+            coorte, None, cfg)
 
     ranked.sort(key=lambda r: r["fit"]["fit_score"], reverse=True)
 
@@ -3602,7 +3683,7 @@ def refresh_radar(profile_key: str = "tactical_profile", progress_cb=None) -> di
 
     _progress("salvo i punteggi (gia' consultabili)")
     _save_json(FEED_FILE, feed)
-    _save_json(COORTE_FILE, coorte)  # KENOBI: ispezionabile dal /processo
+    _save_json(COORTE_FILE, {"anagrafica": coorte, "copertura_tier": copertura_tier})
     _save_json(BUZZ_HISTORY_FILE, history)
     _save_json(OBSERVATIONS_FILE, observations)
     _save_json(CAREER_FILE, carriere)

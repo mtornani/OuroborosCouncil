@@ -748,6 +748,32 @@ validazione_tecnica:
     soglia_validazione: 45         # sopra: il segnale costoso c'e' davvero
     soglia_buzz: 55                # sopra: la stampa se n'e' gia' accorta
 
+  # --- COPERTURA PER CAMPIONATO (l'onesta' che mancava) --------------------
+  # SCOPERTA PROVANDO IL SISTEMA SU 90 GIOCATORI VERI, non a tavolino:
+  #
+  #   Segunda        24/35  68.6% validati      3. Liga   6/7  85.7%
+  #   Eerste Divisie 11/28  39.3%               Ligue 2   3/13 23.1%
+  #   Serie B         0/4    0.0%               Serie C   0/3   0.0%
+  #
+  # e il 36% di TUTTI i validati veniva da un unico club (Real Sociedad B).
+  # Questo non dice niente sul talento: dice che Wikidata e' documentato in
+  # modo profondamente diverso da paese a paese e da club a club.
+  #
+  # LA CONSEGUENZA, che e' un errore di logica e non di taratura: lo stato
+  # "non_corroborato" significa "ho guardato e non c'era niente di costoso",
+  # e vale come debole indizio SOLO se in quel campionato di solito si trova
+  # qualcosa. Dove il tasso di validazione e' ~0, "non ho trovato nulla" non
+  # distingue il giocatore senza minuti dal campionato non documentato: e'
+  # "non ho potuto guardare" travestito da "ho guardato".
+  #
+  # Peggio: quello zero entrava come VALORE nella sottrazione di KENOBI,
+  # facendo credere di aver misurato un valore nullo dove non si era misurato
+  # niente. Sotto le soglie qui sotto, non_corroborato viene declassato a
+  # non_validabile - che e' cio' che e' sempre stato.
+  copertura:
+    campione_minimo_tier: 8      # sotto: non si giudica la copertura di quel campionato
+    tasso_minimo_assenza: 0.15   # sotto: "non ho trovato" non e' informativo, e' cecita'
+
   cache:
     # I dati di carriera si muovono a settimane, non a ore: rileggerli a ogni
     # scansione sprecherebbe l'unica risorsa davvero scarsa qui, cioe' la
