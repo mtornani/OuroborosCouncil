@@ -320,6 +320,26 @@ class TestQuadranti(unittest.TestCase):
         q = evidence_quadrant(10, self._val(None, "non_corroborato"), CFG)
         self.assertEqual(q["quadrante"], "quiete")
 
+    def test_un_validato_non_viene_mai_accusato_di_non_avere_riscontri(self):
+        """REGRESSIONE da un caso REALE. Un ragazzo con due convocazioni in
+        nazionale e una presenza in prima divisione (validazione 42.5, appena
+        sotto la soglia di 45) finiva in "NE PARLANO E BASTA", la cui
+        didascalia dice "nessuna convocazione registrata". Falso, e falso
+        mentre il sistema elencava le tre prove sulla stessa scheda."""
+        q = evidence_quadrant(80, self._val(42.5, "validato"), CFG)
+        self.assertNotEqual(q["quadrante"], "solo_rumore")
+        self.assertEqual(q["quadrante"], "conferma_debole")
+        self.assertNotIn("nessuna convocazione", q["lead"])
+
+    def test_conferma_debole_non_promette_troppo(self):
+        q = evidence_quadrant(20, self._val(30, "validato"), CFG)
+        self.assertEqual(q["quadrante"], "conferma_debole")
+        self.assertNotIn(q["quadrante"], ("confermato", "tesoro_silenzioso"))
+
+    def test_solo_rumore_resta_per_chi_davvero_non_ha_nulla(self):
+        q = evidence_quadrant(80, self._val(None, "non_corroborato"), CFG)
+        self.assertEqual(q["quadrante"], "solo_rumore")
+
     def test_non_validabile_non_diventa_mai_solo_rumore(self):
         """IL PUNTO PIU' DELICATO. Se non si e' potuto leggere nulla, un buzz
         alto NON deve trasformarsi in un'accusa: e' assenza di informazione,

@@ -2224,6 +2224,24 @@ _QUADRANTI = {
         "lead": "Il segnale di stampa e' sostenuto da fatti costosi (minuti veri, convocazioni). "
                 "Reale - ma se ne parla gia': aspettati piu' concorrenza e prezzi meno gentili.",
     },
+    # Quadrante nato da un caso REALE trovato provando il sistema su
+    # giocatori veri: un ragazzo con due convocazioni in nazionale e una
+    # presenza in prima divisione (validazione 42.5, appena sotto la soglia
+    # di 45) finiva in "NE PARLANO E BASTA", la cui didascalia recita
+    # "nessuna convocazione registrata". Falso, e falso in modo grave: il
+    # sistema aveva appena elencato le tre prove due righe piu' sopra.
+    # Il difetto era logico, non di taratura: il ramo "solo_rumore"
+    # confondeva "ho guardato e non c'era niente" con "ho trovato qualcosa,
+    # ma non abbastanza da superare la soglia". Sono due cose diverse e ora
+    # hanno due nomi diversi. Alzare la soglia non avrebbe risolto nulla -
+    # avrebbe solo spostato il confine dove la bugia ricomincia.
+    "conferma_debole": {
+        "tag": "CONFERMA PARZIALE",
+        "lead": "Qualche segnale costoso c'e' davvero - e' elencato qui sopra - ma non abbastanza "
+                "da reggere da solo: pochi minuti, o una selezione di fascia bassa. Non e' un "
+                "falso positivo e non e' una conferma piena: e' un profilo da tenere d'occhio "
+                "sapendo che il riscontro, per ora, e' sottile.",
+    },
     "solo_rumore": {
         "tag": "NE PARLANO E BASTA",
         "lead": "Ne scrivono, ma nessun segnale costoso lo conferma: niente minuti veri, nessuna "
@@ -2259,10 +2277,15 @@ def evidence_quadrant(signal_score: float | None, validazione: dict | None, cfg_
         chiave = "indeterminato"
     else:
         vscore = validazione.get("validation_score") or 0.0
-        validato = stato == "validato" and vscore >= q["soglia_validazione"]
         rumoroso = (signal_score or 0.0) >= q["soglia_buzz"]
-        if validato:
+        if stato == "validato" and vscore >= q["soglia_validazione"]:
             chiave = "confermato" if rumoroso else "tesoro_silenzioso"
+        elif stato == "validato":
+            # PROVE TROVATE, sotto soglia. NON puo' finire in "solo_rumore":
+            # quella didascalia dice "nessuna convocazione registrata" e per
+            # lui sarebbe una bugia - le prove sono elencate sulla stessa
+            # scheda. Vedi il commento su "conferma_debole" qui sopra.
+            chiave = "conferma_debole"
         else:
             chiave = "solo_rumore" if rumoroso else "quiete"
 
@@ -2543,6 +2566,28 @@ def kenobi_score(candidate: dict, signal_score_val: float | None, validazione: d
     valore_corretto = valore + (1 - valore) * peso * sconto
     prezzo = max(0.0, min(1.0, signal_score_val / 100.0))
     edge = valore_corretto - prezzo
+
+    # ARTEFATTO DELLO ZERO-ZERO, trovato provando il sistema su giocatori
+    # veri. Con valore ~0 e prezzo ~0 la sottrazione da' 0, che sulla scala
+    # finale e' 50 - cioe' "mercato allineato". Ma non e' affatto la stessa
+    # cosa: un giocatore su cui non sappiamo nulla E di cui non parla nessuno
+    # non e' equamente prezzato, e' semplicemente INVISIBILE. In una
+    # classifica ordinata per scarto quel 50 lo spingeva SOPRA giocatori con
+    # riscontri veri e prezzo onesto - l'assenza di informazione premiata
+    # come se fosse un affare. Qui la sottrazione si rifiuta di parlare.
+    soglia_info = kcfg["bilancio"]["soglia_informazione"]
+    if valore_corretto < soglia_info and prezzo < soglia_info:
+        spiegazione.append(
+            f"Valore e prezzo sono entrambi sotto la soglia di leggibilita' "
+            f"({soglia_info*100:.0f}/100): non c'e' uno scarto da misurare, c'e' assenza di dati.")
+        return {"kenobi_score": None, "stato": "informazione_insufficiente",
+                "tag": "NESSUNA INFORMAZIONE",
+                "lead": "Nessun segnale costoso e nessuna attenzione: non e' un mercato allineato, "
+                        "e' un giocatore ancora invisibile a entrambi gli assi. Non c'e' niente da "
+                        "comprare e niente da scartare - semplicemente, non si sa.",
+                "edge": None, "valore": round(valore, 3),
+                "valore_corretto": round(valore_corretto, 3), "prezzo": round(prezzo, 3),
+                "spiegazione": spiegazione, "sconto_anagrafico": anagrafica, "sviluppo": sviluppo}
     punteggio = round(max(0.0, min(100.0, 50 + 50 * edge)), 1)
 
     if sconto > 0:

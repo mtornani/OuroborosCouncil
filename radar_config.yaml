@@ -856,6 +856,12 @@ kenobi:
     richiede_entrambi_i_termini: true
     # Sotto questo scarto il disallineamento non e' abbastanza per parlarne
     # (0-100 sulla scala finale, 50 = mercato allineato).
+    # Sotto questa soglia SIA il valore SIA il prezzo, non c'e' scarto da
+    # misurare: c'e' assenza di dati. Senza questa guardia un giocatore
+    # invisibile a entrambi gli assi otteneva 50/100 ("mercato allineato") e
+    # scavalcava in classifica chi ha riscontri veri - vedi il commento
+    # sull'artefatto dello zero-zero in discovery_engine.
+    soglia_informazione: 0.10
     soglia_occasione: 65      # sopra: sottovalutato in modo interessante
     soglia_sopravvalutato: 35 # sotto: il prezzo corre piu' del valore
 

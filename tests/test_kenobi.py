@@ -182,6 +182,29 @@ class TestLaSottrazione(unittest.TestCase):
         self.assertIsNotNone(r["kenobi_score"])
         self.assertEqual(r["valore"], 0.0)
 
+    def test_zero_zero_non_e_un_mercato_allineato(self):
+        """REGRESSIONE da un caso REALE. Valore ~0 e prezzo ~0 danno edge 0,
+        che sulla scala finale e' 50 = "mercato allineato". Ma un giocatore
+        su cui non sappiamo nulla E di cui non parla nessuno non e' equamente
+        prezzato: e' invisibile. In una classifica per scarto quel 50 lo
+        spingeva SOPRA giocatori con riscontri veri e prezzo onesto."""
+        r = self._k(0, _val(None, "non_corroborato"))
+        self.assertIsNone(r["kenobi_score"])
+        self.assertEqual(r["stato"], "informazione_insufficiente")
+
+    def test_uno_dei_due_termini_leggibile_basta_a_calcolare(self):
+        """La guardia deve scattare SOLO quando tacciono entrambi."""
+        solo_prezzo = self._k(60, _val(None, "non_corroborato"))
+        self.assertIsNotNone(solo_prezzo["kenobi_score"])
+        solo_valore = self._k(0, _val(70))
+        self.assertIsNotNone(solo_valore["kenobi_score"])
+
+    def test_invisibile_non_scavalca_chi_ha_riscontri(self):
+        invisibile = self._k(2, _val(None, "non_corroborato"))
+        con_riscontri = self._k(55, _val(50))
+        self.assertIsNone(invisibile["kenobi_score"])
+        self.assertIsNotNone(con_riscontri["kenobi_score"])
+
     def test_ogni_punteggio_si_spiega_da_solo(self):
         r = self._k(20, _val(70), mese="11")
         self.assertTrue(r["spiegazione"])
