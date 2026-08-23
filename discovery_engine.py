@@ -16,6 +16,7 @@ import json
 import os
 import re
 import threading
+import time
 import unicodedata
 import urllib.parse
 import urllib.request
@@ -1988,7 +1989,17 @@ def fetch_career_records(candidates: list[dict], cfg_root: dict, cache: dict,
              for i in range(0, len(da_leggere), ccfg["max_qid_per_query"])]
     lotti = lotti[:ccfg["max_query_per_run"]]
     ora = _now_iso()
+    partenza = time.monotonic()
+    budget = ccfg.get("budget_secondi")
     for n, lotto in enumerate(lotti, 1):
+        # Budget a orologio: vedi la nota in radar_config.yaml. Il tetto di
+        # query da solo non basta - protegge da una fonte MUTA, non da una
+        # fonte LENTA, e quella e' la condizione in cui una scansione
+        # programmata sfonda la deadline.
+        if budget and (time.monotonic() - partenza) > budget:
+            print(f"[validazione] budget di {budget}s esaurito dopo {n-1} lotti: "
+                  "i restanti si leggono al prossimo giro.")
+            break
         if progress_cb:
             try:
                 progress_cb("leggo i dati di carriera (segnale costoso)", done=n, total=len(lotti))

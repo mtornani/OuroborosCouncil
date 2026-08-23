@@ -498,6 +498,38 @@ riga tipo `SENTINEL v0.6.0 · ob1-radar-00042-abcd`:
 Per uno script (Grok compreso) c'è `GET /api/version` → `{"version": "0.6.0",
 "build": "ob1-radar-00042-abcd"}`, più leggero di caricare `/turno` intera.
 
+### Dopo un deploy che tocca i Layer F/G — cosa aspettarsi
+
+Il primo giro con la validazione attiva si comporta in modo diverso dagli altri,
+e sapere *perché* evita di scambiare il previsto per un guasto.
+
+1. **La prima scansione non valida quasi nessuno.** La cache di carriera parte
+   vuota e il tetto è di 12 query per giro (~1.400 candidati). Servono **tre o
+   quattro scansioni** perché la copertura si stabilizzi. Nel frattempo la
+   maggioranza risulta `non validabile` — che non è un voto basso.
+2. **Il buzz scende di colpo, una volta sola.** Le fonti non editoriali
+   (database e livescore) non contano più come menzioni. Gli snapshot già
+   salvati tengono i conteggi vecchi, quindi la *velocità* — che è un delta fra
+   due giri — risulta artificialmente negativa per un solo run. Poi torna
+   coerente.
+3. **La scansione si allunga di poco.** Il budget a orologio
+   (`validazione_tecnica.cache.budget_secondi`, 120s) taglia la lettura carriere
+   quando il tempo finisce: i candidati non letti passano al giro dopo. È la
+   guardia che impedisce alla validazione di sfondare la deadline di 600s del
+   Cloud Scheduler.
+4. **Controlla `/processo`.** Compaiono due blocchi nuovi:
+   `validazione_copertura` (quanto si è potuto guardare, per campionato) e
+   `kenobi` (la coorte anagrafica misurata col suo χ²). Se la copertura è bassa
+   su un campionato, quello è un buco nelle fonti — non un giudizio sui suoi
+   giocatori, ed è scritto lì.
+
+```bash
+python3 smoke_test.py            # prima del deploy: l'impianto regge?
+gcloud run deploy ob1-radar --source . --region europe-west1 \
+  --allow-unauthenticated --no-cpu-throttling --max-instances 1
+curl -s "https://<IL_TUO_SERVIZIO>.run.app/api/version"   # è atterrato?
+```
+
 ### Scansione automatica al mattino (consigliata)
 
 La scansione da telefono resta possibile, ma il modo giusto di usare SENTINEL

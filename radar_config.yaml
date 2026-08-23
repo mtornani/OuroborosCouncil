@@ -816,6 +816,17 @@ validazione_tecnica:
     max_qid_per_query: 120         # QID per singola query VALUES (batch)
     max_query_per_run: 12          # tetto duro: la validazione non fa mai saltare una scansione
     timeout_secondi: 45
+    # BUDGET A OROLOGIO, ed e' la guardia che conta davvero in produzione.
+    # Il tetto di query protegge da WDQS GIU' (il primo lotto torna muto e il
+    # ciclo si ferma), ma non da WDQS LENTO: 12 lotti x 45s di timeout fanno
+    # 540 secondi aggiunti a una scansione che gia' dura minuti, contro la
+    # deadline di 600s del Cloud Scheduler (vedi README). Sarebbe la
+    # validazione che uccide la scansione - esattamente cio' che questo layer
+    # ha promesso di non fare mai. Con il budget, quando il tempo finisce si
+    # smette: i candidati non letti restano non validabili per questo giro e
+    # vengono ripresi al prossimo, che e' il comportamento gia' previsto per
+    # chi non entra nel tetto.
+    budget_secondi: 120
 
 # ============================================================================
 # LAYER G - OB1-KENOBI: l'algoritmo dell'inefficienza

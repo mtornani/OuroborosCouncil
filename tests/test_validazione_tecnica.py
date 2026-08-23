@@ -665,3 +665,49 @@ class TestCoperturaPerCampionato(unittest.TestCase):
         self.assertIsNotNone(prima["kenobi_score"])      # credeva di aver misurato 0
         self.assertIsNone(dopo["kenobi_score"])          # ora ammette di non sapere
         self.assertEqual(dopo["stato"], "non_calcolabile")
+
+
+# ======================================================================
+class TestBudgetScansione(unittest.TestCase):
+    """La validazione e' un LUSSO che non deve mai far fallire una scansione.
+    Il tetto di query protegge da una fonte MUTA (il primo lotto torna None e
+    il ciclo si ferma), non da una fonte LENTA: 12 lotti x 45s di timeout
+    farebbero 540s aggiunti, contro i 600s di deadline del Cloud Scheduler."""
+
+    def setUp(self):
+        import discovery_engine
+        self.eng = discovery_engine
+        self.originale = discovery_engine._sparql_career_batch
+
+    def tearDown(self):
+        self.eng._sparql_career_batch = self.originale
+
+    def test_il_budget_ferma_una_fonte_lenta(self):
+        import time as _t
+        chiamate = []
+
+        def lenta(qids, cfg):
+            chiamate.append(qids)
+            _t.sleep(0.05)          # "lenta" in scala di test
+            return {q: [] for q in qids}
+
+        self.eng._sparql_career_batch = lenta
+        cfg = {**CFG}
+        cfg["validazione_tecnica"] = {**VT}
+        cfg["validazione_tecnica"]["cache"] = {**VT["cache"], "budget_secondi": 0.12,
+                                               "max_qid_per_query": 1, "max_query_per_run": 50}
+        candidati = [{"candidate_id": f"Q{i}"} for i in range(50)]
+        self.eng.fetch_career_records(candidati, cfg, {})
+        self.assertLess(len(chiamate), 50, "il budget non ha fermato la lettura")
+        self.assertGreater(len(chiamate), 0, "non ha letto nulla")
+
+    def test_senza_budget_il_comportamento_resta_quello_di_prima(self):
+        self.eng._sparql_career_batch = lambda qids, cfg: {q: [] for q in qids}
+        cfg = {**CFG}
+        cfg["validazione_tecnica"] = {**VT}
+        cfg["validazione_tecnica"]["cache"] = {**VT["cache"], "max_qid_per_query": 5,
+                                               "max_query_per_run": 3}
+        cfg["validazione_tecnica"]["cache"].pop("budget_secondi", None)
+        cache = {}
+        self.eng.fetch_career_records([{"candidate_id": f"Q{i}"} for i in range(15)], cfg, cache)
+        self.assertEqual(len(cache), 15)
