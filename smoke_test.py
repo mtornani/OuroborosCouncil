@@ -259,7 +259,11 @@ def main():
 
     tmp = Path(tempfile.mkdtemp())
     orig_feed, orig_coorte = de.FEED_FILE, de.COORTE_FILE
+    orig_decisioni = de.DECISIONS_FILE
     de.FEED_FILE, de.COORTE_FILE = tmp / "radar_feed.json", tmp / "coorte_anagrafica.json"
+    # anche le decisioni umane su file temporaneo: senza, lo smoke test
+    # leggerebbe quelle vere di chi lo lancia e non sarebbe ripetibile
+    de.DECISIONS_FILE = tmp / "human_decisions.json"
     try:
         casi = {"Q_tesoro": (v_validato, 12, "2008-11-15"),
                 "Q_rumore": (v_vuoto, 90, "2008-02-15"),
@@ -365,12 +369,28 @@ def main():
                 assert "Q_ieri" in ids, "una scansione persa non deve bastare a far scadere un caso"
                 assert "Q_tesoro" in ids, "la scadenza si e' portata via anche i casi freschi"
                 assert turno["scaduti_count"] == 1, turno["scaduti_count"]
+
+                # e il numero dichiarato deve dire la verita': un fossile che
+                # avevi GIA' deciso non l'avresti visto comunque, quindi non
+                # conta come "uscito dalla lista". Visto in produzione il 24
+                # agosto 2026: 10 dichiarati contro 6 davvero tolti.
+                finto["Q_fossile_deciso"] = _copia("Q_muto", adesso - timedelta(days=3))
+                de._save_json(de.FEED_FILE, finto)
+                de._save_json(de.DECISIONS_FILE, {"Q_fossile_deciso": {
+                    "status": "scarto", "updated_at": adesso.isoformat(),
+                    "note": None, "name": "x", "club": "y", "history": []}})
+                turno = client.get("/api/radar/turno").get_json()
+                assert "Q_fossile_deciso" not in {c["candidate_id"] for c in turno["cases"]}
+                assert turno["scaduti_count"] == 1, (
+                    f"un caso gia' deciso e' stato contato come scaduto: {turno['scaduti_count']}")
                 return f"1 fossile fuori dalla lista, dichiarato (soglia {turno['scadenza_scansioni']} scansioni)"
             finally:
                 de._save_json(de.FEED_FILE, feed)
+                de._save_json(de.DECISIONS_FILE, {})
         check("il turno non propone fossili", _fossile)
     finally:
         de.FEED_FILE, de.COORTE_FILE = orig_feed, orig_coorte
+        de.DECISIONS_FILE = orig_decisioni
 
     # ------------------------------------------------------------------
     sezione("6. FONTI ESTERNE" + ("  (saltata: --offline)" if args.offline else ""))

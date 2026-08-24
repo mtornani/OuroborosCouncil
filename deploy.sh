@@ -61,6 +61,35 @@ if [ -n "$mancante" ]; then
   exit 1
 fi
 
+# ---------- 0b. il progetto e' impostato? ----------
+# Senza questo, `gcloud run deploy` si ferma a META' STRADA con "Please
+# specify a project ID:" - una domanda interattiva dopo cinque minuti di
+# smoke test, sulla tastiera di un telefono. E se la risposta va a vuoto
+# muore con "Failed to find attribute [namespace]", che non dice a nessuno
+# "manca il progetto". Visto dal vivo il 24 agosto 2026: deploy perso.
+# Meglio chiederlo PRIMA di iniziare, o meglio ancora non chiederlo mai.
+if ! command -v gcloud >/dev/null 2>&1; then
+  rosso "gcloud non e' installato qui."
+  grigio "Da telefono usa Cloud Shell (shell.cloud.google.com): gcloud c'e' gia', autenticato."
+  exit 1
+fi
+# sed e non grep: una grep che filtra tutto esce con 1, e con `set -o
+# pipefail` ucciderebbe lo script proprio qui - in silenzio, senza stampare
+# il rimedio qui sotto. Il guasto muto che questo file esiste per evitare.
+PROGETTO="${PROGETTO:-$(gcloud config get-value project 2>/dev/null | tr -d ' \n' | sed 's/^(unset)$//')}"
+if [ -z "$PROGETTO" ]; then
+  echo
+  rosso "Nessun progetto Google Cloud impostato."
+  rosso "Senza, gcloud te lo chiederebbe a meta' deploy - e una risposta a vuoto lo fa morire."
+  echo
+  grigio "Impostalo una volta (resta salvato nella home di Cloud Shell):"
+  echo "  gcloud projects list          # per vedere gli ID"
+  echo "  gcloud config set project IL_TUO_PROJECT_ID"
+  grigio "e poi rilanci ./deploy.sh"
+  exit 1
+fi
+grigio "── progetto: $PROGETTO"
+
 # ---------- 1. l'impianto regge? ----------
 echo
 grigio "── smoke test (salta le fonti esterne: qui interessa il codice)"
@@ -78,6 +107,7 @@ grigio "── deploy su Cloud Run (qualche minuto: costruisce l'immagine)"
 #   con una seconda istanza il polling puo' finire su quella sbagliata.
 gcloud run deploy "$SERVIZIO" \
   --source . \
+  --project "$PROGETTO" \
   --region "$REGIONE" \
   --allow-unauthenticated \
   --no-cpu-throttling \

@@ -4176,8 +4176,6 @@ def set_watchlisted(candidate_id: str, watchlisted: bool) -> set:
 
 
 # ============================================================
-# DECISIONI UMANE - il passo dopo il radar
-# ============================================================
 # SCADENZA IN LETTURA - il turno non propone fossili
 # ============================================================
 # Il turno mostra l'ultimo verdetto salvato per ogni candidato. Giusto. Il
@@ -4313,6 +4311,8 @@ def filtra_casi_scaduti(cases: list, feed: dict, cfg: dict | None = None) -> dic
             "ultima_scansione": scansioni[-1].isoformat() if scansioni else None}
 
 
+# ============================================================
+# DECISIONI UMANE - il passo dopo il radar
 # ============================================================
 # SENTINEL non e' Wyscout: dopo il segnale l'occhio deve scegliere.
 # Store {candidate_id: {status, updated_at, note, name, club, history}}.
