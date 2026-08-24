@@ -520,15 +520,21 @@ def radar_turno():
                     "closed_crossed": 3, "closed_faded": 3, "closed_stale": 3,
                     "verdict": 4, "resolved": 5, "rising": 6, "falling": 6, "new": 7}
         cases.sort(key=lambda c: (priority.get(c["change"]["type"], 9), -(c["signal_score"] or 0)))
+        decisions = discovery_engine.get_human_decisions()
+        split = discovery_engine.split_human_workload(cases, decisions)
         # SCADENZA IN LETTURA: il turno mostra l'ultimo verdetto salvato, ma
         # un verdetto che nessuna scansione recente ha confermato non e' piu'
         # un'informazione fresca - e senza questo filtro restava in lista per
         # sempre (vedi discovery_engine.filtra_casi_scaduti). Non si cancella
         # niente dallo storico: si smette solo di proporlo come notizia.
-        vaglio = discovery_engine.filtra_casi_scaduti(cases, feed, cfg)
-        cases = vaglio["casi"]
-        decisions = discovery_engine.get_human_decisions()
-        split = discovery_engine.split_human_workload(cases, decisions)
+        #
+        # DOPO lo split, non prima: altrimenti scaduti_count conterebbe anche i
+        # casi che comunque non avresti visto (gia' decisi, o in coda "il tuo
+        # occhio"), e il numero dichiarato non sarebbe quello che dice di
+        # essere. Prima visto in produzione: 10 dichiarati contro 6 davvero
+        # tolti dalla lista. Un contatore onesto vale piu' di un contatore
+        # grande.
+        vaglio = discovery_engine.filtra_casi_scaduti(split["turno"], feed, cfg)
         da_verificare = discovery_engine.da_verificare_cards(decisions, feed, cfg)
         for card in da_verificare:
             record = feed.get(card["candidate_id"]) or {}
@@ -545,7 +551,7 @@ def radar_turno():
                 card["curve_trail"] = discovery_engine.phase_trail(record)
         return jsonify({
             "status": "success",
-            "cases": split["turno"],
+            "cases": vaglio["casi"],
             "da_verificare": da_verificare,
             "skipped_count": skipped + len(vaglio["scaduti"]),
             # dichiarati, non fatti sparire: quanti casi sono usciti dalla
