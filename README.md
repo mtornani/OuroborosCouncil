@@ -598,6 +598,29 @@ Esce con codice ≠ 0 solo sul terzo.
 
 ### Deploy su Google Cloud Run
 
+**Da telefono** (il caso normale): apri **[shell.cloud.google.com](https://shell.cloud.google.com)**
+dal browser — Cloud Shell ha già `gcloud` autenticato, e la home resta salvata
+fra una sessione e l'altra. La prima volta:
+
+```bash
+git clone https://github.com/mtornani/OuroborosCouncil.git
+cd OuroborosCouncil && ./deploy.sh
+```
+
+Le volte dopo bastano tre parole:
+
+```bash
+cd OuroborosCouncil && git pull && ./deploy.sh
+```
+
+`deploy.sh` fa tre cose e si ferma alla prima che va male: lancia lo smoke test
+(non si deploya un impianto rotto), deploya con i flag che non sono opzionali,
+e **verifica che la versione servita coincida con quella nel codice** — perché
+*"gcloud dice ok"* e *"la versione nuova sta rispondendo"* sono due cose diverse,
+e da telefono non hai voglia di scoprirlo il giorno dopo.
+
+A mano, se preferisci:
+
 ```bash
 gcloud config set project <IL_TUO_PROJECT_ID>
 gcloud run deploy ob1-radar --source . --region europe-west1 \
