@@ -505,6 +505,7 @@ coorte_anagrafica.json    # KENOBI: la distribuzione dei mesi di nascita misurat
 # Strumenti a sé (non fanno parte della scansione)
 referto_anagrafico.py     # la diagnosi sul vivaio di un club, da un CSV di nomi e date
 smoke_test.py             # "la situazione" in un comando, prima di un deploy
+estratto_del_giorno.py    # 3 bozze pronte da postare, dalla run vera di oggi - vedi sotto
 
 # Legacy (non SENTINEL): Miss Minute — prioritizzazione progetti (miss_minute*.py, priorities.yaml)
 ```
@@ -574,6 +575,38 @@ qualunque sbilanciamento è compatibile col caso. Le righe con date illeggibili
 vengono scartate e **dichiarate** in fondo alla pagina, mai indovinate. Il
 separatore del CSV e i nomi delle colonne vengono riconosciuti da soli: un
 referto che pretende un formato esatto non lo apre nessuno.
+
+### Estratto del giorno — costruirsi i "true fan", senza inventare contenuto
+
+```bash
+export RADAR_GUEST_KEY=la_tua_chiave_ospite
+python3 estratto_del_giorno.py              # 3 bozze pronte + lo streak attuale
+python3 estratto_del_giorno.py --registra   # idem, e segna oggi come pubblicato
+```
+
+L'idea di Kevin Kelly (primo direttore esecutivo di *Wired*, autore del saggio
+*"1,000 True Fans"*, 2008): non servono milioni di persone, ne bastano mille
+abbastanza affezionate. Il modo più economico per costruirsele è pubblicare
+ogni giorno il vero backstage — non promozione, il funzionamento reale, difetti
+compresi — e il materiale per farlo esiste già ogni mattina: è la run stessa.
+
+Lo script legge `/api/radar/turno` e `/api/radar/processo` dal servizio in
+produzione e stampa tre bozze da incollare, zero scrittura creativa richiesta
+(la frizione è il vero nemico di uno streak lungo, non la motivazione): un
+numero onesto misurato su decisioni vere, un limite o una correzione dichiarata
+di oggi, e un caso reale del turno **solo se pubblicabile**.
+
+**Regola di sicurezza non negoziabile**: un caso con un nome reale entra in una
+bozza solo se l'età è calcolabile dalla data di nascita **ed è ≥ 18 anni**.
+Nessuna euristica sul livello del campionato, nessun "probabilmente è
+adulto" — la stessa regola con cui il resto del motore non inventa mai un dato
+mancante. Se l'età non si può calcolare, quel candidato è escluso dal tutto,
+non declassato a "forse va bene".
+
+Lo streak è locale (`streak_estratti.json`, mai su Postgres — è per te, non è
+un dato di prodotto) e onesto quanto il resto del sistema: un giorno saltato
+si vede (*"ultimo buco: N giorni saltati fra..."*), non viene nascosto per far
+sembrare la catena più lunga di quanto sia stata davvero.
 
 ### Smoke test — "la situazione", in un comando
 
