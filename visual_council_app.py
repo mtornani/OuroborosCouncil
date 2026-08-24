@@ -452,7 +452,9 @@ def radar_turno():
     nell'ultimo refresh (discovery_engine.detect_state_change), non l'intera
     pool - vedi radar_config.yaml sezione state_change. Chi non ha nulla di
     cambiato resta silenzioso in archivio (conteggiato in skipped_count, mai
-    restituito)."""
+    restituito). Stessa sorte per i casi la cui ultima valutazione e' troppo
+    non e' piu' stata confermata dalle ultime scansioni: escono dalla lista e
+    vengono contati a parte in scaduti_count."""
     try:
         feed = discovery_engine.latest_feed()
         cfg = discovery_engine.load_config()
@@ -518,6 +520,13 @@ def radar_turno():
                     "closed_crossed": 3, "closed_faded": 3, "closed_stale": 3,
                     "verdict": 4, "resolved": 5, "rising": 6, "falling": 6, "new": 7}
         cases.sort(key=lambda c: (priority.get(c["change"]["type"], 9), -(c["signal_score"] or 0)))
+        # SCADENZA IN LETTURA: il turno mostra l'ultimo verdetto salvato, ma
+        # un verdetto che nessuna scansione recente ha confermato non e' piu'
+        # un'informazione fresca - e senza questo filtro restava in lista per
+        # sempre (vedi discovery_engine.filtra_casi_scaduti). Non si cancella
+        # niente dallo storico: si smette solo di proporlo come notizia.
+        vaglio = discovery_engine.filtra_casi_scaduti(cases, feed, cfg)
+        cases = vaglio["casi"]
         decisions = discovery_engine.get_human_decisions()
         split = discovery_engine.split_human_workload(cases, decisions)
         da_verificare = discovery_engine.da_verificare_cards(decisions, feed, cfg)
@@ -538,7 +547,11 @@ def radar_turno():
             "status": "success",
             "cases": split["turno"],
             "da_verificare": da_verificare,
-            "skipped_count": skipped,
+            "skipped_count": skipped + len(vaglio["scaduti"]),
+            # dichiarati, non fatti sparire: quanti casi sono usciti dalla
+            # lista solo perche' vecchi, e da quanti giorni si considera vecchio
+            "scaduti_count": len(vaglio["scaduti"]),
+            "scadenza_scansioni": vaglio["soglia_scansioni"],
             "total_count": len(feed),
             # registro di validazione retroattiva: quanti passaggi al
             # mainstream sono stati registrati finora, e quanti il radar

@@ -21,7 +21,7 @@ import unicodedata
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import yaml
@@ -4177,6 +4177,142 @@ def set_watchlisted(candidate_id: str, watchlisted: bool) -> set:
 
 # ============================================================
 # DECISIONI UMANE - il passo dopo il radar
+# ============================================================
+# SCADENZA IN LETTURA - il turno non propone fossili
+# ============================================================
+# Il turno mostra l'ultimo verdetto salvato per ogni candidato. Giusto. Il
+# difetto e' che non guardava quanto fosse VECCHIO quel verdetto: se le
+# scansioni successive non arrivano piu' a rivalutare un candidato (23 agosto
+# 2026: rivalutati 3.046 su 3.913 - la pool si ricostruisce a ogni giro e chi
+# le fonti non restituiscono resta fermo), il suo caso resta in cima al turno
+# per sempre, con la stessa faccia di uno appena calcolato.
+#
+# _CARRY_MAX_RUNS non copre questo buco: conta i giri DI QUEL CANDIDATO, e un
+# candidato che nessuna scansione tocca piu' di giri non ne fa piu' nessuno.
+# La finestra non "scade" perche' non scorre il contatore che dovrebbe farla
+# scadere.
+#
+# L'unita' di misura e' la SCANSIONE, non il giorno. I run avvengono a
+# intervalli irregolari (lo dichiara gia' radar_config.yaml, adoption_curve):
+# contare i giorni sarebbe un proxy che si rompe da tutte e due le parti - due
+# scansioni nello stesso pomeriggio non farebbero scadere niente, una
+# settimana di fermo farebbe scadere tutto in un colpo appena riparte il
+# radar. Contare le scansioni misura la cosa giusta: quante volte il sistema
+# ha guardato la pool E non ha piu' trovato questo candidato.
+#
+# Ogni scansione scrive lo STESSO run_at su tutte le voci che produce (vedi
+# refresh_radar: run_at = _now_iso() una volta sola), quindi i run_at distinti
+# nello storico del feed sono l'elenco delle scansioni avvenute. Non serve
+# tenere un contatore da nessuna parte: e' gia' scritto nei fatti.
+#
+# Il rimedio sta in LETTURA, non in scrittura: lo storico non si tocca (e' il
+# registro dei fatti, non si riscrive per far quadrare una vista). E i casi
+# scaduti non spariscono in silenzio: si contano e si dichiarano.
+
+_SCADENZA_DEFAULT_SCANSIONI = 2
+
+
+def _istante(valore) -> datetime | None:
+    """Legge un run_at ISO tollerando la 'Z' finale e i timestamp senza fuso.
+    Un timestamp illeggibile torna None e NON viene interpretato: meglio un
+    caso di troppo nel turno che una scadenza inventata su un dato che non
+    sappiamo leggere."""
+    if not isinstance(valore, str) or not valore.strip():
+        return None
+    try:
+        istante = datetime.fromisoformat(valore.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if istante.tzinfo is None:  # storici vecchi, salvati prima del fuso esplicito
+        istante = istante.replace(tzinfo=timezone.utc)
+    return istante
+
+
+# Istanti piu' vicini di cosi' sono LA STESSA scansione. refresh_radar scrive
+# un run_at identico su tutte le voci di un giro, quindi in produzione questo
+# raggruppamento non fa nulla - serve a non rompersi su feed scritti in altro
+# modo (salvataggi incrementali, migrazioni, il feed sintetico dello smoke
+# test), dove i timestamp dello stesso giro possono differire di microsecondi.
+# Senza, un giro solo verrebbe contato come mille scansioni e il turno si
+# svuoterebbe da solo: un difetto peggiore di quello che questa scadenza
+# corregge. Due scansioni vere distano ore, non minuti.
+_TOLLERANZA_SCANSIONE = timedelta(minutes=10)
+
+
+def scansioni_note(feed: dict) -> list:
+    """L'elenco delle scansioni che il feed ricorda, dalla piu' vecchia alla
+    piu' recente: i run_at dello storico, con gli istanti quasi coincidenti
+    raccolti in una scansione sola (vedi _TOLLERANZA_SCANSIONE). Ogni gruppo
+    e' rappresentato dal suo istante piu' recente. Un timestamp illeggibile
+    non entra nell'elenco: non si conta una scansione che non sappiamo
+    datare."""
+    # si raccolgono prima le STRINGHE distinte e si parsa dopo: su un feed
+    # vero sono 60.000 voci di storico per una trentina di run_at diversi,
+    # e parsare la stessa data 3.000 volte costerebbe 40 ms a ogni apertura
+    # del turno per un risultato identico
+    testi = set()
+    for record in (feed or {}).values():
+        for entry in (record or {}).get("history") or []:
+            run_at = (entry or {}).get("run_at")
+            if run_at:
+                testi.add(run_at)
+    viste = {i for i in (_istante(t) for t in testi) if i is not None}
+    gruppi = []
+    for istante in sorted(viste):
+        if gruppi and (istante - gruppi[-1]) <= _TOLLERANZA_SCANSIONE:
+            gruppi[-1] = istante  # stesso giro: il rappresentante avanza
+        else:
+            gruppi.append(istante)
+    return gruppi
+
+
+def scansioni_saltate(run_at, scansioni: list) -> int | None:
+    """Quante scansioni sono passate DOPO l'ultima valutazione di questo caso
+    senza rivalutarlo. None quando il timestamp del caso non e' leggibile.
+    La tolleranza vale anche qui: una scansione che coincide con quella del
+    caso non e' una scansione che l'ha saltato."""
+    valutato = _istante(run_at)
+    if valutato is None:
+        return None
+    return sum(1 for s in (scansioni or []) if s - valutato > _TOLLERANZA_SCANSIONE)
+
+
+def soglia_scadenza_turno(cfg: dict | None = None) -> int:
+    """Dichiarata in radar_config.yaml (state_change.scadenza_turno_scansioni),
+    non murata nel codice. <= 0 disattiva la scadenza."""
+    scfg = ((cfg or {}).get("state_change") or {})
+    try:
+        return int(scfg.get("scadenza_turno_scansioni", _SCADENZA_DEFAULT_SCANSIONI))
+    except (TypeError, ValueError):
+        return _SCADENZA_DEFAULT_SCANSIONI
+
+
+def caso_scaduto(run_at, scansioni: list, cfg: dict | None = None) -> bool:
+    soglia = soglia_scadenza_turno(cfg)
+    if soglia <= 0:
+        return False
+    saltate = scansioni_saltate(run_at, scansioni)
+    if saltate is None:
+        return False  # dato non leggibile: si mostra, non si condanna
+    return saltate >= soglia
+
+
+def filtra_casi_scaduti(cases: list, feed: dict, cfg: dict | None = None) -> dict:
+    """Toglie dal turno i casi che le ultime scansioni non hanno piu' toccato,
+    e dice quanti erano. Funzione pura: non scrive niente, non tocca lo
+    storico."""
+    scansioni = scansioni_note(feed)
+    soglia = soglia_scadenza_turno(cfg)
+    vivi, scaduti = [], []
+    for case in cases or []:
+        if caso_scaduto((case or {}).get("run_at"), scansioni, cfg):
+            scaduti.append(case)
+        else:
+            vivi.append(case)
+    return {"casi": vivi, "scaduti": scaduti, "soglia_scansioni": soglia,
+            "ultima_scansione": scansioni[-1].isoformat() if scansioni else None}
+
+
 # ============================================================
 # SENTINEL non e' Wyscout: dopo il segnale l'occhio deve scegliere.
 # Store {candidate_id: {status, updated_at, note, name, club, history}}.

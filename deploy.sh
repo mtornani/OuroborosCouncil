@@ -37,6 +37,30 @@ grigio() { printf '\033[2m%s\033[0m\n' "$1"; }
 attesa=$(tr -d ' \n' < VERSION 2>/dev/null || echo "")
 grigio "── versione nel codice: ${attesa:-sconosciuta}"
 
+# ---------- 0. le librerie ci sono? ----------
+# Cloud Shell ha gcloud e python3, ma NON le librerie di questo progetto.
+# Senza questo controllo lo smoke test morirebbe con un ModuleNotFoundError
+# che sullo schermo del telefono sembra "impianto rotto" - e invece e' "manca
+# una libreria". Due cose diverse, con due rimedi diversi. Il controllo non
+# elenca i nomi a mano: prova a importare il codice vero e chiede a lui cosa
+# gli manca, cosi' non va fuori sincrono quando le dipendenze cambiano.
+mancante="$(python3 -c "
+try:
+    import discovery_engine, visual_council_app
+except ImportError as e:
+    print(getattr(e, 'name', '') or e)
+" 2>/dev/null || echo "")"
+if [ -n "$mancante" ]; then
+  echo
+  rosso "Manca una libreria del progetto: $mancante"
+  rosso "Non e' l'impianto rotto - e' l'ambiente incompleto."
+  echo
+  grigio "Si risolve una volta sola (poi resta: la home di Cloud Shell e' persistente):"
+  echo "  pip3 install --user -r requirements.txt"
+  grigio "e poi rilanci ./deploy.sh"
+  exit 1
+fi
+
 # ---------- 1. l'impianto regge? ----------
 echo
 grigio "── smoke test (salta le fonti esterne: qui interessa il codice)"

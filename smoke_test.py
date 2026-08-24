@@ -339,6 +339,36 @@ def main():
                 assert len(resp.data) > 5000, f"{r} sospettosamente corta"
             return "4 pagine renderizzate"
         check("le pagine HTML si disegnano", _pagine)
+
+        def _fossile():
+            # un caso rimasto indietro di due scansioni: e' il difetto visto
+            # in produzione il 23 agosto 2026 (sei casi del 22 fermi in cima
+            # al turno). Deve uscire dalla lista ED essere dichiarato, non
+            # sparire in silenzio.
+            from datetime import datetime, timedelta, timezone
+            adesso = datetime.now(timezone.utc)
+            def _copia(qid, quando):
+                rec = dict(feed[qid])
+                voce = dict(rec["history"][-1])
+                voce["run_at"] = quando.isoformat()
+                rec["history"] = [voce]
+                return rec
+            # due scansioni precedenti, nessuna delle quali ha toccato il fossile
+            finto = {**feed,
+                     "Q_fossile": _copia("Q_rumore", adesso - timedelta(days=3)),
+                     "Q_ieri": _copia("Q_muto", adesso - timedelta(days=1))}
+            de._save_json(de.FEED_FILE, finto)
+            try:
+                turno = client.get("/api/radar/turno").get_json()
+                ids = {c["candidate_id"] for c in turno["cases"]}
+                assert "Q_fossile" not in ids, "un caso vecchio di due scansioni e' ancora nel turno"
+                assert "Q_ieri" in ids, "una scansione persa non deve bastare a far scadere un caso"
+                assert "Q_tesoro" in ids, "la scadenza si e' portata via anche i casi freschi"
+                assert turno["scaduti_count"] == 1, turno["scaduti_count"]
+                return f"1 fossile fuori dalla lista, dichiarato (soglia {turno['scadenza_scansioni']} scansioni)"
+            finally:
+                de._save_json(de.FEED_FILE, feed)
+        check("il turno non propone fossili", _fossile)
     finally:
         de.FEED_FILE, de.COORTE_FILE = orig_feed, orig_coorte
 

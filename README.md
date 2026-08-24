@@ -348,6 +348,36 @@ L'esempio qui sopra è illustrativo: finché non ci sono decisioni,
 `/processo` risponde *"non c'è niente da misurare"* invece di inventare una
 percentuale.
 
+### Il turno non mostra fossili
+
+Trovato in produzione il 23 agosto 2026: dei 12 casi in lista, 6 portavano la
+data del giorno prima. Non erano un errore di calcolo — erano candidati che le
+scansioni successive **non avevano più toccato** (la pool si ricostruisce a
+ogni giro, e le fonti non restituiscono sempre tutti: quel giorno 3.046 su
+3.913). Il turno mostrava l'ultimo verdetto salvato senza mai chiedersi quanti
+giri fossero passati da allora, quindi quei casi sarebbero rimasti lì **per
+sempre**, con la stessa faccia di uno appena calcolato.
+
+Il contatore che esisteva già (`_CARRY_MAX_RUNS`) non poteva accorgersene:
+conta i giri *di quel candidato*, e un candidato che nessuno rivaluta di giri
+non ne fa più nessuno.
+
+La correzione è **in lettura**, non in scrittura: lo storico non si tocca (è il
+registro dei fatti, non si riscrive per far quadrare una vista). Il turno
+semplicemente non propone più un caso che `scadenza_turno_scansioni` scansioni
+di fila hanno saltato — 2 di default: una persa si perdona, due vogliono dire
+che quel candidato non è più sotto osservazione.
+
+L'unità di misura è la **scansione, non il giorno**, e non è un dettaglio: i
+run avvengono a intervalli irregolari, quindi contando i giorni due scansioni
+nello stesso pomeriggio non farebbero scadere niente e una settimana di radar
+fermo svuoterebbe il turno tutto in un colpo appena riparte. Le scansioni
+avvenute non vanno tracciate da nessuna parte: sono già scritte nei fatti,
+perché ogni giro scrive lo stesso `run_at` su tutte le voci che produce.
+
+E i casi scaduti **non spariscono in silenzio**: `/api/radar/turno` li conta in
+`scaduti_count` e la lista lo dice in chiaro sotto ai numeri.
+
 ---
 
 ### Limiti misurati dal vivo (non stimati)
@@ -570,18 +600,39 @@ Esce con codice ≠ 0 solo sul terzo.
 
 **Da telefono** (il caso normale): apri **[shell.cloud.google.com](https://shell.cloud.google.com)**
 dal browser — Cloud Shell ha già `gcloud` autenticato, e la home resta salvata
-fra una sessione e l'altra. La prima volta:
+fra una sessione e l'altra. La prima volta, quattro comandi:
 
 ```bash
 git clone https://github.com/mtornani/OuroborosCouncil.git
-cd OuroborosCouncil && ./deploy.sh
+cd OuroborosCouncil
+pip3 install --user -r requirements.txt   # una volta sola: serve allo smoke test
+export RADAR_GUEST_KEY=la_tua_chiave_ospite   # per la verifica finale (sola lettura)
+./deploy.sh
 ```
 
-Le volte dopo bastano tre parole:
+Le volte dopo:
 
 ```bash
 cd OuroborosCouncil && git pull && ./deploy.sh
 ```
+
+Tre trappole, tutte già viste dal vivo:
+
+- **La home di Cloud Shell è persistente**, quindi il clone può essere vecchio
+  di mesi e `git pull` da solo non basta se nel frattempo sei finito su un altro
+  branch. Se hai il dubbio, il colpo sicuro è
+  `git fetch origin && git checkout main && git reset --hard origin/main`.
+  *(È successo davvero: deploy riuscitissimo di una versione di due mesi prima —
+  se ne è accorto solo il controllo di versione del punto 3.)*
+- **`export RADAR_GUEST_KEY` va rifatto a ogni sessione** di Cloud Shell (le
+  variabili d'ambiente non sopravvivono, il clone sì). Senza, il deploy funziona
+  lo stesso ma `deploy.sh` non riesce a verificarlo: il gate d'accesso protegge
+  anche `/api/version`, e lo script te lo dice invece di fingere un guasto.
+- **Le librerie del progetto non ci sono** in Cloud Shell finché non le
+  installi: senza, lo smoke test morirebbe con un `ModuleNotFoundError` che
+  sembra un impianto rotto. `deploy.sh` controlla prima di partire e ti dà il
+  comando esatto — "manca una libreria" e "il codice è rotto" sono due cose
+  diverse.
 
 `deploy.sh` fa tre cose e si ferma alla prima che va male: lancia lo smoke test
 (non si deploya un impianto rotto), deploya con i flag che non sono opzionali,
@@ -700,7 +751,7 @@ gcloud scheduler jobs create http radar-scan-mattina \
 | `POST` | `/api/radar/refresh` | Avvia una scansione in background; con `{"wait":true}` risponde a scansione finita (per Cloud Scheduler) |
 | `GET` | `/api/radar/refresh/status` | Polling dello stato: include `progress` (es. "dossier AI 3/8") e `feed_ready` (punteggi già salvati e consultabili mentre i dossier arrivano) |
 | `GET` | `/api/radar/feed` | Archivio (cap ai primi 300 per signal; `?limit=all` per tutti) |
-| `GET` | `/api/radar/turno` | Solo i casi con un cambiamento/finestra aperta |
+| `GET` | `/api/radar/turno` | Solo i casi con un cambiamento/finestra aperta, esclusi quelli che le ultime scansioni non hanno più toccato (contati in `scaduti_count`) |
 | `GET` | `/api/radar/mappa` | Posizione sulla curva di tutti i profilati |
 | `GET` | `/api/radar/processo` | Il tabellone (precisione/richiamo) |
 | `POST` | `/api/radar/watchlist` | Segna/togli un giocatore |

@@ -460,6 +460,7 @@
             verify_btn: (n) => `CHECK YOURS (${n})`,
             verify_headline: (n) => `Nothing new in the shift. ${n} name${n === 1 ? "" : "s"} waiting for your eye.`,
             verify_note: (n) => `${n} player${n === 1 ? " is" : "s are"} in your check pile — that's the job SENTINEL cannot do.`,
+            stale_note: (n, d) => `${n} case${n === 1 ? " was" : "s were"} dropped from the list: the last ${d} scan${d === 1 ? "" : "s"} didn't touch ${n === 1 ? "it" : "them"} again. Old verdict, not fresh news.`,
             note_ph: "one line, if you want — what you saw",
             end_empty: "No calls this shift.",
             end_look: "to check",
@@ -527,6 +528,7 @@
             verify_btn: (n) => `VERIFICA I TUOI (${n})`,
             verify_headline: (n) => `Niente di nuovo nel turno. ${n} nom${n === 1 ? "e aspetta" : "i aspettano"} il tuo occhio.`,
             verify_note: (n) => `${n} giocator${n === 1 ? "e è" : "i sono"} nella coda da verificare — quello SENTINEL non può farlo.`,
+            stale_note: (n, d) => `${n} cas${n === 1 ? "o è uscito" : "i sono usciti"} dalla lista: le ultime ${d} scansioni non ${n === 1 ? "l'hanno" : "li hanno"} più toccat${n === 1 ? "o" : "i"}. Verdetto vecchio, non una notizia di oggi.`,
             note_ph: "una riga, se vuoi — cosa hai visto",
             end_empty: "Nessuna chiamata in questo turno.",
             end_look: "da verificare",
@@ -599,7 +601,7 @@
             return TIER_LABELS[c.tier] || c.tier || "N/D";
         }
 
-        const state = { config: null, cases: [], da_verificare: [], skipped: 0, total: 0,
+        const state = { config: null, cases: [], da_verificare: [], skipped: 0, scaduti: 0, scadenza: null, total: 0,
                         scanning: false, pollGen: 0, mode: "turno", queue: [], sessionLog: [] };
         let idx = 0;
         let startTime = null;
@@ -655,6 +657,8 @@
                     state.cases = data.cases;
                     state.da_verificare = data.da_verificare || [];
                     state.skipped = data.skipped_count;
+                    state.scaduti = data.scaduti_count || 0;
+                    state.scadenza = data.scadenza_scansioni;
                     state.total = data.total_count;
                     state.validation = data.curve_validation;
                     document.getElementById("statusLine").textContent = "";
@@ -715,7 +719,8 @@
                     : `${state.skipped.toLocaleString("it-IT")} candidati sono gia' in archivio e non richiedono attenzione ora.`)
                 : "";
             const eyeNote = (!state.scanning && pending > 0) ? I18N.verify_note(pending) : "";
-            document.getElementById("skipNote").textContent = [eyeNote, archiveNote].filter(Boolean).join(" ");
+            const staleNote = (!state.scanning && state.scaduti > 0) ? I18N.stale_note(state.scaduti, state.scadenza) : "";
+            document.getElementById("skipNote").textContent = [eyeNote, archiveNote, staleNote].filter(Boolean).join(" ");
             document.getElementById("eyebrowDate").textContent = IS_EN
                 ? `shift of ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long" })}`
                 : `turno del ${new Date().toLocaleDateString("it-IT", { day: "numeric", month: "long" })}`;
