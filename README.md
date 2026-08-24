@@ -600,18 +600,39 @@ Esce con codice ≠ 0 solo sul terzo.
 
 **Da telefono** (il caso normale): apri **[shell.cloud.google.com](https://shell.cloud.google.com)**
 dal browser — Cloud Shell ha già `gcloud` autenticato, e la home resta salvata
-fra una sessione e l'altra. La prima volta:
+fra una sessione e l'altra. La prima volta, quattro comandi:
 
 ```bash
 git clone https://github.com/mtornani/OuroborosCouncil.git
-cd OuroborosCouncil && ./deploy.sh
+cd OuroborosCouncil
+pip3 install --user -r requirements.txt   # una volta sola: serve allo smoke test
+export RADAR_GUEST_KEY=la_tua_chiave_ospite   # per la verifica finale (sola lettura)
+./deploy.sh
 ```
 
-Le volte dopo bastano tre parole:
+Le volte dopo:
 
 ```bash
 cd OuroborosCouncil && git pull && ./deploy.sh
 ```
+
+Tre trappole, tutte già viste dal vivo:
+
+- **La home di Cloud Shell è persistente**, quindi il clone può essere vecchio
+  di mesi e `git pull` da solo non basta se nel frattempo sei finito su un altro
+  branch. Se hai il dubbio, il colpo sicuro è
+  `git fetch origin && git checkout main && git reset --hard origin/main`.
+  *(È successo davvero: deploy riuscitissimo di una versione di due mesi prima —
+  se ne è accorto solo il controllo di versione del punto 3.)*
+- **`export RADAR_GUEST_KEY` va rifatto a ogni sessione** di Cloud Shell (le
+  variabili d'ambiente non sopravvivono, il clone sì). Senza, il deploy funziona
+  lo stesso ma `deploy.sh` non riesce a verificarlo: il gate d'accesso protegge
+  anche `/api/version`, e lo script te lo dice invece di fingere un guasto.
+- **Le librerie del progetto non ci sono** in Cloud Shell finché non le
+  installi: senza, lo smoke test morirebbe con un `ModuleNotFoundError` che
+  sembra un impianto rotto. `deploy.sh` controlla prima di partire e ti dà il
+  comando esatto — "manca una libreria" e "il codice è rotto" sono due cose
+  diverse.
 
 `deploy.sh` fa tre cose e si ferma alla prima che va male: lancia lo smoke test
 (non si deploya un impianto rotto), deploya con i flag che non sono opzionali,
