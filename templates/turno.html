@@ -1069,15 +1069,39 @@
             animateCurveDot();
         }
 
-        function startSession(mode) {
+        function startSession(mode, startIdx = 0) {
             state.mode = mode === "verifica" ? "verifica" : "turno";
             state.queue = state.mode === "verifica" ? state.da_verificare.slice() : state.cases.slice();
             state.sessionLog = [];
             if (state.queue.length === 0) return;
             startTime = Date.now();
-            idx = 0;
+            idx = Math.min(Math.max(0, startIdx), state.queue.length - 1);
             showScreen(screenCase);
             renderCase();
+        }
+
+        // Cambio lingua = ricarico la pagina (LANG viene dal server, ?lang= in
+        // querystring) - fin qui e' voluto. Il difetto era che ricaricare
+        // riportava SEMPRE alla home, buttando via a quale caso del turno
+        // eri arrivato: le decisioni gia' prese restano (salvate subito su
+        // /api/radar/decisione), solo la posizione nella scansione si perdeva.
+        // RESUME_KEY salva {modo, indice} un attimo prima di lasciare la
+        // pagina (langToggle qui sotto) e li consuma una volta sola al boot
+        // successivo - un tentativo solo, mai una posizione indovinata se il
+        // dato e' assente o non torna piu' coi conti (turno cambiato nel
+        // frattempo).
+        const RESUME_KEY = "sentinel_turno_resume";
+
+        function resumeCaseIfRequested() {
+            let salvato = null;
+            try {
+                salvato = JSON.parse(sessionStorage.getItem(RESUME_KEY) || "null");
+            } catch (e) { /* dato corrotto: si ignora, non si prova a ripararlo */ }
+            sessionStorage.removeItem(RESUME_KEY); // un solo tentativo, sempre - anche se fallisce
+            if (!salvato || (salvato.mode !== "turno" && salvato.mode !== "verifica")) return;
+            const pool = salvato.mode === "verifica" ? state.da_verificare : state.cases;
+            if (!pool || !pool.length) return; // il turno e' cambiato nel frattempo: home, non si inventa una posizione
+            startSession(salvato.mode, salvato.idx);
         }
 
         function endSession() {
@@ -1347,9 +1371,19 @@
         });
         initTheme();
 
+        document.getElementById("langToggle").addEventListener("click", () => {
+            // salva la posizione SOLO se si e' in mezzo a un caso - dalla home
+            // il cambio lingua deve tornare alla home, non a un turno mai iniziato
+            if (screenCase.style.display !== "none") {
+                try {
+                    sessionStorage.setItem(RESUME_KEY, JSON.stringify({ mode: state.mode, idx }));
+                } catch (e) { /* storage pieno o bloccato: il cambio lingua funziona lo stesso, solo senza ripresa */ }
+            }
+        });
+
         loadConfig();
         checkOngoingScan();
-        loadTurno();
+        loadTurno().then(resumeCaseIfRequested);
     </script>
 </body>
 
