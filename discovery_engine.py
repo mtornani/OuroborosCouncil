@@ -463,8 +463,22 @@ def _precise_dob(row: dict) -> str | None:
     precision = (row.get("dobPrecision") or {}).get("value")
     if precision != str(DAY_PRECISION):
         return None
-    return (row.get("dob") or {}).get("value", "")[:10] or None
+    dob = (row.get("dob") or {}).get("value", "")[:10] or None
+    # Plausibilita': Wikidata ha date sbagliate anche "precise al giorno"
+    # (verificato live: Omar Arellano, Toluca, nato 1987, segnato 2020-06-18
+    # -> "6 anni"). Sotto i MIN_PLAUSIBLE_AGE anni non e' un professionista:
+    # la data si tratta come mancante, mai come un talento precocissimo.
+    if dob:
+        try:
+            nato = datetime.strptime(dob, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except ValueError:
+            return None
+        if (datetime.now(timezone.utc) - nato).days / 365.25 < MIN_PLAUSIBLE_AGE:
+            return None
+    return dob
 
+
+MIN_PLAUSIBLE_AGE = 13
 
 _TRAILING_PAREN_RE = re.compile(r"\s*\([^()]*\)\s*$")
 
