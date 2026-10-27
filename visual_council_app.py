@@ -214,6 +214,51 @@ def processo_page():
     return render_template("processo.html")
 
 
+# Nomi "parlanti" che la gente digita a mano: invece di un 404, la pagina giusta.
+_ALIASES = {"/archivio": "/radar", "/avvocato": "/processo", "/tabellone": "/processo"}
+for _src, _dst in _ALIASES.items():
+    app.add_url_rule(_src, f"alias_{_src[1:]}", (lambda d: lambda: redirect(d, code=302))(_dst))
+
+
+# ============================================================
+# CACHE BREVE delle risposte pesanti (/api/radar/processo e /feed)
+# ============================================================
+# Verificato dal vivo: /api/radar/processo impiega ~20s e /feed ~6s (~1MB)
+# perche' ricalcolano tutto a ogni apertura. Con 1 worker / 4 thread bastano
+# poche aperture in parallelo per accodarle e su mobile la pagina resta su
+# "carico..." o il feed va in errore silenzioso (lista vuota). I dati cambiano
+# solo con una scansione notturna o una scrittura: una cache in memoria di
+# qualche minuto, svuotata a ogni POST riuscito, basta e avanza.
+_CACHE_TTL = int(os.getenv("RADAR_CACHE_TTL", "300"))
+_cache = {}
+_cache_lock = threading.Lock()
+
+
+def _cached(key, compute):
+    now = time.time()
+    with _cache_lock:
+        hit = _cache.get(key)
+        if hit and now - hit[0] < _CACHE_TTL:
+            return hit[1]
+    value = compute()
+    if value.get("status") == "success":  # gli errori non si memorizzano
+        with _cache_lock:
+            _cache[key] = (now, value)
+    return value
+
+
+def _cache_clear():
+    with _cache_lock:
+        _cache.clear()
+
+
+@app.after_request
+def _invalidate_on_write(resp):
+    if request.method == "POST" and resp.status_code < 400:
+        _cache_clear()
+    return resp
+
+
 @app.route("/sw.js")
 def service_worker():
     # servito dalla ROOT (non da /static) apposta: un service worker controlla
@@ -374,6 +419,11 @@ def radar_refresh_status():
 
 @app.route("/api/radar/feed")
 def radar_feed():
+    limit_arg = (request.args.get("limit") or "").strip()
+    return jsonify(_cached(("feed", limit_arg), lambda: _feed_payload(limit_arg)))
+
+
+def _feed_payload(limit_arg):
     try:
         feed = discovery_engine.latest_feed()
         cfg = discovery_engine.load_config()
@@ -428,7 +478,6 @@ def radar_feed():
         # resta svantaggiato dal taglio) e si tengono i primi N - il resto e'
         # coda lunga (spesso "dati parziali" senza dossier) non azionabile.
         # ?limit=all per chi vuole tutto (uso da desktop, non da campo).
-        limit_arg = (request.args.get("limit") or "").strip()
         results.sort(key=lambda r: r["signal_score"] if r["signal_score"] is not None else -1, reverse=True)
         if limit_arg != "all":
             try:
@@ -436,14 +485,14 @@ def radar_feed():
             except ValueError:
                 limit = 300
             results = results[:max(1, limit)]
-        return jsonify({
+        return {
             "status": "success",
             "results": results,
             "total_count": total,
             "shown_count": len(results),
-        })
+        }
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)})
+        return {"status": "error", "message": str(e)}
 
 
 @app.route("/api/radar/turno")
@@ -587,8 +636,12 @@ def radar_processo():
     rilevatore (precisione e richiamo, fallimenti compresi) - vedi
     discovery_engine.track_record_summary. Le obiezioni sono contenuto
     statico nel template, non dati a runtime."""
+    return jsonify(_cached(("processo",), _processo_payload))
+
+
+def _processo_payload():
     try:
-        return jsonify({
+        return ({
             "status": "success",
             **discovery_engine.track_record_summary(),
             # Layer F sotto processo insieme al resto: un layer di validazione
@@ -606,7 +659,7 @@ def radar_processo():
             "precisione_turno": discovery_engine.precisione_turno(),
         })
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)})
+        return {"status": "error", "message": str(e)}
 
 
 @app.route("/api/version")

@@ -1104,13 +1104,28 @@
 
         async function loadFeed() {
             try {
-                const res = await fetch("/api/radar/feed");
+                const ctrl = new AbortController();
+                const t = setTimeout(() => ctrl.abort(), 60000);
+                const res = await fetch("/api/radar/feed", { signal: ctrl.signal });
+                clearTimeout(t);
                 const data = await res.json();
                 if (data.status === "success") {
                     state.results = data.results;
                     state.totalCount = data.total_count || data.results.length;
+                    // "mai aggiornato" era lo stato in memoria del server (si
+                    // azzera a ogni riavvio del container), non dei dati: la
+                    // data vera e' l'ultima run_at salvata nei candidati.
+                    const last = data.results.map(r => r.run_at || "").sort().pop();
+                    if (last) document.getElementById("last-run").textContent =
+                        (IS_EN ? "data updated: " : "dati aggiornati: ") + new Date(last).toLocaleString();
+                } else {
+                    document.getElementById("last-run").textContent = (IS_EN ? "error: " : "errore: ") + (data.message || "?");
                 }
-            } catch (e) { /* nessun dato ancora, va bene: empty state */ }
+            } catch (e) {
+                // prima l'errore veniva ingoiato e la lista restava vuota in silenzio
+                document.getElementById("last-run").textContent =
+                    (IS_EN ? "archive not loaded (network/timeout): reload the page" : "archivio non caricato (rete/timeout): ricarica la pagina");
+            }
             render();
         }
 
