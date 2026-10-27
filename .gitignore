@@ -11,3 +11,4 @@ curve_validation.json
 radar_observations.json
 human_decisions.json
 streak_estratti.json
+.claude/settings.local.json
