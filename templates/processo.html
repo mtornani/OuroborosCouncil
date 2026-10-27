@@ -392,10 +392,14 @@
         async function load() {
             let d;
             try {
-                const res = await fetch("/api/radar/processo");
+                // timeout esplicito: mai piu' "carico il tabellone..." per sempre
+                const ctrl = new AbortController();
+                const t = setTimeout(() => ctrl.abort(), 60000);
+                const res = await fetch("/api/radar/processo", { signal: ctrl.signal });
+                clearTimeout(t);
                 d = await res.json();
             } catch (e) {
-                document.getElementById("board").innerHTML = `<div class="loading">${IS_EN ? "network error" : "errore di rete"}: ${escapeHTML(String(e))}</div>`;
+                document.getElementById("board").innerHTML = `<div class="loading">${IS_EN ? "network error" : "errore di rete"}: ${escapeHTML(String(e))} — <a href="#" onclick="location.reload();return false">${IS_EN ? "retry" : "riprova"}</a></div>`;
                 return;
             }
             if (d.status !== "success") {
