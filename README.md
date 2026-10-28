@@ -825,3 +825,5 @@ In produzione su Cloud Run, in uso reale da mobile. Il grosso delle capacità
 con l'accumulo delle scansioni — servono ≥3 controlli per collocare un giocatore
 sul percorso. Roadmap aperta: PWA (manifest/service worker), maggior peso ai
 "segnali costosi" (presenze reali, convocazioni) rispetto al buzz falsificabile.
+
+<!-- build: a8c5e037 -->
